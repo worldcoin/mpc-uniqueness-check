@@ -1,5 +1,5 @@
 [package]
-name = "service-rs"
+name = "mpc"
 version = "0.1.0"
 edition = "2021"
 
@@ -20,6 +20,7 @@ tokio = { version = "1.35.1", features = ["macros"] }
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 metrics = "0.21.1"
+serde = { version = "1.0.195", features = ["derive"] }
 
 [[bin]]
 name = "mpc-node"

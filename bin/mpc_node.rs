@@ -1,4 +1,7 @@
+use std::path::PathBuf;
+
 use clap::Parser;
+use mpc::config::Config;
 use telemetry_batteries::metrics::batteries::StatsdBattery;
 use telemetry_batteries::tracing::batteries::DatadogBattery;
 use tracing_subscriber::layer::SubscriberExt;
@@ -17,6 +20,9 @@ pub const METRICS_PREFIX: &str = "mpc-node";
 pub struct Args {
     #[clap(short, long, env)]
     local: bool,
+
+    #[clap(short, long, env)]
+    config: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -44,10 +50,22 @@ async fn main() -> eyre::Result<()> {
         Some(METRICS_PREFIX),
     )?;
 
+    let mut settings = config::Config::builder();
+
+    if let Some(path) = args.config {
+        settings = settings.add_source(config::File::from(path).required(true));
+    }
+
+    let settings = settings
+        .add_source(config::Environment::with_prefix("MPC").separator("__"))
+        .build()?;
+
+    let config = settings.try_deserialize::<Config>()?;
+
     let mut n = 0;
 
     loop {
-        foo(n).await;
+        foo(&config, n).await;
 
         n += 1;
 
@@ -55,9 +73,9 @@ async fn main() -> eyre::Result<()> {
     }
 }
 
-#[tracing::instrument]
-async fn foo(n: usize) {
-    tracing::info!(n, "Foo");
+#[tracing::instrument(skip(config))]
+async fn foo(config: &Config, n: usize) {
+    tracing::info!(n, test = config.test.test, "Foo");
 
     metrics::gauge!("foo", n as f64);
 }

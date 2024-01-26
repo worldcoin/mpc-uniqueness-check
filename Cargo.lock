@@ -1254,6 +1254,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "mpc"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "config",
+ "criterion",
+ "dotenv",
+ "eyre",
+ "metrics",
+ "serde",
+ "sqlx",
+ "telemetry-batteries",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "native-tls"
 version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2058,23 +2076,6 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
-]
-
-[[package]]
-name = "service-rs"
-version = "0.1.0"
-dependencies = [
- "clap",
- "config",
- "criterion",
- "dotenv",
- "eyre",
- "metrics",
- "sqlx",
- "telemetry-batteries",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
