@@ -16,7 +16,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                rust: ["stable"]
+                rust: ["nightly-2024-01-26"]
                 flags: [""]
         steps:
             - uses: actions/checkout@v3
