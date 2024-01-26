@@ -1,2 +1,1 @@
-# mpc-uniqueness-check
-MPC Uniqueness Check
+# service-template-rs
