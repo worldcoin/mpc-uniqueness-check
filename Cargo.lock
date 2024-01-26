@@ -2441,7 +2441,7 @@ dependencies = [
 [[package]]
 name = "telemetry-batteries"
 version = "0.1.0"
-source = "git+https://github.com/worldcoin/telemetry-batteries.git#c6816624415ae194da5203a5161621a9e10ad3b0"
+source = "git+https://github.com/worldcoin/telemetry-batteries.git?rev=c6816624415ae194da5203a5161621a9e10ad3b0#c6816624415ae194da5203a5161621a9e10ad3b0"
 dependencies = [
  "chrono",
  "dirs",

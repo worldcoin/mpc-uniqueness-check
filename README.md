@@ -1,1 +1,1 @@
-# service-template-rs
+# MPC Service

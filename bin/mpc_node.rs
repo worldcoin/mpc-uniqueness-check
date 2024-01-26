@@ -1,5 +1,6 @@
 use clap::Parser;
-use telemetry_batteries::{metrics::batteries::StatsdBattery, tracing::batteries::DatadogBattery};
+use telemetry_batteries::metrics::batteries::StatsdBattery;
+use telemetry_batteries::tracing::batteries::DatadogBattery;
 
 pub const SERVICE_NAME: &str = "service";
 
@@ -10,6 +11,7 @@ pub const METRICS_BUFFER_SIZE: usize = 1024;
 pub const METRICS_PREFIX: &str = "service";
 
 #[derive(Parser)]
+#[clap(version)]
 pub struct Args {}
 
 #[tokio::main]
