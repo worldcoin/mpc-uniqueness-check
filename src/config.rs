@@ -18,7 +18,6 @@ impl Default for TestConfig {
             test: default::test(),
         }
     }
-
 }
 
 pub mod default {
