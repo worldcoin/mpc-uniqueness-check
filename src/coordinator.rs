@@ -64,29 +64,24 @@ impl Coordinator {
         loop {
             if let Some(messages) = self.dequeue_shares().await? {
                 for message in messages {
-                    let payload: Shares = serde_json::from_str(
+                    let template: Template = serde_json::from_str(
                         //TODO: handle this error
                         &message.body.expect("No body in message"),
                     )?;
 
-                    let shares = payload.shares;
-                    let template = payload.template;
-
                     // Write each share to the corresponding participant
-                    future::try_join_all(
-                        self.participants.iter_mut().zip(shares).map(
-                            |(stream, share)| async move {
-                                // Send query
-                                stream
-                                    .write_all(bytemuck::bytes_of(&share))
-                                    .await
-                            },
-                        ),
-                    )
+                    future::try_join_all(self.participants.iter_mut().map(
+                        |stream| async move {
+                            // Send query
+                            stream
+                                .write_all(bytemuck::bytes_of(&template))
+                                .await
+                        },
+                    ))
                     .await?;
 
                     // let (sender, mut receiver) = mpsc::channel(4000);
-                    // let denomoninator_worker =
+                    // let denominator_worker =
                     //     tokio::task::spawn_blocking(move || {
                     //         let masks: &[Bits] = bytemuck::cast_slice(&mmap_db);
                     //         let engine = MasksEngine::new(&template.mask);
@@ -134,10 +129,4 @@ impl Coordinator {
 
         Ok(())
     }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct Shares {
-    template: Template,
-    shares: Vec<EncodedBits>,
 }
