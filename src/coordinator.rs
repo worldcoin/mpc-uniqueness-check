@@ -6,12 +6,13 @@ use std::sync::Arc;
 use aws_sdk_sqs::operation::receive_message::builders::ReceiveMessageFluentBuilder;
 use aws_sdk_sqs::operation::send_message::builders::SendMessageFluentBuilder;
 use bytemuck::bytes_of;
-use eyre::anyhow;
+use eyre::{anyhow, Error};
 use futures::future;
 use memmap::{Mmap, MmapOptions};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
+use tokio::sync::mpsc::Receiver;
 use tokio::sync::{self, mpsc};
 use tokio::task::JoinHandle;
 
@@ -73,14 +74,22 @@ impl Coordinator {
 
                     let mut handles = vec![];
 
-                    let (denominator_handle, denominator_rx) = self
+                    let (denominator_rx, denominator_handle) = self
                         .compute_denominators(mmap_db.clone(), template.mask);
 
                     handles.push(denominator_handle);
 
-                    //TODO: handle participant shares
+                    //TODO: process_participant shares / collect batches of shares and denoms
+                    let (processed_shares_rx, process_shares_handle) =
+                        self.process_participant_shares(denominator_rx);
 
-                    //TODO:
+                    handles.push(process_shares_handle);
+
+                    //TODO: process results Handle each that comes through and calc the min distance and min index
+
+                    for handle in handles {
+                        handle.await??;
+                    }
                 }
             }
 
@@ -107,10 +116,7 @@ impl Coordinator {
         &self,
         mmap_db: Arc<Mmap>,
         mask: Bits,
-    ) -> (
-        tokio::sync::mpsc::Receiver<Vec<[u16; 31]>>,
-        JoinHandle<eyre::Result<()>>,
-    ) {
+    ) -> (Receiver<Vec<[u16; 31]>>, JoinHandle<eyre::Result<()>>) {
         let (sender, denom_receiver) = tokio::sync::mpsc::channel(4);
         let denominator_handle = tokio::task::spawn_blocking(move || {
             let masks: &[Bits] = bytemuck::cast_slice(&mmap_db);
@@ -126,7 +132,111 @@ impl Coordinator {
         (denom_receiver, denominator_handle)
     }
 
-    pub fn collect_participant_shares(&self) -> JoinHandle<eyre::Result<()>> {
+    pub fn process_participant_shares(
+        &mut self,
+        denominator_rx: Receiver<Vec<[u16; 31]>>,
+    ) -> (
+        Receiver<(Vec<[u16; 31]>, Vec<Vec<[u16; 31]>>)>,
+        JoinHandle<eyre::Result<()>>,
+    ) {
+        // Collect batches of shares
+        let (processed_shares_tx, mut processed_shares_rx) = mpsc::channel(4);
+
+        let streams_future =
+            future::try_join_all(self.participants.iter_mut().enumerate().map(
+                |(i, stream)| async move {
+                    let mut batch = vec![[0_u16; 31]; BATCH_SIZE];
+                    let mut buffer: &mut [u8] =
+                        bytemuck::cast_slice_mut(batch.as_mut_slice());
+
+                    // We can not use read_exact here as we might get EOF before the
+                    // buffer is full But we should
+                    // still try to fill the entire buffer.
+                    // If nothing else, this guarantees that we read batches at a
+                    // [u16;31] boundary.
+                    while !buffer.is_empty() {
+                        let bytes_read = stream.read_buf(&mut buffer).await?;
+                        if bytes_read == 0 {
+                            let n_incomplete = (buffer.len()
+                                + std::mem::size_of::<[u16; 31]>() //TODO: make this a const 
+                                - 1)
+                                / std::mem::size_of::<[u16; 31]>(); //TODO: make this a const
+                            batch.truncate(batch.len() - n_incomplete);
+                            break;
+                        }
+                    }
+
+                    Ok::<_, eyre::Report>(batch)
+                },
+            ));
+
+        let batch_worker = tokio::task::spawn(async move {
+            loop {
+                // Collect futures of denominator and share batches
+                let streams_future = future::try_join_all(
+                    self.participants.iter_mut().enumerate().map(
+                        |(i, stream)| async move {
+                            let mut batch = vec![[0_u16; 31]; BATCH_SIZE];
+                            let mut buffer: &mut [u8] =
+                                bytemuck::cast_slice_mut(batch.as_mut_slice());
+
+                            // We can not use read_exact here as we might get EOF before the
+                            // buffer is full But we should
+                            // still try to fill the entire buffer.
+                            // If nothing else, this guarantees that we read batches at a
+                            // [u16;31] boundary.
+                            while !buffer.is_empty() {
+                                let bytes_read =
+                                    stream.read_buf(&mut buffer).await?;
+                                if bytes_read == 0 {
+                                    let n_incomplete = (buffer.len()
+                                        + std::mem::size_of::<[u16; 31]>() //TODO: make this a const 
+                                        - 1)
+                                        / std::mem::size_of::<[u16; 31]>(); //TODO: make this a const
+                                    batch.truncate(batch.len() - n_incomplete);
+                                    break;
+                                }
+                            }
+
+                            Ok::<_, eyre::Report>(batch)
+                        },
+                    ),
+                );
+
+                // Wait on all parts concurrently
+                let (denom, shares) =
+                    tokio::join!(denominator_rx.recv(), streams_future);
+
+                let mut denom = denom.unwrap_or_default();
+                let mut shares = shares?;
+
+                // Find the shortest prefix
+                let batch_size = shares
+                    .iter()
+                    .map(Vec::len)
+                    .fold(denom.len(), core::cmp::min);
+
+                denom.truncate(batch_size);
+                shares
+                    .iter_mut()
+                    .for_each(|batch| batch.truncate(batch_size));
+
+                // Send batches
+                processed_shares_tx.send((denom, shares)).await?;
+                if batch_size == 0 {
+                    break;
+                }
+            }
+            Ok(())
+        });
+
+        (processed_shares_rx, batch_worker)
+    }
+
+    pub async fn process_results(
+        &self,
+        processed_shares_rx: Receiver<(Vec<[u16; 31]>, Vec<Vec<[u16; 31]>>)>,
+    ) -> eyre::Result<()> {
         todo!()
     }
 
