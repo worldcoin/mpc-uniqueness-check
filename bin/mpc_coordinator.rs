@@ -1,3 +1,4 @@
+use std::env;
 use std::path::PathBuf;
 
 use aws_config::BehaviorVersion;
@@ -62,10 +63,14 @@ async fn main() -> eyre::Result<()> {
 
     let config = settings.try_deserialize::<CoordinatorConfig>()?;
 
+    //TODO: update to use config instead of env vars
+    let query_queue_url = env::var("AWS_QUERY_QUEUE")?;
+    let distance_results_queue_url = env::var("AWS_DISTANCE_RESULTS_QUEUE")?;
+
     let coordinator = Coordinator::new(
         vec![],
-        "template_queue_url",
-        "distance_queue_url",
+        &query_queue_url,
+        &distance_results_queue_url,
         0.375,
         1000,
     )
