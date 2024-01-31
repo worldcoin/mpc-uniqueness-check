@@ -1,25 +1,27 @@
 use std::path::PathBuf;
 
+use aws_config::BehaviorVersion;
 use clap::Parser;
-use mpc::config::Config;
+use mpc::config::CoordinatorConfig;
+use mpc::coordinator::Coordinator;
 use telemetry_batteries::metrics::batteries::StatsdBattery;
 use telemetry_batteries::tracing::batteries::DatadogBattery;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-pub const SERVICE_NAME: &str = "mpc-node";
+pub const SERVICE_NAME: &str = "mpc-coordinator";
 
 pub const METRICS_HOST: &str = "localhost";
 pub const METRICS_PORT: u16 = 8125;
 pub const METRICS_QUEUE_SIZE: usize = 5000;
 pub const METRICS_BUFFER_SIZE: usize = 1024;
-pub const METRICS_PREFIX: &str = "mpc-node";
+pub const METRICS_PREFIX: &str = "mpc-coordinator";
 
 #[derive(Parser)]
 #[clap(version)]
 pub struct Args {
     #[clap(short, long, env)]
-    local: bool,
+    telemetry: bool,
 
     #[clap(short, long, env)]
     config: Option<PathBuf>,
@@ -31,24 +33,22 @@ async fn main() -> eyre::Result<()> {
 
     let args = Args::parse();
 
-    // Initialize tracing exporter
-    if args.local {
+    if args.telemetry {
+        DatadogBattery::init(None, SERVICE_NAME, None, true);
+
+        StatsdBattery::init(
+            METRICS_HOST,
+            METRICS_PORT,
+            METRICS_QUEUE_SIZE,
+            METRICS_BUFFER_SIZE,
+            Some(METRICS_PREFIX),
+        )?;
+    } else {
         tracing_subscriber::registry()
             .with(tracing_subscriber::fmt::layer().pretty().compact())
             .with(tracing_subscriber::EnvFilter::from_default_env())
             .init();
-    } else {
-        DatadogBattery::init(None, SERVICE_NAME, None, true);
     }
-
-    // Initalize metrics exporter
-    StatsdBattery::init(
-        METRICS_HOST,
-        METRICS_PORT,
-        METRICS_QUEUE_SIZE,
-        METRICS_BUFFER_SIZE,
-        Some(METRICS_PREFIX),
-    )?;
 
     let mut settings = config::Config::builder();
 
@@ -60,22 +60,13 @@ async fn main() -> eyre::Result<()> {
         .add_source(config::Environment::with_prefix("MPC").separator("__"))
         .build()?;
 
-    let config = settings.try_deserialize::<Config>()?;
+    let config = settings.try_deserialize::<CoordinatorConfig>()?;
 
-    let mut n = 0;
+    let coordinator =
+        Coordinator::new(vec![], "template_queue_url", "distance_queue_url")
+            .await?;
 
-    loop {
-        foo(&config, n).await;
+    coordinator.spawn().await?;
 
-        n += 1;
-
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-    }
-}
-
-#[tracing::instrument(skip(config))]
-async fn foo(config: &Config, n: usize) {
-    tracing::info!(n, test = config.test.test, "Foo");
-
-    metrics::gauge!("foo", n as f64);
+    Ok(())
 }
