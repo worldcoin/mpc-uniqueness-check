@@ -62,7 +62,7 @@ impl Coordinator {
 
     //TODO: update error handling
     pub async fn spawn(mut self) -> eyre::Result<()> {
-        let mmap_db: Arc<Mmap> = Arc::new(self.initialize_mmap_db()?);
+        let masks: Arc<Vec<Bits>> = Arc::new(self.initialize_masks());
 
         loop {
             if let Some(messages) = self.dequeue_queries().await? {
@@ -76,8 +76,8 @@ impl Coordinator {
 
                     let mut handles = vec![];
 
-                    let (denominator_rx, denominator_handle) = self
-                        .compute_denominators(mmap_db.clone(), template.mask);
+                    let (denominator_rx, denominator_handle) =
+                        self.compute_denominators(masks.clone(), template.mask);
 
                     handles.push(denominator_handle);
 
@@ -121,12 +121,12 @@ impl Coordinator {
 
     pub fn compute_denominators(
         &self,
-        mmap_db: Arc<Mmap>,
+        masks: Arc<Vec<Bits>>,
         mask: Bits,
     ) -> (Receiver<Vec<[u16; 31]>>, JoinHandle<eyre::Result<()>>) {
         let (sender, denom_receiver) = tokio::sync::mpsc::channel(4);
         let denominator_handle = tokio::task::spawn_blocking(move || {
-            let masks: &[Bits] = bytemuck::cast_slice(&mmap_db);
+            let masks: &[Bits] = bytemuck::cast_slice(&masks);
             let engine = MasksEngine::new(&mask);
             for chunk in masks.chunks(BATCH_SIZE) {
                 let mut result = vec![[0_u16; 31]; chunk.len()];
@@ -311,17 +311,9 @@ impl Coordinator {
         Ok(distance_results)
     }
 
-    pub fn initialize_mmap_db(&self) -> eyre::Result<Mmap> {
-        //TODO: update this
-        // Try to open the file, or create it if it does not exist
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open("masks")?;
-
-        // Memory-map the file
-        unsafe { Ok(Mmap::map(&file)?) }
+    pub fn initialize_masks(&self) -> Vec<Bits> {
+        //TODO:
+        vec![]
     }
 
     pub async fn dequeue_queries(
