@@ -27,6 +27,7 @@ sqlx = { version = "0.7.3", features = [
     "postgres",
     "chrono",
 ] }
+docker-db = { git = "https://github.com/Dzejkop/docker-db", rev = "ef9a4dfccd9cb9b4babeebfea0ba815e36afbafe" }
 telemetry-batteries = { git = "https://github.com/worldcoin/telemetry-batteries.git", rev = "c6816624415ae194da5203a5161621a9e10ad3b0" }
 tokio = { version = "1.35.1", features = ["macros"] }
 tracing = "0.1.40"
