@@ -1,4 +1,6 @@
+
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use crate::arch;
 pub use crate::bits::Bits;
@@ -49,6 +51,40 @@ impl DistanceEngine {
                     *d = rotation.dot(entry);
                 }
             });
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Distance {
+    pub distance: f64,
+    pub id: usize,
+}
+
+impl Distance {
+    pub fn new(distance: f64, id: usize) -> Self {
+        Self { distance, id }
+    }
+}
+
+//TODO: docs
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DistanceResults {
+    pub latest_id: usize,
+    pub closest_distances: Vec<Distance>,
+    pub matches: Vec<usize>,
+}
+
+impl DistanceResults {
+    pub fn new(
+        latest_id: usize,
+        closest_distances: Vec<Distance>,
+        matches: Vec<usize>,
+    ) -> Self {
+        Self {
+            latest_id,
+            closest_distances,
+            matches,
+        }
     }
 }
 
@@ -175,7 +211,7 @@ mod tests {
             let query = &data[d.left];
             let entry = &data[d.right];
 
-            let encrypted = encode(&entry);
+            let encrypted = encode(entry);
             for (i, v) in encrypted.0.iter().enumerate() {
                 match *v {
                     u16::MAX => assert!(entry.mask[i] && entry.pattern[i]),
@@ -186,7 +222,7 @@ mod tests {
             }
 
             // Encode entry
-            let preprocessed = encode(&query);
+            let preprocessed = encode(query);
             let distances =
                 distances(&preprocessed, &[encrypted]).next().unwrap();
             let denominators =

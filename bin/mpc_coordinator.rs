@@ -1,6 +1,6 @@
+use std::env;
 use std::path::PathBuf;
 
-use aws_config::BehaviorVersion;
 use clap::Parser;
 use mpc::config::CoordinatorConfig;
 use mpc::coordinator::Coordinator;
@@ -60,11 +60,20 @@ async fn main() -> eyre::Result<()> {
         .add_source(config::Environment::with_prefix("MPC").separator("__"))
         .build()?;
 
-    let config = settings.try_deserialize::<CoordinatorConfig>()?;
+    let _config = settings.try_deserialize::<CoordinatorConfig>()?;
 
-    let coordinator =
-        Coordinator::new(vec![], "template_queue_url", "distance_queue_url")
-            .await?;
+    //TODO: update to use config instead of env vars
+    let query_queue_url = env::var("AWS_QUERY_QUEUE")?;
+    let distance_results_queue_url = env::var("AWS_DISTANCE_RESULTS_QUEUE")?;
+
+    let coordinator = Coordinator::new(
+        vec![],
+        &query_queue_url,
+        &distance_results_queue_url,
+        0.375,
+        1000,
+    )
+    .await?;
 
     coordinator.spawn().await?;
 
