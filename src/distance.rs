@@ -1,3 +1,4 @@
+use bytemuck::{Pod, Zeroable};
 use rayon::prelude::*;
 
 use crate::arch;
@@ -49,6 +50,42 @@ impl DistanceEngine {
                     *d = rotation.dot(entry);
                 }
             });
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord)]
+pub struct Distance {
+    pub distance: ordered_float::OrderedFloat<f64>,
+    pub id: usize,
+}
+
+impl Distance {
+    pub fn new(distance: f64, id: usize) -> Self {
+        Self {
+            distance: ordered_float::OrderedFloat(distance),
+            id,
+        }
+    }
+}
+
+//TODO: docs
+pub struct DistanceResults {
+    pub latest_id: usize,
+    pub closest_distances: Vec<Distance>,
+    pub matches: Vec<usize>,
+}
+
+impl DistanceResults {
+    pub fn new(
+        latest_id: usize,
+        closest_distances: Vec<Distance>,
+        matches: Vec<usize>,
+    ) -> Self {
+        Self {
+            latest_id,
+            closest_distances,
+            matches,
+        }
     }
 }
 

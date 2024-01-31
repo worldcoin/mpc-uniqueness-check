@@ -62,9 +62,14 @@ async fn main() -> eyre::Result<()> {
 
     let config = settings.try_deserialize::<CoordinatorConfig>()?;
 
-    let coordinator =
-        Coordinator::new(vec![], "template_queue_url", "distance_queue_url")
-            .await?;
+    let coordinator = Coordinator::new(
+        vec![],
+        "template_queue_url",
+        "distance_queue_url",
+        0.375,
+        1000,
+    )
+    .await?;
 
     coordinator.spawn().await?;
 

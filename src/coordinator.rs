@@ -1,3 +1,4 @@
+use std::collections::BinaryHeap;
 use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::panic::panic_any;
@@ -18,17 +19,19 @@ use tokio::sync::{self, mpsc, Mutex};
 use tokio::task::JoinHandle;
 
 use crate::bits::Bits;
-use crate::distance::{self, MasksEngine};
+use crate::distance::{self, Distance, DistanceResults, MasksEngine};
 use crate::encoded_bits::EncodedBits;
 use crate::template::{self, Template};
 
-const BATCH_SIZE: usize = 20_000;
+const BATCH_SIZE: usize = 20_000; //TODO: probably make this configurable
 
 pub struct Coordinator {
     aws_client: aws_sdk_sqs::Client,
     shares_queue_url: String,
     distances_queue_url: String,
     participants: Arc<Mutex<Vec<BufReader<TcpStream>>>>,
+    hamming_distance_threshold: f64,
+    n_closest_distances: usize,
 }
 
 impl Coordinator {
@@ -36,6 +39,8 @@ impl Coordinator {
         participants: Vec<SocketAddr>,
         shares_queue_url: &str,
         distances_queue_url: &str,
+        hamming_distance_threshold: f64,
+        n_closest_distances: usize,
         //TODO: Update error handling
     ) -> eyre::Result<Self> {
         let aws_config =
@@ -56,6 +61,8 @@ impl Coordinator {
             shares_queue_url: shares_queue_url.to_string(),
             distances_queue_url: distances_queue_url.to_string(),
             participants: Arc::new(Mutex::new(streams)),
+            n_closest_distances,
+            hamming_distance_threshold,
         })
     }
 
@@ -86,11 +93,12 @@ impl Coordinator {
 
                     handles.push(batch_process_shares_handle);
 
-                    let (min_index, min_distance) =
+                    let distance_results =
                         self.process_results(batch_process_shares_rx).await?;
 
-                    self.enqueue_distance_shares().await?;
+                    self.enqueue_distance_results(distance_results).await?;
 
+                    // TODO: Make sure that all workers receive signal to stop.
                     for handle in handles {
                         handle.await??;
                     }
@@ -186,6 +194,7 @@ impl Coordinator {
                 let (denom, shares) =
                     tokio::join!(denominator_rx.recv(), streams_future);
 
+                //TODO: do we want this to be unwrap_or_default()?
                 let mut denom = denom.unwrap_or_default();
                 let mut shares = shares?;
 
@@ -212,17 +221,25 @@ impl Coordinator {
         (processed_shares_rx, batch_worker)
     }
 
+    // Returns the latest id shared across the coordinator and participants, the closest n distances and ids of all matches
     pub async fn process_results(
         &self,
         mut processed_shares_rx: Receiver<(
             Vec<[u16; 31]>,
             Vec<Vec<[u16; 31]>>,
         )>,
-    ) -> eyre::Result<(usize, f64)> {
-        // Keep track of min distance entry.
-        let mut min_distance = f64::INFINITY;
-        let mut min_index = usize::MAX;
-        let mut i = 0;
+    ) -> eyre::Result<DistanceResults> {
+        // Keep track of min distances
+        let mut closest_distances =
+            BinaryHeap::with_capacity(self.n_closest_distances);
+
+        let mut max_closest_distance = 0.0;
+
+        // Collect any ids where the distance is less than the threshold
+        let mut matches = vec![];
+
+        // Keep track of entry ids
+        let mut i: usize = 0;
 
         loop {
             // Fetch batches of denominators and shares
@@ -248,17 +265,37 @@ impl Coordinator {
                                 *n = n.wrapping_add(s);
                             }
                         }
+
                         distance::decode_distance(&numerator, &denominator)
                     })
                     .collect::<Vec<_>>()
             });
             let distances = worker.await?;
 
-            // Aggregate distances
             for (j, distance) in distances.into_iter().enumerate() {
-                if distance < min_distance {
-                    min_index = i + j;
-                    min_distance = distance;
+                let id = j + i;
+
+                if distance > self.hamming_distance_threshold {
+                    if closest_distances.len() < self.n_closest_distances {
+                        closest_distances.push(Distance::new(distance, id));
+
+                        max_closest_distance = closest_distances
+                            .peek()
+                            .expect("There should be at least one element")
+                            .distance
+                            .into_inner();
+                    } else if distance < max_closest_distance {
+                        closest_distances.pop();
+                        closest_distances.push(Distance::new(distance, id));
+
+                        max_closest_distance = closest_distances
+                            .peek()
+                            .expect("There should be at least one element")
+                            .distance
+                            .into_inner();
+                    }
+                } else {
+                    matches.push(id);
                 }
             }
 
@@ -266,7 +303,15 @@ impl Coordinator {
             i += batch_size;
         }
 
-        Ok((min_index, min_distance))
+        let closest_n_distances = closest_distances
+            .into_iter()
+            .map(|d| d)
+            .collect::<Vec<Distance>>();
+
+        let distance_results =
+            DistanceResults::new(i, closest_n_distances, matches);
+
+        Ok(distance_results)
     }
 
     pub fn initialize_mmap_db(&self) -> Mmap {
@@ -288,7 +333,10 @@ impl Coordinator {
     }
 
     //TODO: update error handling
-    pub async fn enqueue_distance_shares(&self) -> eyre::Result<()> {
+    pub async fn enqueue_distance_results(
+        &self,
+        distance_results: DistanceResults,
+    ) -> eyre::Result<()> {
         todo!();
 
         // let distances_queue = self

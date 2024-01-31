@@ -32,6 +32,7 @@ telemetry-batteries = { git = "https://github.com/worldcoin/telemetry-batteries.
 tokio = { version = "1.35.1", features = ["macros"] }
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
+ordered-float = "4.2.0"
 
 [dev-dependencies]
 float_eq = "1.0.1"
