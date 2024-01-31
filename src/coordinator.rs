@@ -140,7 +140,7 @@ impl Coordinator {
         JoinHandle<eyre::Result<()>>,
     ) {
         // Collect batches of shares
-        let (processed_shares_tx, mut processed_shares_rx) = mpsc::channel(4);
+        // let (processed_shares_tx, mut processed_shares_rx) = mpsc::channel(4);
 
         let streams_future =
             future::try_join_all(self.participants.iter_mut().enumerate().map(
@@ -158,7 +158,7 @@ impl Coordinator {
                         let bytes_read = stream.read_buf(&mut buffer).await?;
                         if bytes_read == 0 {
                             let n_incomplete = (buffer.len()
-                                + std::mem::size_of::<[u16; 31]>() //TODO: make this a const 
+                                + std::mem::size_of::<[u16; 31]>() //TODO: make this a const
                                 - 1)
                                 / std::mem::size_of::<[u16; 31]>(); //TODO: make this a const
                             batch.truncate(batch.len() - n_incomplete);
@@ -170,67 +170,69 @@ impl Coordinator {
                 },
             ));
 
-        let batch_worker = tokio::task::spawn(async move {
-            loop {
-                // Collect futures of denominator and share batches
-                let streams_future = future::try_join_all(
-                    self.participants.iter_mut().enumerate().map(
-                        |(i, stream)| async move {
-                            let mut batch = vec![[0_u16; 31]; BATCH_SIZE];
-                            let mut buffer: &mut [u8] =
-                                bytemuck::cast_slice_mut(batch.as_mut_slice());
+        // let batch_worker = tokio::task::spawn(async move {
+        //     loop {
+        //         // Collect futures of denominator and share batches
+        //         let streams_future = future::try_join_all(
+        //             self.participants.iter_mut().enumerate().map(
+        //                 |(i, stream)| async move {
+        //                     let mut batch = vec![[0_u16; 31]; BATCH_SIZE];
+        //                     let mut buffer: &mut [u8] =
+        //                         bytemuck::cast_slice_mut(batch.as_mut_slice());
 
-                            // We can not use read_exact here as we might get EOF before the
-                            // buffer is full But we should
-                            // still try to fill the entire buffer.
-                            // If nothing else, this guarantees that we read batches at a
-                            // [u16;31] boundary.
-                            while !buffer.is_empty() {
-                                let bytes_read =
-                                    stream.read_buf(&mut buffer).await?;
-                                if bytes_read == 0 {
-                                    let n_incomplete = (buffer.len()
-                                        + std::mem::size_of::<[u16; 31]>() //TODO: make this a const 
-                                        - 1)
-                                        / std::mem::size_of::<[u16; 31]>(); //TODO: make this a const
-                                    batch.truncate(batch.len() - n_incomplete);
-                                    break;
-                                }
-                            }
+        //                     // We can not use read_exact here as we might get EOF before the
+        //                     // buffer is full But we should
+        //                     // still try to fill the entire buffer.
+        //                     // If nothing else, this guarantees that we read batches at a
+        //                     // [u16;31] boundary.
+        //                     while !buffer.is_empty() {
+        //                         let bytes_read =
+        //                             stream.read_buf(&mut buffer).await?;
+        //                         if bytes_read == 0 {
+        //                             let n_incomplete = (buffer.len()
+        //                                 + std::mem::size_of::<[u16; 31]>() //TODO: make this a const
+        //                                 - 1)
+        //                                 / std::mem::size_of::<[u16; 31]>(); //TODO: make this a const
+        //                             batch.truncate(batch.len() - n_incomplete);
+        //                             break;
+        //                         }
+        //                     }
 
-                            Ok::<_, eyre::Report>(batch)
-                        },
-                    ),
-                );
+        //                     Ok::<_, eyre::Report>(batch)
+        //                 },
+        //             ),
+        //         );
 
-                // Wait on all parts concurrently
-                let (denom, shares) =
-                    tokio::join!(denominator_rx.recv(), streams_future);
+        //         // Wait on all parts concurrently
+        //         let (denom, shares) =
+        //             tokio::join!(denominator_rx.recv(), streams_future);
 
-                let mut denom = denom.unwrap_or_default();
-                let mut shares = shares?;
+        //         let mut denom = denom.unwrap_or_default();
+        //         let mut shares = shares?;
 
-                // Find the shortest prefix
-                let batch_size = shares
-                    .iter()
-                    .map(Vec::len)
-                    .fold(denom.len(), core::cmp::min);
+        //         // Find the shortest prefix
+        //         let batch_size = shares
+        //             .iter()
+        //             .map(Vec::len)
+        //             .fold(denom.len(), core::cmp::min);
 
-                denom.truncate(batch_size);
-                shares
-                    .iter_mut()
-                    .for_each(|batch| batch.truncate(batch_size));
+        //         denom.truncate(batch_size);
+        //         shares
+        //             .iter_mut()
+        //             .for_each(|batch| batch.truncate(batch_size));
 
-                // Send batches
-                processed_shares_tx.send((denom, shares)).await?;
-                if batch_size == 0 {
-                    break;
-                }
-            }
-            Ok(())
-        });
+        //         // Send batches
+        //         processed_shares_tx.send((denom, shares)).await?;
+        //         if batch_size == 0 {
+        //             break;
+        //         }
+        //     }
+        //     Ok(())
+        // });
 
-        (processed_shares_rx, batch_worker)
+        // (processed_shares_rx, batch_worker)
+
+        todo!()
     }
 
     pub async fn process_results(
