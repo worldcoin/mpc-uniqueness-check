@@ -55,7 +55,7 @@ async fn main() -> eyre::Result<()> {
         settings = settings.add_source(config::File::from(path).required(true));
     }
 
-    let settings = settings
+    let _settings = settings
         .add_source(config::Environment::with_prefix("MPC").separator("__"))
         .build()?;
 

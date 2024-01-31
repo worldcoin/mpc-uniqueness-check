@@ -6,7 +6,7 @@ use bytemuck::{cast_slice_mut, Pod, Zeroable};
 use rand::distributions::{Distribution, Standard};
 use rand::{thread_rng, Rng};
 use serde::de::{SeqAccess, Visitor};
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{de, Deserialize, Deserializer};
 
 use crate::bits::{Bits, BITS, COLS};
 

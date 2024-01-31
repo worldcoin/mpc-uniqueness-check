@@ -1,11 +1,11 @@
 use std::collections::BinaryHeap;
-use std::fs::{File, OpenOptions};
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future;
-use memmap::Mmap;
+
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -157,7 +157,7 @@ impl Coordinator {
                 // Collect futures of denominator and share batches
                 let streams_future = future::try_join_all(
                     participants.iter_mut().enumerate().map(
-                        |(i, stream)| async move {
+                        |(_i, stream)| async move {
                             let mut batch = vec![[0_u16; 31]; BATCH_SIZE];
                             let mut buffer: &mut [u8] =
                                 bytemuck::cast_slice_mut(batch.as_mut_slice());

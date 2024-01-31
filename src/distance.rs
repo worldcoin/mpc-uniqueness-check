@@ -1,4 +1,4 @@
-use bytemuck::{Pod, Zeroable};
+
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -211,7 +211,7 @@ mod tests {
             let query = &data[d.left];
             let entry = &data[d.right];
 
-            let encrypted = encode(&entry);
+            let encrypted = encode(entry);
             for (i, v) in encrypted.0.iter().enumerate() {
                 match *v {
                     u16::MAX => assert!(entry.mask[i] && entry.pattern[i]),
@@ -222,7 +222,7 @@ mod tests {
             }
 
             // Encode entry
-            let preprocessed = encode(&query);
+            let preprocessed = encode(query);
             let distances =
                 distances(&preprocessed, &[encrypted]).next().unwrap();
             let denominators =
