@@ -1,5 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use crate::arch;
 pub use crate::bits::Bits;
@@ -53,22 +54,20 @@ impl DistanceEngine {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Distance {
-    pub distance: ordered_float::OrderedFloat<f64>,
+    pub distance: f64,
     pub id: usize,
 }
 
 impl Distance {
     pub fn new(distance: f64, id: usize) -> Self {
-        Self {
-            distance: ordered_float::OrderedFloat(distance),
-            id,
-        }
+        Self { distance, id }
     }
 }
 
 //TODO: docs
+#[derive(Debug, Serialize, Deserialize)]
 pub struct DistanceResults {
     pub latest_id: usize,
     pub closest_distances: Vec<Distance>,

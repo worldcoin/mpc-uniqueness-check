@@ -277,21 +277,23 @@ impl Coordinator {
 
                 if distance > self.hamming_distance_threshold {
                     if closest_distances.len() < self.n_closest_distances {
-                        closest_distances.push(Distance::new(distance, id));
+                        closest_distances
+                            .push((ordered_float::OrderedFloat(distance), id));
 
                         max_closest_distance = closest_distances
                             .peek()
                             .expect("There should be at least one element")
-                            .distance
+                            .0
                             .into_inner();
                     } else if distance < max_closest_distance {
                         closest_distances.pop();
-                        closest_distances.push(Distance::new(distance, id));
+                        closest_distances
+                            .push((ordered_float::OrderedFloat(distance), id));
 
                         max_closest_distance = closest_distances
                             .peek()
                             .expect("There should be at least one element")
-                            .distance
+                            .0
                             .into_inner();
                     }
                 } else {
@@ -305,7 +307,7 @@ impl Coordinator {
 
         let closest_n_distances = closest_distances
             .into_iter()
-            .map(|d| d)
+            .map(|d| Distance::new(d.0.into_inner(), d.1))
             .collect::<Vec<Distance>>();
 
         let distance_results =
@@ -337,15 +339,14 @@ impl Coordinator {
         &self,
         distance_results: DistanceResults,
     ) -> eyre::Result<()> {
-        todo!();
+        //TODO: Implement DLQ logic
 
-        // let distances_queue = self
-        //     .aws_client
-        //     .send_message()
-        //     .queue_url(self.distances_queue_url.clone())
-        //     // .message_body(input) //TODO: update/uncomment this
-        //     .send()
-        //     .await?;
+        self.aws_client
+            .send_message()
+            .queue_url(self.distances_queue_url.clone())
+            .message_body(serde_json::to_string(&distance_results)?)
+            .send()
+            .await?;
 
         Ok(())
     }
