@@ -15,7 +15,9 @@ pub trait Gateway: Send + Sync {
         -> eyre::Result<()>;
 }
 
-pub async fn from_config(config: &GatewayConfig) -> eyre::Result<Arc<dyn Gateway>> {
+pub async fn from_config(
+    config: &GatewayConfig,
+) -> eyre::Result<Arc<dyn Gateway>> {
     match config {
         GatewayConfig::Http(config) => {
             Ok(Arc::new(http::HttpGateway::new(config).await?))

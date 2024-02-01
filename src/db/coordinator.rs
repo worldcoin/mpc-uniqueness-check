@@ -12,7 +12,9 @@ pub struct CoordinatorDb {
 
 impl CoordinatorDb {
     pub async fn new(config: &DbConfig) -> eyre::Result<Self> {
-        if config.create && !sqlx::Postgres::database_exists(&config.url).await? {
+        if config.create
+            && !sqlx::Postgres::database_exists(&config.url).await?
+        {
             sqlx::Postgres::create_database(&config.url).await?;
         }
 
@@ -80,7 +82,12 @@ mod tests {
         let url =
             format!("postgres://postgres:postgres@{}", pg_db.socket_addr());
 
-        let db = CoordinatorDb::new(&DbConfig { url, migrate: true, create: true }).await?;
+        let db = CoordinatorDb::new(&DbConfig {
+            url,
+            migrate: true,
+            create: true,
+        })
+        .await?;
 
         Ok((db, pg_db))
     }

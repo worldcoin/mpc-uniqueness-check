@@ -45,7 +45,6 @@ where
     }
 }
 
-
 impl<DB> sqlx::Type<DB> for EncodedBits
 where
     DB: sqlx::Database,
@@ -64,7 +63,8 @@ where
     fn decode(
         value: <DB as sqlx::database::HasValueRef<'r>>::ValueRef,
     ) -> Result<Self, sqlx::error::BoxDynError> {
-        let bytes = <[u8; BYTES_PER_ENCODED_BITS] as sqlx::Decode<DB>>::decode(value)?;
+        let bytes =
+            <[u8; BYTES_PER_ENCODED_BITS] as sqlx::Decode<DB>>::decode(value)?;
 
         Ok(bytemuck::pod_read_unaligned(&bytes))
     }
@@ -81,7 +81,8 @@ where
     ) -> sqlx::encode::IsNull {
         // The size of the underlying data makes it unaligned
         let bytes = bytemuck::bytes_of(self);
-        let bytes: [u8; BYTES_PER_ENCODED_BITS] = bytes.try_into().expect("Wrong size");
+        let bytes: [u8; BYTES_PER_ENCODED_BITS] =
+            bytes.try_into().expect("Wrong size");
 
         <[u8; BYTES_PER_ENCODED_BITS] as sqlx::Encode<DB>>::encode(bytes, buf)
     }
