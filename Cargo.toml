@@ -43,14 +43,6 @@ float_eq = "1.0.1"
 proptest = "1.4.0"
 
 [[bin]]
-name = "mpc-participant"
-path = "bin/mpc_participant.rs"
-
-[[bin]]
-name = "mpc-coordinator"
-path = "bin/mpc_coordinator.rs"
-
-[[bin]]
 name = "mpc-node"
 path = "bin/mpc_node.rs"
 
