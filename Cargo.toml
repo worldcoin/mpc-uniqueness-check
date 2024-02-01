@@ -23,6 +23,7 @@ metrics = "0.21.1"
 ordered-float = "4.2.0"
 rand = "0.8.5"
 rayon = "1.8.1"
+reqwest = { version = "0.11.24", features = ["json"] }
 serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0.111"
 sqlx = { version = "0.7.3", features = [
@@ -45,6 +46,10 @@ proptest = "1.4.0"
 [[bin]]
 name = "mpc-node"
 path = "bin/mpc_node.rs"
+
+[[bin]]
+name = "utils"
+path = "bin/utils.rs"
 
 [[bench]]
 name = "example"
