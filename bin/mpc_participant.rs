@@ -1,6 +1,8 @@
+use std::net::{SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 
 use clap::Parser;
+use mpc::participant::Participant;
 use telemetry_batteries::metrics::batteries::StatsdBattery;
 use telemetry_batteries::tracing::batteries::DatadogBattery;
 use tracing_subscriber::layer::SubscriberExt;
@@ -58,6 +60,12 @@ async fn main() -> eyre::Result<()> {
     let _settings = settings
         .add_source(config::Environment::with_prefix("MPC").separator("__"))
         .build()?;
+
+    let participant =
+        Participant::new("127.0.0.1:8080".parse::<SocketAddr>()?, 20_000)
+            .await?;
+
+    participant.spawn().await?;
 
     Ok(())
 }

@@ -8,20 +8,25 @@ use crate::distance::{self, DistanceEngine, EncodedBits};
 
 pub struct Participant {
     listener: tokio::net::TcpListener,
+    batch_size: usize,
 }
 
 impl Participant {
-    pub async fn new(socket_address: SocketAddr) -> eyre::Result<Self> {
+    pub async fn new(
+        socket_address: SocketAddr,
+        batch_size: usize,
+    ) -> eyre::Result<Self> {
         Ok(Self {
             listener: tokio::net::TcpListener::bind(socket_address).await?,
+            batch_size,
         })
     }
 
     pub async fn spawn(&self) -> eyre::Result<()> {
-        let (stream, _) = self.listener.accept().await?;
-        let mut stream = tokio::io::BufWriter::new(stream);
-
+        let mut stream =
+            tokio::io::BufWriter::new(self.listener.accept().await?.0);
         let shares = Arc::new(self.initialize_shares().await?);
+        let batch_size = self.batch_size;
 
         loop {
             // TODO: Sync from database
@@ -39,8 +44,7 @@ impl Participant {
                     bytemuck::cast_slice(&shares_ref);
                 let engine = DistanceEngine::new(&distance::encode(&template));
 
-                //TODO: make batch size configurable
-                for chunk in patterns.chunks(20_000) {
+                for chunk in patterns.chunks(batch_size) {
                     let mut result = vec![
                         0_u8;
                         chunk.len()
