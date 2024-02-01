@@ -14,7 +14,7 @@ config = "0.13.4"
 criterion = "0.5.1"
 docker-db = { git = "https://github.com/Dzejkop/docker-db", rev = "ef9a4dfccd9cb9b4babeebfea0ba815e36afbafe" }
 dotenv = "0.15.0"
-eyre = "0.6.11"
+eyre = "0.6.12"
 futures = "0.3.30"
 hex = { version = "0.4.3", features = ["serde"] }
 indicatif = "0.17.7"
