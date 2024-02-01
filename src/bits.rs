@@ -228,6 +228,15 @@ mod tests {
         assert_eq!(BYTES_PER_COL * 8, COLS);
     }
 
+    // #[test]
+    // fn random_bits() {
+    //     let mut rng = thread_rng();
+    //     let bits: Bits = rng.gen();
+
+    //     println!("bits num bytes = {}", BITS / 8);
+    //     println!("{:?}", bits);
+    // }
+
     #[test]
     fn test_index() {
         let mut rng = thread_rng();
