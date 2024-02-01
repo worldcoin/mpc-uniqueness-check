@@ -13,7 +13,9 @@ pub struct ParticipantDb {
 
 impl ParticipantDb {
     pub async fn new(config: &DbConfig) -> eyre::Result<Self> {
-        if config.create && !sqlx::Postgres::database_exists(&config.url).await? {
+        if config.create
+            && !sqlx::Postgres::database_exists(&config.url).await?
+        {
             sqlx::Postgres::create_database(&config.url).await?;
         }
 
@@ -26,7 +28,7 @@ impl ParticipantDb {
         Ok(Self { pool })
     }
 
-    pub async fn fetch_masks(&self, id: usize) -> eyre::Result<Vec<Bits>> {
+    pub async fn fetch_shares(&self, id: usize) -> eyre::Result<Vec<Bits>> {
         let masks: Vec<(Bits,)> = sqlx::query_as(
             r#"
             SELECT share
@@ -42,7 +44,7 @@ impl ParticipantDb {
         Ok(masks.into_iter().map(|(mask,)| mask).collect())
     }
 
-    pub async fn insert_masks(
+    pub async fn insert_shares(
         &self,
         shares: &[(u64, EncodedBits)],
     ) -> eyre::Result<()> {
