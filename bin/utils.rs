@@ -4,7 +4,8 @@ use rand::{thread_rng, Rng};
 
 #[derive(Debug, Clone, Parser)]
 enum Opt {
-    RandomQuery(RandomQuery),
+    HttpQuery(RandomQuery),
+    SQSQuery(RandomQuery),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -20,7 +21,7 @@ async fn main() -> eyre::Result<()> {
     let args = Opt::parse();
 
     match args {
-        Opt::RandomQuery(args) => {
+        Opt::HttpQuery(args) => {
             let mut rng = thread_rng();
 
             let template: Template = rng.gen();
@@ -31,6 +32,26 @@ async fn main() -> eyre::Result<()> {
                 .send()
                 .await?
                 .error_for_status()?;
+        }
+
+        Opt::SQSQuery(args) => {
+            let aws_config = aws_config::load_defaults(
+                aws_config::BehaviorVersion::latest(),
+            )
+            .await;
+
+            let aws_client = aws_sdk_sqs::Client::new(&aws_config);
+
+            let mut rng = thread_rng();
+
+            let template: Template = rng.gen();
+
+            aws_client
+                .send_message()
+                .queue_url(args.url)
+                .message_body(serde_json::to_string(&template)?)
+                .send()
+                .await?;
         }
     }
 
