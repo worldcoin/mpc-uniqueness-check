@@ -20,6 +20,8 @@ async fn handle(
     state: State<Arc<Mutex<VecDeque<Template>>>>,
     req: Json<Template>,
 ) {
+    tracing::info!("Template received");
+
     state.lock().await.push_back(req.0);
 }
 
@@ -61,7 +63,7 @@ impl Gateway for HttpGateway {
         results: &DistanceResults,
     ) -> eyre::Result<()> {
         // TODO: Send the results back
-        println!("Sending results: {:?}", results);
+        tracing::info!("Sending results: {:?}", results);
         Ok(())
     }
 }
