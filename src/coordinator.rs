@@ -1,11 +1,9 @@
 use std::collections::BinaryHeap;
-
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future;
-
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -17,7 +15,7 @@ use crate::bits::Bits;
 use crate::distance::{self, Distance, DistanceResults, MasksEngine};
 use crate::template::Template;
 
-const BATCH_SIZE: usize = 20_000; //TODO: make this configurable
+const BATCH_SIZE: usize = 20_000;
 
 pub struct Coordinator {
     aws_client: aws_sdk_sqs::Client,
@@ -66,6 +64,8 @@ impl Coordinator {
 
         loop {
             if let Some(messages) = self.dequeue_queries().await? {
+                //TODO: sync masks from the db
+
                 for message in messages {
                     let template = serde_json::from_str::<Template>(
                         //TODO: handle this error
@@ -99,8 +99,8 @@ impl Coordinator {
                 }
             }
 
-            //TODO: decide how long to sleep
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            //TODO: Do we want to sleep?
+            // tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }
 
