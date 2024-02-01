@@ -1,7 +1,5 @@
 use std::collections::BinaryHeap;
-use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use futures::future;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -12,90 +10,68 @@ use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 
 use crate::bits::Bits;
+use crate::config::CoordinatorConfig;
 use crate::distance::{self, Distance, DistanceResults, MasksEngine};
+use crate::gateway::{self, Gateway};
 use crate::template::Template;
 
 const BATCH_SIZE: usize = 20_000;
 
 pub struct Coordinator {
-    aws_client: aws_sdk_sqs::Client,
-    shares_queue_url: String,
-    distances_queue_url: String,
+    gateway: Arc<dyn Gateway>,
     participants: Arc<Mutex<Vec<BufReader<TcpStream>>>>,
-    hamming_distance_threshold: f64,
-    n_closest_distances: usize,
+    config: CoordinatorConfig,
 }
 
 impl Coordinator {
-    pub async fn new(
-        participants: Vec<SocketAddr>,
-        shares_queue_url: &str,
-        distances_queue_url: &str,
-        hamming_distance_threshold: f64,
-        n_closest_distances: usize,
-        //TODO: Update error handling
-    ) -> eyre::Result<Self> {
-        let aws_config =
-            aws_config::load_defaults(aws_config::BehaviorVersion::latest())
-                .await;
-
-        let aws_client = aws_sdk_sqs::Client::new(&aws_config);
+    pub async fn new(config: &CoordinatorConfig) -> eyre::Result<Self> {
+        let gateway = gateway::from_config(&config.gateway).await?;
 
         let mut streams = vec![];
-        for participant in participants {
+        for participant in &config.participants {
             let stream = BufReader::new(TcpStream::connect(participant).await?);
 
             streams.push(stream);
         }
 
         Ok(Self {
-            aws_client,
-            shares_queue_url: shares_queue_url.to_string(),
-            distances_queue_url: distances_queue_url.to_string(),
+            gateway,
             participants: Arc::new(Mutex::new(streams)),
-            n_closest_distances,
-            hamming_distance_threshold,
+            config: config.clone(),
         })
     }
 
     //TODO: update error handling
     pub async fn spawn(mut self) -> eyre::Result<()> {
+        tracing::info!("Starting coordinator");
+
         let masks: Arc<Vec<Bits>> = Arc::new(self.initialize_masks());
 
         loop {
-            if let Some(messages) = self.dequeue_queries().await? {
-                //TODO: sync masks from the db
+            for template in self.gateway.receive_queries().await? {
+                self.send_query_to_participants(&template).await?;
 
-                for message in messages {
-                    let template = serde_json::from_str::<Template>(
-                        //TODO: handle this error
-                        &message.body.expect("No body in message"),
-                    )?;
+                let mut handles = vec![];
 
-                    self.send_query_to_participants(&template).await?;
+                let (denominator_rx, denominator_handle) =
+                    self.compute_denominators(masks.clone(), template.mask);
 
-                    let mut handles = vec![];
+                handles.push(denominator_handle);
 
-                    let (denominator_rx, denominator_handle) =
-                        self.compute_denominators(masks.clone(), template.mask);
+                //TODO: process_participant shares / collect batches of shares and denoms
+                let (batch_process_shares_rx, batch_process_shares_handle) =
+                    self.batch_process_participant_shares(denominator_rx);
 
-                    handles.push(denominator_handle);
+                handles.push(batch_process_shares_handle);
 
-                    //TODO: process_participant shares / collect batches of shares and denoms
-                    let (batch_process_shares_rx, batch_process_shares_handle) =
-                        self.batch_process_participant_shares(denominator_rx);
+                let distance_results =
+                    self.process_results(batch_process_shares_rx).await?;
 
-                    handles.push(batch_process_shares_handle);
+                self.gateway.send_results(&distance_results).await?;
 
-                    let distance_results =
-                        self.process_results(batch_process_shares_rx).await?;
-
-                    self.enqueue_distance_results(distance_results).await?;
-
-                    // TODO: Make sure that all workers receive signal to stop.
-                    for handle in handles {
-                        handle.await??;
-                    }
+                // TODO: Make sure that all workers receive signal to stop.
+                for handle in handles {
+                    handle.await??;
                 }
             }
 
@@ -226,7 +202,7 @@ impl Coordinator {
     ) -> eyre::Result<DistanceResults> {
         // Keep track of min distances
         let mut closest_distances =
-            BinaryHeap::with_capacity(self.n_closest_distances);
+            BinaryHeap::with_capacity(self.config.n_closest_distances);
 
         let mut max_closest_distance = 0.0;
 
@@ -270,8 +246,9 @@ impl Coordinator {
             for (j, distance) in distances.into_iter().enumerate() {
                 let id = j + i;
 
-                if distance > self.hamming_distance_threshold {
-                    if closest_distances.len() < self.n_closest_distances {
+                if distance > self.config.hamming_distance_threshold {
+                    if closest_distances.len() < self.config.n_closest_distances
+                    {
                         closest_distances
                             .push((ordered_float::OrderedFloat(distance), id));
 
@@ -314,36 +291,5 @@ impl Coordinator {
     pub fn initialize_masks(&self) -> Vec<Bits> {
         //TODO:
         vec![]
-    }
-
-    pub async fn dequeue_queries(
-        &self,
-    ) -> eyre::Result<Option<Vec<aws_sdk_sqs::types::Message>>> {
-        let messages = self
-            .aws_client
-            .receive_message()
-            .queue_url(self.shares_queue_url.clone())
-            .send()
-            .await?
-            .messages;
-
-        Ok(messages)
-    }
-
-    //TODO: update error handling
-    pub async fn enqueue_distance_results(
-        &self,
-        distance_results: DistanceResults,
-    ) -> eyre::Result<()> {
-        //TODO: Implement DLQ logic
-
-        self.aws_client
-            .send_message()
-            .queue_url(self.distances_queue_url.clone())
-            .message_body(serde_json::to_string(&distance_results)?)
-            .send()
-            .await?;
-
-        Ok(())
     }
 }

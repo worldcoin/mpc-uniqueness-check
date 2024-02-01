@@ -1,9 +1,9 @@
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use distance::Template;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use crate::config::ParticipantConfig;
 use crate::distance::{self, DistanceEngine, EncodedBits};
 
 pub struct Participant {
@@ -12,17 +12,16 @@ pub struct Participant {
 }
 
 impl Participant {
-    pub async fn new(
-        socket_address: SocketAddr,
-        batch_size: usize,
-    ) -> eyre::Result<Self> {
+    pub async fn new(config: &ParticipantConfig) -> eyre::Result<Self> {
         Ok(Self {
-            listener: tokio::net::TcpListener::bind(socket_address).await?,
-            batch_size,
+            listener: tokio::net::TcpListener::bind(config.socket_addr).await?,
+            batch_size: config.batch_size,
         })
     }
 
     pub async fn spawn(&self) -> eyre::Result<()> {
+        tracing::info!("Starting participant");
+
         let mut stream =
             tokio::io::BufWriter::new(self.listener.accept().await?.0);
         let shares = Arc::new(self.initialize_shares().await?);

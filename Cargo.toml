@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+async-trait = "0.1.77"
 aws-config = "1.1.4"
 aws-sdk-sqs = "1.12.0"
+axum = "0.7.4"
 bytemuck = { version = "1.14.1", features = ["derive"] }
 clap = { version = "4.4.18", features = ["derive", "env"] }
 config = "0.13.4"
@@ -15,6 +17,7 @@ dotenv = "0.15.0"
 eyre = "0.6.11"
 futures = "0.3.30"
 hex = { version = "0.4.3", features = ["serde"] }
+indoc = "2.0.4"
 itertools = "0.12.0"
 metrics = "0.21.1"
 ordered-float = "4.2.0"
@@ -30,8 +33,10 @@ sqlx = { version = "0.7.3", features = [
 ] }
 telemetry-batteries = { git = "https://github.com/worldcoin/telemetry-batteries.git", rev = "c6816624415ae194da5203a5161621a9e10ad3b0" }
 tokio = { version = "1.35.1", features = ["macros"] }
+toml = "0.8.9"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
+url = "2.5.0"
 
 [dev-dependencies]
 float_eq = "1.0.1"
@@ -44,6 +49,10 @@ path = "bin/mpc_participant.rs"
 [[bin]]
 name = "mpc-coordinator"
 path = "bin/mpc_coordinator.rs"
+
+[[bin]]
+name = "mpc-node"
+path = "bin/mpc_node.rs"
 
 [[bench]]
 name = "example"
