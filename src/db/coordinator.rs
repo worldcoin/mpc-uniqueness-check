@@ -1,4 +1,4 @@
-use sqlx::migrate::Migrator;
+use sqlx::migrate::{MigrateDatabase, Migrator};
 use sqlx::{Postgres, QueryBuilder};
 
 use crate::bits::Bits;
@@ -12,6 +12,12 @@ pub struct CoordinatorDb {
 
 impl CoordinatorDb {
     pub async fn new(config: &DbConfig) -> eyre::Result<Self> {
+        if config.create
+            && !sqlx::Postgres::database_exists(&config.url).await?
+        {
+            sqlx::Postgres::create_database(&config.url).await?;
+        }
+
         let pool = sqlx::Pool::connect(&config.url).await?;
 
         if config.migrate {
@@ -76,7 +82,12 @@ mod tests {
         let url =
             format!("postgres://postgres:postgres@{}", pg_db.socket_addr());
 
-        let db = CoordinatorDb::new(&DbConfig { url, migrate: true }).await?;
+        let db = CoordinatorDb::new(&DbConfig {
+            url,
+            migrate: true,
+            create: true,
+        })
+        .await?;
 
         Ok((db, pg_db))
     }

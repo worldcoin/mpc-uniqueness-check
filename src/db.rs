@@ -1,3 +1,3 @@
 pub mod coordinator;
-pub mod participant;
 pub mod impls;
+pub mod participant;

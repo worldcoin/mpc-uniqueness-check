@@ -1,0 +1,14 @@
+version: '3'
+services:
+  coordinator_db:
+    image: postgres
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust
+  participant_db:
+    image: postgres
+    ports:
+      - 5433:5432
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust

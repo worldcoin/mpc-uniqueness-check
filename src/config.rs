@@ -36,6 +36,9 @@ pub struct DbConfig {
 
     #[serde(default)]
     pub migrate: bool,
+
+    #[serde(default)]
+    pub create: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +108,7 @@ mod tests {
                 db: DbConfig {
                     url: "postgres://localhost:5432/mpc".to_string(),
                     migrate: true,
+                    create: true,
                 },
             }),
             participant: None,
