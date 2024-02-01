@@ -125,7 +125,7 @@ async fn seed_db(args: &SeedDb) -> eyre::Result<()> {
 
         let (coordinator, participant) = tokio::join!(
             coordinator_db.insert_masks(&chunk_masks),
-            participant_db.insert_masks(&chunk_shares),
+            participant_db.insert_shares(&chunk_shares),
         );
 
         coordinator?;
