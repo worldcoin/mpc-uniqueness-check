@@ -2,6 +2,7 @@ use sqlx::migrate::Migrator;
 use sqlx::{Postgres, QueryBuilder};
 
 use crate::bits::Bits;
+use crate::config::DbConfig;
 
 static MIGRATOR: Migrator = sqlx::migrate!("migrations/coordinator/");
 
@@ -10,10 +11,12 @@ pub struct CoordinatorDb {
 }
 
 impl CoordinatorDb {
-    pub async fn new(url: &str) -> eyre::Result<Self> {
-        let pool = sqlx::Pool::connect(url).await?;
+    pub async fn new(config: &DbConfig) -> eyre::Result<Self> {
+        let pool = sqlx::Pool::connect(&config.url).await?;
 
-        MIGRATOR.run(&pool).await?;
+        if config.migrate {
+            MIGRATOR.run(&pool).await?;
+        }
 
         Ok(Self { pool })
     }
@@ -68,12 +71,19 @@ mod tests {
 
     use super::*;
 
+    async fn setup() -> eyre::Result<(CoordinatorDb, docker_db::Postgres)> {
+        let pg_db = docker_db::Postgres::spawn().await?;
+        let url =
+            format!("postgres://postgres:postgres@{}", pg_db.socket_addr());
+
+        let db = CoordinatorDb::new(&DbConfig { url, migrate: true }).await?;
+
+        Ok((db, pg_db))
+    }
+
     #[tokio::test]
     async fn fetch_on_empty() -> eyre::Result<()> {
-        let db = docker_db::Postgres::spawn().await?;
-        let url = format!("postgres://postgres:postgres@{}", db.socket_addr());
-
-        let db = CoordinatorDb::new(&url).await?;
+        let (db, _pg) = setup().await?;
 
         let masks = db.fetch_masks(0).await?;
 
@@ -84,10 +94,7 @@ mod tests {
 
     #[tokio::test]
     async fn insert_and_fetch() -> eyre::Result<()> {
-        let db = docker_db::Postgres::spawn().await?;
-        let url = format!("postgres://postgres:postgres@{}", db.socket_addr());
-
-        let db = CoordinatorDb::new(&url).await?;
+        let (db, _pg) = setup().await?;
 
         let mut rng = thread_rng();
 
@@ -107,10 +114,7 @@ mod tests {
 
     #[tokio::test]
     async fn partial_fetch() -> eyre::Result<()> {
-        let db = docker_db::Postgres::spawn().await?;
-        let url = format!("postgres://postgres:postgres@{}", db.socket_addr());
-
-        let db = CoordinatorDb::new(&url).await?;
+        let (db, _pg) = setup().await?;
 
         let mut rng = thread_rng();
 

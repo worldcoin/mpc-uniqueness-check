@@ -7,3 +7,4 @@ pub mod distance;
 pub mod encoded_bits;
 pub mod participant;
 pub mod template;
+pub mod gateway;
