@@ -101,35 +101,52 @@ async fn seed_db(args: &SeedDb) -> eyre::Result<()> {
     })
     .await?;
 
-    let participant_db = ParticipantDb::new(&DbConfig {
-        url: args.participant_db_url[0].clone(),
-        migrate: true,
-        create: true,
-    })
-    .await?;
+    let mut participant_dbs = vec![];
+
+    for db_config in args.participant_db_url.iter() {
+        participant_dbs.push(
+            ParticipantDb::new(&DbConfig {
+                url: db_config.clone(),
+                migrate: true,
+                create: true,
+            })
+            .await?,
+        );
+    }
 
     let pb = ProgressBar::new(args.num as u64).with_message("Seeding DBs");
 
     for (idx, chunk) in templates.chunks(args.batch_size).enumerate() {
         let mut chunk_masks = Vec::with_capacity(chunk.len());
-        let mut chunk_shares = Vec::with_capacity(chunk.len());
+        let mut chunk_shares: Vec<_> = (0..participant_dbs.len())
+            .map(|_| Vec::with_capacity(chunk.len()))
+            .collect();
 
         for (offset, template) in chunk.into_iter().enumerate() {
-            let shares = mpc::encode::encode(&template).share(1);
+            let shares =
+                mpc::distance::encode(&template).share(participant_dbs.len());
 
             let id = offset + (idx * args.batch_size);
 
             chunk_masks.push((id as u64, template.mask));
-            chunk_shares.push((id as u64, shares[0]));
+            for (idx, share) in shares.into_iter().enumerate() {
+                chunk_shares[idx].push((id as u64, share.clone()));
+            }
         }
 
-        let (coordinator, participant) = tokio::join!(
+        let mut tasks = vec![];
+
+        for (idx, db) in participant_dbs.iter().enumerate() {
+            tasks.push(db.insert_shares(&chunk_shares[idx]));
+        }
+
+        let (coordinator, participants) = tokio::join!(
             coordinator_db.insert_masks(&chunk_masks),
-            participant_db.insert_shares(&chunk_shares),
+            futures::future::join_all(tasks),
         );
 
         coordinator?;
-        participant?;
+        participants.into_iter().collect::<Result<_, _>>()?;
 
         pb.inc(args.batch_size as u64);
     }
