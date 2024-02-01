@@ -22,18 +22,24 @@ impl Participant {
     pub async fn spawn(&self) -> eyre::Result<()> {
         tracing::info!("Starting participant");
 
-        let mut stream =
-            tokio::io::BufWriter::new(self.listener.accept().await?.0);
         let shares = Arc::new(self.initialize_shares().await?);
         let batch_size = self.batch_size;
 
         loop {
             // TODO: Sync from database
 
+            //TODO:NOTE: this drops at the end of the loop, closing the stream
+            let mut stream =
+                tokio::io::BufWriter::new(self.listener.accept().await?.0);
+
+            tracing::info!("Incoming connection accepted");
+
             let mut template = Template::default();
             stream
                 .read_exact(bytemuck::bytes_of_mut(&mut template))
                 .await?;
+
+            tracing::info!(?template, "Received template");
 
             let shares_ref = shares.clone();
             // Process in worker thread

@@ -1,4 +1,5 @@
 use std::collections::BinaryHeap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use futures::future;
@@ -19,7 +20,7 @@ const BATCH_SIZE: usize = 20_000;
 
 pub struct Coordinator {
     gateway: Arc<dyn Gateway>,
-    participants: Arc<Mutex<Vec<BufReader<TcpStream>>>>,
+    //TODO: update this so that we have longer lasting streams after with read exact
     config: CoordinatorConfig,
 }
 
@@ -27,16 +28,8 @@ impl Coordinator {
     pub async fn new(config: &CoordinatorConfig) -> eyre::Result<Self> {
         let gateway = gateway::from_config(&config.gateway).await?;
 
-        let mut streams = vec![];
-        for participant in &config.participants {
-            let stream = BufReader::new(TcpStream::connect(participant).await?);
-
-            streams.push(stream);
-        }
-
         Ok(Self {
             gateway,
-            participants: Arc::new(Mutex::new(streams)),
             config: config.clone(),
         })
     }
@@ -49,7 +42,10 @@ impl Coordinator {
 
         loop {
             for template in self.gateway.receive_queries().await? {
-                self.send_query_to_participants(&template).await?;
+                tracing::info!(?template, "Query received");
+
+                let streams =
+                    self.send_query_to_participants(&template).await?;
 
                 let mut handles = vec![];
 
@@ -58,9 +54,11 @@ impl Coordinator {
 
                 handles.push(denominator_handle);
 
-                //TODO: process_participant shares / collect batches of shares and denoms
                 let (batch_process_shares_rx, batch_process_shares_handle) =
-                    self.batch_process_participant_shares(denominator_rx);
+                    self.batch_process_participant_shares(
+                        denominator_rx,
+                        streams,
+                    );
 
                 handles.push(batch_process_shares_handle);
 
@@ -83,16 +81,26 @@ impl Coordinator {
     pub async fn send_query_to_participants(
         &mut self,
         query: &Template,
-    ) -> eyre::Result<()> {
+    ) -> eyre::Result<Vec<BufReader<TcpStream>>> {
         // Write each share to the corresponding participant
-        future::try_join_all(self.participants.lock().await.iter_mut().map(
-            |stream| async move {
-                // Send query
-                stream.write_all(bytemuck::bytes_of(query)).await
-            },
-        ))
-        .await?;
-        Ok(())
+
+        let streams =
+            future::try_join_all(self.config.participants.iter().map(
+                |socket_address| async move {
+                    // Send query
+
+                    let mut stream = TcpStream::connect(socket_address).await?;
+                    tracing::info!(?socket_address, "Connected to participant");
+
+                    stream.write_all(bytemuck::bytes_of(query)).await?;
+                    tracing::info!(?query, "Query sent to participant");
+
+                    Ok::<_, eyre::Report>(BufReader::new(stream))
+                },
+            ))
+            .await?;
+
+        Ok(streams)
     }
 
     pub fn compute_denominators(
@@ -104,6 +112,9 @@ impl Coordinator {
         let denominator_handle = tokio::task::spawn_blocking(move || {
             let masks: &[Bits] = bytemuck::cast_slice(&masks);
             let engine = MasksEngine::new(&mask);
+
+            tracing::info!(?mask, "Computing denominators");
+
             for chunk in masks.chunks(BATCH_SIZE) {
                 let mut result = vec![[0_u16; 31]; chunk.len()];
                 engine.batch_process(&mut result, chunk);
@@ -118,6 +129,7 @@ impl Coordinator {
     pub fn batch_process_participant_shares(
         &mut self,
         mut denominator_rx: Receiver<Vec<[u16; 31]>>,
+        mut streams: Vec<BufReader<TcpStream>>,
     ) -> (
         Receiver<(Vec<[u16; 31]>, Vec<Vec<[u16; 31]>>)>,
         JoinHandle<eyre::Result<()>>,
@@ -125,40 +137,40 @@ impl Coordinator {
         // Collect batches of shares
         let (processed_shares_tx, processed_shares_rx) = mpsc::channel(4);
 
-        let participants = self.participants.clone();
-
         let batch_worker = tokio::task::spawn(async move {
             loop {
-                let mut participants = participants.lock().await;
                 // Collect futures of denominator and share batches
                 let streams_future = future::try_join_all(
-                    participants.iter_mut().enumerate().map(
-                        |(_i, stream)| async move {
-                            let mut batch = vec![[0_u16; 31]; BATCH_SIZE];
-                            let mut buffer: &mut [u8] =
-                                bytemuck::cast_slice_mut(batch.as_mut_slice());
+                    streams.iter_mut().map(|stream| async move {
+                        let mut batch = vec![[0_u16; 31]; BATCH_SIZE];
+                        let mut buffer: &mut [u8] =
+                            bytemuck::cast_slice_mut(batch.as_mut_slice());
 
-                            // We can not use read_exact here as we might get EOF before the
-                            // buffer is full But we should
-                            // still try to fill the entire buffer.
-                            // If nothing else, this guarantees that we read batches at a
-                            // [u16;31] boundary.
-                            while !buffer.is_empty() {
-                                let bytes_read =
-                                    stream.read_buf(&mut buffer).await?;
-                                if bytes_read == 0 {
-                                    let n_incomplete = (buffer.len()
+                        // We can not use read_exact here as we might get EOF before the
+                        // buffer is full But we should
+                        // still try to fill the entire buffer.
+                        // If nothing else, this guarantees that we read batches at a
+                        // [u16;31] boundary.
+                        while !buffer.is_empty() {
+                            tracing::info!("Reading buffer");
+
+                            let bytes_read =
+                                stream.read_buf(&mut buffer).await?;
+
+                            tracing::info!("Buffer read");
+
+                            if bytes_read == 0 {
+                                let n_incomplete = (buffer.len()
                                         + std::mem::size_of::<[u16; 31]>() //TODO: make this a const
                                         - 1)
-                                        / std::mem::size_of::<[u16; 31]>(); //TODO: make this a const
-                                    batch.truncate(batch.len() - n_incomplete);
-                                    break;
-                                }
+                                    / std::mem::size_of::<[u16; 31]>(); //TODO: make this a const
+                                batch.truncate(batch.len() - n_incomplete);
+                                break;
                             }
+                        }
 
-                            Ok::<_, eyre::Report>(batch)
-                        },
-                    ),
+                        Ok::<_, eyre::Report>(batch)
+                    }),
                 );
 
                 // Wait on all parts concurrently
@@ -214,8 +226,10 @@ impl Coordinator {
 
         loop {
             // Fetch batches of denominators and shares
+
+            //NOTE: for some reason, the channel is closed or we are receiving none
             let (denom_batch, shares) =
-                processed_shares_rx.recv().await.unwrap();
+                processed_shares_rx.recv().await.expect("channel closed");
             let batch_size = denom_batch.len();
             if batch_size == 0 {
                 break;
