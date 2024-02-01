@@ -122,15 +122,15 @@ async fn seed_db(args: &SeedDb) -> eyre::Result<()> {
             .map(|_| Vec::with_capacity(chunk.len()))
             .collect();
 
-        for (offset, template) in chunk.into_iter().enumerate() {
+        for (offset, template) in chunk.iter().enumerate() {
             let shares =
-                mpc::distance::encode(&template).share(participant_dbs.len());
+                mpc::distance::encode(template).share(participant_dbs.len());
 
             let id = offset + (idx * args.batch_size);
 
             chunk_masks.push((id as u64, template.mask));
-            for (idx, share) in shares.into_iter().enumerate() {
-                chunk_shares[idx].push((id as u64, share.clone()));
+            for (idx, share) in shares.iter().enumerate() {
+                chunk_shares[idx].push((id as u64, *share));
             }
         }
 
