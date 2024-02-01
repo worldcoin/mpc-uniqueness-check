@@ -29,7 +29,7 @@ impl ParticipantDb {
     }
 
     pub async fn fetch_shares(&self, id: usize) -> eyre::Result<Vec<Bits>> {
-        let masks: Vec<(Bits,)> = sqlx::query_as(
+        let shares: Vec<(Bits,)> = sqlx::query_as(
             r#"
             SELECT share
             FROM shares
@@ -41,7 +41,7 @@ impl ParticipantDb {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(masks.into_iter().map(|(mask,)| mask).collect())
+        Ok(shares.into_iter().map(|(share,)| share).collect())
     }
 
     pub async fn insert_shares(
