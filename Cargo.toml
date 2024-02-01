@@ -20,7 +20,7 @@ hex = { version = "0.4.3", features = ["serde"] }
 indicatif = "0.17.7"
 indoc = "2.0.4"
 itertools = "0.12.0"
-metrics = "0.21.1"
+metrics = "0.22.0"
 ordered-float = "4.2.0"
 rand = "0.8.5"
 rayon = "1.8.1"
