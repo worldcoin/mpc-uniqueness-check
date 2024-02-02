@@ -295,7 +295,7 @@ impl Coordinator {
                             .into_inner();
                     }
                 } else {
-                    matches.push(id);
+                    matches.push(Distance::new(id as u64, distance));
                 }
             }
 
@@ -305,11 +305,11 @@ impl Coordinator {
 
         let closest_n_distances = closest_distances
             .into_iter()
-            .map(|d| Distance::new(d.0.into_inner(), d.1))
+            .map(|d| Distance::new(d.1 as u64, d.0.into_inner()))
             .collect::<Vec<Distance>>();
 
         let distance_results =
-            DistanceResults::new(i, closest_n_distances, matches);
+            DistanceResults::new(i as u64, closest_n_distances, matches);
 
         Ok(distance_results)
     }
