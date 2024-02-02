@@ -17,9 +17,7 @@ pub struct CoordinatorConfig {
     pub participants: Vec<SocketAddr>,
     pub hamming_distance_threshold: f64,
     pub n_closest_distances: usize,
-
     pub gateway: GatewayConfig,
-
     pub db: DbConfig,
 }
 

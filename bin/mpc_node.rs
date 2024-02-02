@@ -56,7 +56,7 @@ async fn main() -> eyre::Result<()> {
 
     if let Some(coordinator) = config.coordinator {
         tasks.push(tokio::spawn(async move {
-            let coordinator = Coordinator::new(&coordinator).await?;
+            let coordinator = Coordinator::new(coordinator).await?;
 
             coordinator.spawn().await?;
 
@@ -66,7 +66,7 @@ async fn main() -> eyre::Result<()> {
 
     if let Some(participant) = config.participant {
         tasks.push(tokio::spawn(async move {
-            let participant = Participant::new(&participant).await?;
+            let participant = Participant::new(participant).await?;
 
             participant.spawn().await?;
 

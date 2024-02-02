@@ -1,7 +1,6 @@
 use sqlx::migrate::{MigrateDatabase, Migrator};
 use sqlx::{Postgres, QueryBuilder};
 
-use crate::bits::Bits;
 use crate::config::DbConfig;
 use crate::distance::EncodedBits;
 
@@ -28,8 +27,11 @@ impl ParticipantDb {
         Ok(Self { pool })
     }
 
-    pub async fn fetch_shares(&self, id: usize) -> eyre::Result<Vec<Bits>> {
-        let shares: Vec<(Bits,)> = sqlx::query_as(
+    pub async fn fetch_shares(
+        &self,
+        id: usize,
+    ) -> eyre::Result<Vec<EncodedBits>> {
+        let shares: Vec<(EncodedBits,)> = sqlx::query_as(
             r#"
             SELECT share
             FROM shares

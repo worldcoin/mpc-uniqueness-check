@@ -19,5 +19,6 @@ distance_results_url = ""
 fire_and_forget = true
 
 [coordinator.db]
-url = "postgres://localhost:5432/coordinator"
+url = "postgres://postgres:postgres@coordinator_db:5432/db"
 migrate = true
+create = true
