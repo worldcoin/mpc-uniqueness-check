@@ -26,6 +26,7 @@ pub struct Coordinator {
     n_closest_distances: usize,
     gateway: Arc<dyn Gateway>,
     database: Arc<CoordinatorDb>,
+    masks: Arc<Mutex<Vec<Bits>>>,
 }
 
 impl Coordinator {
@@ -33,12 +34,16 @@ impl Coordinator {
         let gateway = gateway::from_config(&config.gateway).await?;
         let database = Arc::new(CoordinatorDb::new(&config.db).await?);
 
+        let masks = database.fetch_masks(0).await?;
+        let masks = Arc::new(Mutex::new(masks));
+
         Ok(Self {
             gateway,
             hamming_distance_threshold: config.hamming_distance_threshold,
             n_closest_distances: config.n_closest_distances,
             participants: config.participants,
             database,
+            masks,
         })
     }
 
@@ -46,11 +51,11 @@ impl Coordinator {
     pub async fn spawn(mut self) -> eyre::Result<()> {
         tracing::info!("Starting coordinator");
 
-        let masks: Arc<Vec<Bits>> = Arc::new(self.initialize_masks().await?);
-
         loop {
             for template in self.gateway.receive_queries().await? {
                 tracing::info!(?template, "Query received");
+
+                self.sync_masks().await?;
 
                 let streams =
                     self.send_query_to_participants(&template).await?;
@@ -58,7 +63,7 @@ impl Coordinator {
                 let mut handles = vec![];
 
                 let (denominator_rx, denominator_handle) =
-                    self.compute_denominators(masks.clone(), template.mask);
+                    self.compute_denominators(template.mask);
 
                 handles.push(denominator_handle);
 
@@ -112,11 +117,14 @@ impl Coordinator {
 
     pub fn compute_denominators(
         &self,
-        masks: Arc<Vec<Bits>>,
         mask: Bits,
     ) -> (Receiver<Vec<[u16; 31]>>, JoinHandle<eyre::Result<()>>) {
         let (sender, denom_receiver) = tokio::sync::mpsc::channel(4);
+        let masks = self.masks.clone();
+
         let denominator_handle = tokio::task::spawn_blocking(move || {
+            let masks = masks.blocking_lock();
+
             let masks: &[Bits] = bytemuck::cast_slice(&masks);
             let engine = MasksEngine::new(&mask);
 
@@ -308,8 +316,14 @@ impl Coordinator {
         Ok(distance_results)
     }
 
-    pub async fn initialize_masks(&self) -> eyre::Result<Vec<Bits>> {
-        //TODO: update to use batching
-        Ok(self.database.fetch_masks(0).await?)
+    async fn sync_masks(&self) -> eyre::Result<()> {
+        let mut masks = self.masks.lock().await;
+        let next_mask_number = masks.len();
+
+        let new_masks = self.database.fetch_masks(next_mask_number).await?;
+
+        masks.extend(new_masks);
+
+        Ok(())
     }
 }
