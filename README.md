@@ -1,14 +1,10 @@
 # MPC Service
 
 ## Running locally
-To run a coordinator locally:
+You can easily setup the services and databases using
 
 ```
-cargo run --bin mpc-node -- --config config/coordinator.toml
+docker compose up -d
 ```
 
-Similarly to run the participant
-
-```
-cargo run --bin mpc-node -- --config config/participant.toml
-```
+The coordinator HTTP endpoint should then be available at port 8080

@@ -1,0 +1,24 @@
+# [service]
+# service_name = "mpc-coordinator"
+# metrics_host = "localhost"
+# metrics_port = 8125
+# metrics_queue_size = 5000
+# metrics_buffer_size = 1024
+# metrics_prefix = "mpc-coordinator"
+
+[coordinator]
+participants = ["127.0.0.1:8081"]
+hamming_distance_threshold = 0.375
+n_closest_distances = 10
+
+[coordinator.gateway]
+type = "http"
+socket_addr = "127.0.0.1:8080"
+# Values below are not implemented yet
+distance_results_url = ""
+fire_and_forget = true
+
+[coordinator.db]
+url = "postgres://postgres:postgres@coordinator_db:5432/db"
+migrate = true
+create = true
