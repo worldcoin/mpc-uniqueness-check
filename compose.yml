@@ -1,14 +1,41 @@
 version: '3'
 services:
+  coordinator:
+    restart: always
+    environment:
+      - RUST_LOG=info
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - 8080:8080
+    command: ["--config", "/config.toml"]
+    volumes:
+      - ./config/docker_coordinator.toml:/config.toml
+  participant:
+    restart: always
+    environment:
+      - RUST_LOG=info
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["--config", "/config.toml"]
+    volumes:
+      - ./config/docker_participant.toml:/config.toml
   coordinator_db:
+    hostname: coordinator_db
     image: postgres
     ports:
       - 5432:5432
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
   participant_db:
+    hostname: participant_db
     image: postgres
     ports:
       - 5433:5432
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
+networks:
+  default:
+    driver: bridge
