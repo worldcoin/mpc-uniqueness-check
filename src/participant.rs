@@ -4,18 +4,21 @@ use distance::Template;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::config::ParticipantConfig;
+use crate::db::participant::ParticipantDb;
 use crate::distance::{self, DistanceEngine, EncodedBits};
 
 pub struct Participant {
     listener: tokio::net::TcpListener,
     batch_size: usize,
+    database: Arc<ParticipantDb>,
 }
 
 impl Participant {
-    pub async fn new(config: &ParticipantConfig) -> eyre::Result<Self> {
+    pub async fn new(config: ParticipantConfig) -> eyre::Result<Self> {
         Ok(Self {
             listener: tokio::net::TcpListener::bind(config.socket_addr).await?,
             batch_size: config.batch_size,
+            database: Arc::new(ParticipantDb::new(&config.db).await?),
         })
     }
 
@@ -73,8 +76,8 @@ impl Participant {
         }
     }
 
-    //TODO: init shares from the db
     pub async fn initialize_shares(&self) -> eyre::Result<Vec<EncodedBits>> {
-        Ok(vec![])
+        //TODO: update to use batching
+        Ok(self.database.fetch_shares(0).await?)
     }
 }

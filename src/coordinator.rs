@@ -12,6 +12,7 @@ use tokio::task::JoinHandle;
 
 use crate::bits::Bits;
 use crate::config::CoordinatorConfig;
+use crate::db::coordinator::CoordinatorDb;
 use crate::distance::{self, Distance, DistanceResults, MasksEngine};
 use crate::gateway::{self, Gateway};
 use crate::template::Template;
@@ -19,18 +20,25 @@ use crate::template::Template;
 const BATCH_SIZE: usize = 20_000;
 
 pub struct Coordinator {
+    //TODO: Consider maintaining an open stream and using read_exact preceeded by a bytes length payload
+    participants: Vec<SocketAddr>,
+    hamming_distance_threshold: f64,
+    n_closest_distances: usize,
     gateway: Arc<dyn Gateway>,
-    //TODO: update this so that we have longer lasting streams after with read exact
-    config: CoordinatorConfig,
+    database: Arc<CoordinatorDb>,
 }
 
 impl Coordinator {
-    pub async fn new(config: &CoordinatorConfig) -> eyre::Result<Self> {
+    pub async fn new(config: CoordinatorConfig) -> eyre::Result<Self> {
         let gateway = gateway::from_config(&config.gateway).await?;
+        let database = Arc::new(CoordinatorDb::new(&config.db).await?);
 
         Ok(Self {
             gateway,
-            config: config.clone(),
+            hamming_distance_threshold: config.hamming_distance_threshold,
+            n_closest_distances: config.n_closest_distances,
+            participants: config.participants,
+            database,
         })
     }
 
@@ -38,7 +46,7 @@ impl Coordinator {
     pub async fn spawn(mut self) -> eyre::Result<()> {
         tracing::info!("Starting coordinator");
 
-        let masks: Arc<Vec<Bits>> = Arc::new(self.initialize_masks());
+        let masks: Arc<Vec<Bits>> = Arc::new(self.initialize_masks().await?);
 
         loop {
             for template in self.gateway.receive_queries().await? {
@@ -84,21 +92,20 @@ impl Coordinator {
     ) -> eyre::Result<Vec<BufReader<TcpStream>>> {
         // Write each share to the corresponding participant
 
-        let streams =
-            future::try_join_all(self.config.participants.iter().map(
-                |socket_address| async move {
-                    // Send query
+        let streams = future::try_join_all(self.participants.iter().map(
+            |socket_address| async move {
+                // Send query
 
-                    let mut stream = TcpStream::connect(socket_address).await?;
-                    tracing::info!(?socket_address, "Connected to participant");
+                let mut stream = TcpStream::connect(socket_address).await?;
+                tracing::info!(?socket_address, "Connected to participant");
 
-                    stream.write_all(bytemuck::bytes_of(query)).await?;
-                    tracing::info!(?query, "Query sent to participant");
+                stream.write_all(bytemuck::bytes_of(query)).await?;
+                tracing::info!(?query, "Query sent to participant");
 
-                    Ok::<_, eyre::Report>(BufReader::new(stream))
-                },
-            ))
-            .await?;
+                Ok::<_, eyre::Report>(BufReader::new(stream))
+            },
+        ))
+        .await?;
 
         Ok(streams)
     }
@@ -214,7 +221,7 @@ impl Coordinator {
     ) -> eyre::Result<DistanceResults> {
         // Keep track of min distances
         let mut closest_distances =
-            BinaryHeap::with_capacity(self.config.n_closest_distances);
+            BinaryHeap::with_capacity(self.n_closest_distances);
 
         let mut max_closest_distance = 0.0;
 
@@ -260,9 +267,8 @@ impl Coordinator {
             for (j, distance) in distances.into_iter().enumerate() {
                 let id = j + i;
 
-                if distance > self.config.hamming_distance_threshold {
-                    if closest_distances.len() < self.config.n_closest_distances
-                    {
+                if distance > self.hamming_distance_threshold {
+                    if closest_distances.len() < self.n_closest_distances {
                         closest_distances
                             .push((ordered_float::OrderedFloat(distance), id));
 
@@ -302,8 +308,8 @@ impl Coordinator {
         Ok(distance_results)
     }
 
-    pub fn initialize_masks(&self) -> Vec<Bits> {
-        //TODO:
-        vec![]
+    pub async fn initialize_masks(&self) -> eyre::Result<Vec<Bits>> {
+        //TODO: update to use batching
+        Ok(self.database.fetch_masks(0).await?)
     }
 }
