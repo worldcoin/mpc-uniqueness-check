@@ -9,7 +9,7 @@
 [coordinator]
 participants = ["127.0.0.1:8081"]
 hamming_distance_threshold = 0.375
-n_closest_distances = 1000
+n_closest_distances = 10
 
 [coordinator.gateway]
 type = "http"
@@ -19,5 +19,5 @@ distance_results_url = ""
 fire_and_forget = true
 
 [coordinator.db]
-url = "postgres://localhost:5432/mpc"
+url = "postgres://localhost:5432/coordinator"
 migrate = true

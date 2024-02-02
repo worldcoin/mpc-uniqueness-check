@@ -11,5 +11,5 @@ socket_addr = "127.0.0.1:8081"
 batch_size = 20000
 
 [participant.db]
-url = "postgres://localhost:5432/mpc"
+url = "postgres://localhost:5432/participant"
 migrate = true
