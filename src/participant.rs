@@ -37,7 +37,6 @@ impl Participant {
         let batch_size = self.batch_size;
 
         loop {
-            // NOTE: this drops at the end of the loop, closing the stream
             let mut stream =
                 tokio::io::BufWriter::new(self.listener.accept().await?.0);
 

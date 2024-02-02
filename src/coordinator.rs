@@ -241,8 +241,6 @@ impl Coordinator {
 
         loop {
             // Fetch batches of denominators and shares
-
-            //NOTE: for some reason, the channel is closed or we are receiving none
             let (denom_batch, shares) =
                 processed_shares_rx.recv().await.expect("channel closed");
             let batch_size = denom_batch.len();
