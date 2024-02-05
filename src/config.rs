@@ -2,6 +2,10 @@ use std::net::SocketAddr;
 
 use serde::{Deserialize, Serialize};
 
+use self::json_wrapper::JsonStrWrapper;
+
+mod json_wrapper;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
@@ -14,7 +18,7 @@ pub struct Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoordinatorConfig {
-    pub participants: Vec<SocketAddr>,
+    pub participants: JsonStrWrapper<Vec<String>>,
     pub hamming_distance_threshold: f64,
     pub n_closest_distances: usize,
     pub gateway: GatewayConfig,
@@ -89,11 +93,11 @@ mod tests {
                 metrics_prefix: "mpc-coordinator".to_string(),
             }),
             coordinator: Some(CoordinatorConfig {
-                participants: vec![
-                    ([127, 0, 0, 1], 8000).into(),
-                    ([127, 0, 0, 1], 8001).into(),
-                    ([127, 0, 0, 1], 8002).into(),
-                ],
+                participants: JsonStrWrapper(vec![
+                    "127.0.0.1:8000".to_string(),
+                    "127.0.0.1:8001".to_string(),
+                    "127.0.0.1:8002".to_string(),
+                ]),
                 hamming_distance_threshold: 0.375,
                 n_closest_distances: 20,
                 gateway: GatewayConfig::Sqs(SqsGatewayConfig {
@@ -130,13 +134,18 @@ mod tests {
             metrics_prefix = "mpc-coordinator"
 
             [coordinator]
-            participants = ["127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8002"]
+            participants = '["127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8002"]'
             hamming_distance_threshold = 0.375
             n_closest_distances = 20
 
             [coordinator.db]
             url = "postgres://localhost:5432/mpc"
             migrate = true
+
+            [coordinator.gateway]
+            type = "sqs"
+            shares_queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
+            distances_queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-distance-results-queue"
             "#
         };
 
