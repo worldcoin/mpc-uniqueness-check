@@ -47,7 +47,7 @@ impl Coordinator {
     }
 
     //TODO: update error handling
-    pub async fn spawn(mut self) -> eyre::Result<()> {
+    pub async fn spawn(&self) -> eyre::Result<()> {
         tracing::info!("Starting coordinator");
 
         loop {
@@ -91,7 +91,7 @@ impl Coordinator {
     }
 
     pub async fn send_query_to_participants(
-        &mut self,
+        &self,
         query: &Template,
     ) -> eyre::Result<Vec<BufReader<TcpStream>>> {
         // Write each share to the corresponding participant
@@ -139,7 +139,7 @@ impl Coordinator {
     }
 
     pub fn batch_process_participant_shares(
-        &mut self,
+        &self,
         mut denominator_rx: Receiver<Vec<[u16; 31]>>,
         mut streams: Vec<BufReader<TcpStream>>,
     ) -> (
