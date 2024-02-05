@@ -30,7 +30,11 @@ async fn main() -> eyre::Result<()> {
     }
 
     let settings = settings
-        .add_source(config::Environment::with_prefix("MPC").separator("__"))
+        .add_source(
+            config::Environment::with_prefix("MPC")
+                .separator("__")
+                .try_parsing(true),
+        )
         .build()?;
 
     let config = settings.try_deserialize::<Config>()?;

@@ -1,5 +1,4 @@
 use std::collections::BinaryHeap;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use futures::future;
@@ -21,7 +20,7 @@ const BATCH_SIZE: usize = 20_000;
 
 pub struct Coordinator {
     //TODO: Consider maintaining an open stream and using read_exact preceeded by a bytes length payload
-    participants: Vec<SocketAddr>,
+    participants: Vec<String>,
     hamming_distance_threshold: f64,
     n_closest_distances: usize,
     gateway: Arc<dyn Gateway>,
@@ -41,7 +40,7 @@ impl Coordinator {
             gateway,
             hamming_distance_threshold: config.hamming_distance_threshold,
             n_closest_distances: config.n_closest_distances,
-            participants: config.participants,
+            participants: config.participants.0,
             database,
             masks,
         })
@@ -98,11 +97,9 @@ impl Coordinator {
         // Write each share to the corresponding participant
 
         let streams = future::try_join_all(self.participants.iter().map(
-            |socket_address| async move {
-                // Send query
-
-                let mut stream = TcpStream::connect(socket_address).await?;
-                tracing::info!(?socket_address, "Connected to participant");
+            |participant_host| async move {
+                let mut stream = TcpStream::connect(participant_host).await?;
+                tracing::info!(?participant_host, "Connected to participant");
 
                 stream.write_all(bytemuck::bytes_of(query)).await?;
                 tracing::info!(?query, "Query sent to participant");

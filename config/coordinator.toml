@@ -7,7 +7,7 @@
 # metrics_prefix = "mpc-coordinator"
 
 [coordinator]
-participants = ["127.0.0.1:8081"]
+participants = '["127.0.0.1:8081"]'
 hamming_distance_threshold = 0.375
 n_closest_distances = 10
 

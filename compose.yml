@@ -3,25 +3,34 @@ services:
   coordinator:
     restart: always
     environment:
-      - RUST_LOG=info
+      - 'RUST_LOG=info'
+      - 'MPC__COORDINATOR__PARTICIPANTS=["127.0.0.1:8081"]'
+      - 'MPC__COORDINATOR__HAMMING_DISTANCE_THRESHOLD=0.375'
+      - 'MPC__COORDINATOR__N_CLOSEST_DISTANCES=10'
+      - 'MPC__COORDINATOR__GATEWAY__TYPE=http'
+      - 'MPC__COORDINATOR__GATEWAY__SOCKET_ADDR=127.0.0.1:8080'
+      - 'MPC__COORDINATOR__GATEWAY__DISTANCE_RESULTS_URL=""'
+      - 'MPC__COORDINATOR__GATEWAY__FIRE_AND_FORGET=true'
+      - 'MPC__COORDINATOR__DB__URL=postgres://postgres:postgres@coordinator_db:5432/db'
+      - 'MPC__COORDINATOR__DB__MIGRATE=true'
+      - 'MPC__COORDINATOR__DB__CREATE=true'
     build:
       context: .
       dockerfile: Dockerfile
     ports:
       - 8080:8080
-    command: ["--config", "/config.toml"]
-    volumes:
-      - ./config/docker_coordinator.toml:/config.toml
   participant:
     restart: always
     environment:
-      - RUST_LOG=info
+      - 'RUST_LOG=info'
+      - 'MPC__PARTICIPANT__SOCKET_ADDR=127.0.0.1:8081'
+      - 'MPC__PARTICIPANT__BATCH_SIZE=20000'
+      - 'MPC__PARTICIPANT__DB__URL=postgres://postgres:postgres@participant_db:5432/db'
+      - 'MPC__PARTICIPANT__DB__MIGRATE=true'
+      - 'MPC__PARTICIPANT__DB__CREATE=true'
     build:
       context: .
       dockerfile: Dockerfile
-    command: ["--config", "/config.toml"]
-    volumes:
-      - ./config/docker_participant.toml:/config.toml
   coordinator_db:
     hostname: coordinator_db
     image: postgres
