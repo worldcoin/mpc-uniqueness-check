@@ -1,8 +1,11 @@
 use std::collections::BinaryHeap;
 use std::sync::Arc;
+use std::time::Duration;
 
-use futures::future;
+use futures::stream::FuturesUnordered;
+use futures::{future, StreamExt};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::Receiver;
@@ -12,11 +15,13 @@ use tokio::task::JoinHandle;
 use crate::bits::Bits;
 use crate::config::CoordinatorConfig;
 use crate::db::coordinator::CoordinatorDb;
+use crate::db_syncer::{self, DbSyncer};
 use crate::distance::{self, Distance, DistanceResults, MasksEngine};
 use crate::gateway::{self, Gateway};
 use crate::template::Template;
 
 const BATCH_SIZE: usize = 20_000;
+const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
 
 pub struct Coordinator {
     //TODO: Consider maintaining an open stream and using read_exact preceeded by a bytes length payload
@@ -26,6 +31,7 @@ pub struct Coordinator {
     gateway: Arc<dyn Gateway>,
     database: Arc<CoordinatorDb>,
     masks: Arc<Mutex<Vec<Bits>>>,
+    db_syncer: Arc<dyn DbSyncer>,
 }
 
 impl Coordinator {
@@ -36,6 +42,8 @@ impl Coordinator {
         let masks = database.fetch_masks(0).await?;
         let masks = Arc::new(Mutex::new(masks));
 
+        let db_syncer = db_syncer::from_config(&config.db_syncer).await?;
+
         Ok(Self {
             gateway,
             hamming_distance_threshold: config.hamming_distance_threshold,
@@ -43,13 +51,29 @@ impl Coordinator {
             participants: config.participants.0,
             database,
             masks,
+            db_syncer,
         })
     }
 
-    //TODO: update error handling
-    pub async fn spawn(&self) -> eyre::Result<()> {
+    pub async fn spawn(self: Arc<Self>) -> eyre::Result<()> {
         tracing::info!("Starting coordinator");
 
+        let mut tasks = FuturesUnordered::new();
+
+        // TODO: Error handling
+        tasks.push(tokio::spawn(self.clone().handle_uniqueness_check()));
+        tasks.push(tokio::spawn(self.clone().handle_db_sync()));
+
+        while let Some(result) = tasks.next().await {
+            result??;
+        }
+
+        Ok(())
+    }
+
+    async fn handle_uniqueness_check(
+        self: Arc<Self>,
+    ) -> Result<(), eyre::Error> {
         loop {
             for template in self.gateway.receive_queries().await? {
                 tracing::info!(?template, "Query received");
@@ -84,9 +108,6 @@ impl Coordinator {
                     handle.await??;
                 }
             }
-
-            //TODO: Do we want to sleep?
-            // tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }
 
@@ -321,4 +342,31 @@ impl Coordinator {
 
         Ok(())
     }
+
+    async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
+        loop {
+            let sync_message = self.db_syncer.receive_items().await?;
+
+            if sync_message.is_empty() {
+                tokio::time::sleep(IDLE_SLEEP_TIME).await;
+                continue;
+            }
+
+            for item in sync_message {
+                let items: Vec<DbSyncPayload> = serde_json::from_str(&item)?;
+                let masks: Vec<_> = items
+                    .into_iter()
+                    .map(|item| (item.id, item.mask))
+                    .collect();
+
+                self.database.insert_masks(&masks).await?;
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DbSyncPayload {
+    pub id: u64,
+    pub mask: Bits,
 }

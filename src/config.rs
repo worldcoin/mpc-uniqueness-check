@@ -23,6 +23,7 @@ pub struct CoordinatorConfig {
     pub n_closest_distances: usize,
     pub gateway: GatewayConfig,
     pub db: DbConfig,
+    pub db_syncer: SyncerConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +42,18 @@ pub struct DbConfig {
 
     #[serde(default)]
     pub create: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum SyncerConfig {
+    Sqs(SqsSyncerConfig),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SqsSyncerConfig {
+    pub queue_url: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,6 +125,10 @@ mod tests {
                     migrate: true,
                     create: true,
                 },
+                db_syncer: SyncerConfig::Sqs(SqsSyncerConfig {
+                    queue_url: "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
+                        .to_string(),
+                })
             }),
             participant: None,
         };
@@ -146,6 +163,10 @@ mod tests {
             type = "sqs"
             shares_queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
             distances_queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-distance-results-queue"
+
+            [coordinator.db_syncer]
+            type = "sqs"
+            queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
             "#
         };
 
