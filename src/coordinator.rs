@@ -127,9 +127,6 @@ impl Coordinator {
                     ?receipt_handle,
                     "Processing participant shares"
                 );
-
-
-                //KIT:TODO:
                 let (batch_process_shares_rx, batch_process_shares_handle) =
                     self.batch_process_participant_shares(
                         denominator_rx,
@@ -140,8 +137,6 @@ impl Coordinator {
 
                 //TODO: Add the id comm
                 tracing::info!(?receipt_handle, "Processing results");
-
-                //KIT:TODO:
                 let distance_results =
                     self.process_results(batch_process_shares_rx).await?;
 
@@ -223,7 +218,11 @@ impl Coordinator {
                 let mut result = vec![[0_u16; 31]; chunk.len()];
                 engine.batch_process(&mut result, chunk);
 
-                tracing::debug!(masks_processed = (i+1) * BATCH_SIZE, ?total_masks,  "Denominator batch processed");
+                tracing::debug!(
+                    masks_processed = (i + 1) * BATCH_SIZE,
+                    ?total_masks,
+                    "Denominator batch processed"
+                );
                 sender.blocking_send(result)?;
             }
 
@@ -284,7 +283,7 @@ impl Coordinator {
                             tracing::info!(
                                 participant = i,
                                 batch_size = batch.len(),
-                                "Participant batch received"
+                                "Shares batch received"
                             );
 
                             Ok::<_, eyre::Report>(batch)
@@ -310,8 +309,7 @@ impl Coordinator {
                     .iter_mut()
                     .for_each(|batch| batch.truncate(batch_size));
 
-                tracing::info(?batch_size, "Batch processed");
-
+                tracing::info!(?batch_size, "Batch processed");
 
                 // Send batches
                 processed_shares_tx.send((denom, shares)).await?;
@@ -354,6 +352,7 @@ impl Coordinator {
                 break;
             }
 
+            tracing::info!("Computing distances");
             // Compute batch of distances in Rayon
             let worker = tokio::task::spawn_blocking(move || {
                 (0..batch_size)
@@ -374,6 +373,7 @@ impl Coordinator {
                     })
                     .collect::<Vec<_>>()
             });
+
             let distances = worker.await?;
 
             for (j, distance) in distances.into_iter().enumerate() {
