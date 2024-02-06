@@ -1,5 +1,15 @@
 version: '3'
 services:
+  localstack:
+    hostname: localstack_main
+    image: localstack/localstack
+    environment:
+      # LocalStack configuration: https://docs.localstack.cloud/references/configuration/
+      - DEBUG=${DEBUG:-0}
+    volumes:
+      - "./init-scripts/ready.d:/etc/localstack/init/ready.d"
+      - "localstack-data:/var/lib/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
   coordinator:
     restart: always
     environment:
@@ -45,6 +55,10 @@ services:
       - 5433:5432
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
+
 networks:
   default:
     driver: bridge
+
+volumes:
+  localstack-data: # Define the Docker volume
