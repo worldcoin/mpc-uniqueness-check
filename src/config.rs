@@ -21,9 +21,10 @@ pub struct CoordinatorConfig {
     pub participants: JsonStrWrapper<Vec<String>>,
     pub hamming_distance_threshold: f64,
     pub n_closest_distances: usize,
-    pub gateway: GatewayConfig,
     pub db: DbConfig,
-    pub db_syncer: SyncerConfig,
+    pub queues: CoordinatorQueuesConfig,
+    #[serde(default)]
+    pub aws: AwsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,15 +46,18 @@ pub struct DbConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-#[serde(rename_all = "snake_case")]
-pub enum SyncerConfig {
-    Sqs(SqsSyncerConfig),
+pub struct CoordinatorQueuesConfig {
+    pub shares_queue_url: String,
+    pub distances_queue_url: String,
+    pub db_sync_queue_url: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SqsSyncerConfig {
-    pub queue_url: String,
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AwsConfig {
+    /// Used to override the default endpoint url for the AWS service
+    ///
+    /// Useful when using something like LocalStack
+    pub endpoint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,27 +71,6 @@ pub struct ServiceConfig {
     pub metrics_queue_size: usize,
     pub metrics_buffer_size: usize,
     pub metrics_prefix: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-#[serde(rename_all = "snake_case")]
-pub enum GatewayConfig {
-    Sqs(SqsGatewayConfig),
-    Http(HttpGatewayConfig),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SqsGatewayConfig {
-    pub shares_queue_url: String,
-    pub distances_queue_url: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HttpGatewayConfig {
-    pub socket_addr: SocketAddr,
-    pub distance_results_url: String,
-    pub fire_and_forget: bool,
 }
 
 #[cfg(test)]
@@ -113,22 +96,22 @@ mod tests {
                 ]),
                 hamming_distance_threshold: 0.375,
                 n_closest_distances: 20,
-                gateway: GatewayConfig::Sqs(SqsGatewayConfig {
-                    shares_queue_url: "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
-                        .to_string(),
-                    distances_queue_url:
-                        "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-distance-results-queue"
-                            .to_string(),
-                }),
                 db: DbConfig {
                     url: "postgres://localhost:5432/mpc".to_string(),
                     migrate: true,
                     create: true,
                 },
-                db_syncer: SyncerConfig::Sqs(SqsSyncerConfig {
-                    queue_url: "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
+                queues: CoordinatorQueuesConfig {
+                    shares_queue_url: "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
                         .to_string(),
-                })
+                    distances_queue_url: "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-distance-results-queue"
+                        .to_string(),
+                    db_sync_queue_url: "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
+                        .to_string(),
+                },
+                aws: AwsConfig {
+                    endpoint: Some("http://localhost:4566".to_string()),
+                }
             }),
             participant: None,
         };
@@ -159,14 +142,13 @@ mod tests {
             url = "postgres://localhost:5432/mpc"
             migrate = true
 
-            [coordinator.gateway]
-            type = "sqs"
+            [coordinator.queues]
             shares_queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
             distances_queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-distance-results-queue"
+            db_sync_queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
 
-            [coordinator.db_syncer]
-            type = "sqs"
-            queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
+            [coordinator.aws]
+            endpoint = "http://localhost:4566"
             "#
         };
 

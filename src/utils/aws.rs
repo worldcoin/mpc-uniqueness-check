@@ -1,8 +1,28 @@
 use aws_sdk_sqs::types::Message;
 use eyre::{Context, ContextCompat};
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
-pub async fn sqs_dequeue_raw(
+use crate::config::AwsConfig;
+
+pub async fn sqs_client_from_config(
+    config: &AwsConfig,
+) -> eyre::Result<aws_sdk_sqs::Client> {
+    let mut config_builder =
+        aws_config::defaults(aws_config::BehaviorVersion::latest());
+
+    if let Some(endpoint_url) = config.endpoint.as_ref() {
+        config_builder = config_builder.endpoint_url(endpoint_url);
+    }
+
+    let aws_config = config_builder.load().await;
+
+    let aws_client = aws_sdk_sqs::Client::new(&aws_config);
+
+    Ok(aws_client)
+}
+
+pub async fn sqs_dequeue(
     client: &aws_sdk_sqs::Client,
     queue_url: &str,
 ) -> eyre::Result<Vec<Message>> {
@@ -20,22 +40,38 @@ pub async fn sqs_dequeue_raw(
     Ok(messages)
 }
 
-pub async fn sqs_dequeue<T>(
+pub async fn sqs_enqueue<T>(
     client: &aws_sdk_sqs::Client,
     queue_url: &str,
-) -> eyre::Result<Vec<T>>
+    message: T,
+) -> eyre::Result<()>
 where
-    T: DeserializeOwned,
+    T: Serialize,
 {
-    let messages = sqs_dequeue_raw(client, queue_url).await?;
+    let body = serde_json::to_string(&message)
+        .wrap_err("Failed to serialize message")?;
 
-    messages
-        .into_iter()
-        .map(|msg| msg.body.context("Missing body"))
-        .map(|body| {
-            let body = body?;
+    client
+        .send_message()
+        .queue_url(queue_url)
+        .message_body(body)
+        .send()
+        .await?;
 
-            serde_json::from_str(&body).context("Failed to parse message")
-        })
-        .collect()
+    Ok(())
+}
+
+pub async fn sqs_delete_message(
+    client: &aws_sdk_sqs::Client,
+    queue_url: impl Into<String>,
+    receipt_handle: impl Into<String>,
+) -> eyre::Result<()> {
+    client
+        .delete_message()
+        .queue_url(queue_url)
+        .receipt_handle(receipt_handle)
+        .send()
+        .await?;
+
+    Ok(())
 }

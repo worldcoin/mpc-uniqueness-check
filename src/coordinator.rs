@@ -2,6 +2,7 @@ use std::collections::BinaryHeap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use eyre::{Context, ContextCompat};
 use futures::stream::FuturesUnordered;
 use futures::{future, StreamExt};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -15,10 +16,11 @@ use tokio::task::JoinHandle;
 use crate::bits::Bits;
 use crate::config::CoordinatorConfig;
 use crate::db::coordinator::CoordinatorDb;
-use crate::db_syncer::{self, DbSyncer};
 use crate::distance::{self, Distance, DistanceResults, MasksEngine};
-use crate::gateway::{self, Gateway};
 use crate::template::Template;
+use crate::utils::aws::{
+    sqs_client_from_config, sqs_delete_message, sqs_dequeue, sqs_enqueue,
+};
 
 const BATCH_SIZE: usize = 20_000;
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
@@ -28,30 +30,29 @@ pub struct Coordinator {
     participants: Vec<String>,
     hamming_distance_threshold: f64,
     n_closest_distances: usize,
-    gateway: Arc<dyn Gateway>,
     database: Arc<CoordinatorDb>,
     masks: Arc<Mutex<Vec<Bits>>>,
-    db_syncer: Arc<dyn DbSyncer>,
+    sqs_client: Arc<aws_sdk_sqs::Client>,
+    config: CoordinatorConfig,
 }
 
 impl Coordinator {
     pub async fn new(config: CoordinatorConfig) -> eyre::Result<Self> {
-        let gateway = gateway::from_config(&config.gateway).await?;
         let database = Arc::new(CoordinatorDb::new(&config.db).await?);
 
         let masks = database.fetch_masks(0).await?;
         let masks = Arc::new(Mutex::new(masks));
 
-        let db_syncer = db_syncer::from_config(&config.db_syncer).await?;
+        let sqs_client = Arc::new(sqs_client_from_config(&config.aws).await?);
 
         Ok(Self {
-            gateway,
             hamming_distance_threshold: config.hamming_distance_threshold,
             n_closest_distances: config.n_closest_distances,
-            participants: config.participants.0,
+            participants: config.participants.0.clone(),
             database,
             masks,
-            db_syncer,
+            sqs_client,
+            config,
         })
     }
 
@@ -75,7 +76,21 @@ impl Coordinator {
         self: Arc<Self>,
     ) -> Result<(), eyre::Error> {
         loop {
-            for template in self.gateway.receive_queries().await? {
+            let messages = sqs_dequeue(
+                &self.sqs_client,
+                &self.config.queues.shares_queue_url,
+            )
+            .await?;
+
+            for message in messages {
+                let receipt_handle = message
+                    .receipt_handle
+                    .context("Missing receipt handle in message")?;
+                let body = message.body.context("Missing message body")?;
+
+                let template: Template = serde_json::from_str(&body)
+                    .context("Failed to parse message")?;
+
                 tracing::info!(?template, "Query received");
 
                 self.sync_masks().await?;
@@ -101,7 +116,19 @@ impl Coordinator {
                 let distance_results =
                     self.process_results(batch_process_shares_rx).await?;
 
-                self.gateway.send_results(&distance_results).await?;
+                sqs_enqueue(
+                    &self.sqs_client,
+                    &self.config.queues.distances_queue_url,
+                    &distance_results,
+                )
+                .await?;
+
+                sqs_delete_message(
+                    &self.sqs_client,
+                    &self.config.queues.shares_queue_url,
+                    receipt_handle,
+                )
+                .await?;
 
                 // TODO: Make sure that all workers receive signal to stop.
                 for handle in handles {
