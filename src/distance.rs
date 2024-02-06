@@ -72,19 +72,13 @@ impl Distance {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DistanceResults {
     pub serial_id: u64,
-    pub closest_matches: Vec<Distance>,
     pub matches: Vec<Distance>,
 }
 
 impl DistanceResults {
-    pub fn new(
-        latest_id: u64,
-        closest_matches: Vec<Distance>,
-        matches: Vec<Distance>,
-    ) -> Self {
+    pub fn new(latest_id: u64, matches: Vec<Distance>) -> Self {
         Self {
             serial_id: latest_id,
-            closest_matches,
             matches,
         }
     }
