@@ -12,21 +12,28 @@ pub struct ParticipantDb {
 
 impl ParticipantDb {
     pub async fn new(config: &DbConfig) -> eyre::Result<Self> {
+        tracing::info!("Connecting to database");
+
         if config.create
             && !sqlx::Postgres::database_exists(&config.url).await?
         {
+            tracing::info!("Creating database");
             sqlx::Postgres::create_database(&config.url).await?;
         }
 
         let pool = sqlx::Pool::connect(&config.url).await?;
 
         if config.migrate {
+            tracing::info!("Running migrations");
             MIGRATOR.run(&pool).await?;
         }
+
+        tracing::info!("Connected to database");
 
         Ok(Self { pool })
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn fetch_shares(
         &self,
         id: usize,
@@ -46,6 +53,7 @@ impl ParticipantDb {
         Ok(shares.into_iter().map(|(share,)| share).collect())
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn insert_shares(
         &self,
         shares: &[(u64, EncodedBits)],

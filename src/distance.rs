@@ -38,6 +38,7 @@ impl DistanceEngine {
         Self { rotations }
     }
 
+    #[tracing::instrument(skip(self, out, db), level = "debug")]
     pub fn batch_process(&self, out: &mut [[u16; 31]], db: &[EncodedBits]) {
         assert_eq!(out.len(), db.len());
         out.par_iter_mut()
@@ -101,6 +102,7 @@ impl MasksEngine {
         Self { rotations }
     }
 
+    #[tracing::instrument(skip(self, out, db), level = "debug")]
     pub fn batch_process(&self, out: &mut [[u16; 31]], db: &[Bits]) {
         assert_eq!(out.len(), db.len());
         out.par_iter_mut()

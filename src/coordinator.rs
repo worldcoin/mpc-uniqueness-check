@@ -39,7 +39,6 @@ pub struct Coordinator {
 impl Coordinator {
     pub async fn new(config: CoordinatorConfig) -> eyre::Result<Self> {
         tracing::info!("Initializing coordinator");
-
         let database = Arc::new(CoordinatorDb::new(&config.db).await?);
 
         tracing::info!("Fetching masks from database");
