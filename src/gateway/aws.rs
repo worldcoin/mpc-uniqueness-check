@@ -1,9 +1,10 @@
-use eyre::{Context, ContextCompat};
+use eyre::Context;
 
 use super::Gateway;
 use crate::config::SqsGatewayConfig;
 use crate::distance::DistanceResults;
 use crate::template::Template;
+use crate::utils::aws::sqs_dequeue;
 
 pub struct SqsGateway {
     aws_client: aws_sdk_sqs::Client,
@@ -28,27 +29,9 @@ impl SqsGateway {
 #[async_trait::async_trait]
 impl Gateway for SqsGateway {
     async fn receive_queries(&self) -> eyre::Result<Vec<Template>> {
-        let messages = self
-            .aws_client
-            .receive_message()
-            .queue_url(self.config.shares_queue_url.clone())
-            .send()
-            .await?
-            .messages;
-
-        let Some(messages) = messages else {
-            return Ok(vec![]);
-        };
-
-        messages
-            .into_iter()
-            .map(|msg| msg.body.context("Missing body"))
-            .map(|body| {
-                let body = body?;
-
-                serde_json::from_str(&body).context("Failed to parse message")
-            })
-            .collect()
+        sqs_dequeue(&self.aws_client, &self.config.shares_queue_url)
+            .await
+            .context("Fetching coordinator messages")
     }
 
     async fn send_results(

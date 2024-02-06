@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use clap::Parser;
 use mpc::config::Config;
@@ -60,7 +61,7 @@ async fn main() -> eyre::Result<()> {
 
     if let Some(coordinator) = config.coordinator {
         tasks.push(tokio::spawn(async move {
-            let coordinator = Coordinator::new(coordinator).await?;
+            let coordinator = Arc::new(Coordinator::new(coordinator).await?);
 
             coordinator.spawn().await?;
 
