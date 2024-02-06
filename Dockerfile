@@ -13,16 +13,7 @@ RUN apt-get update && \
 # Install rustup
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
 
-COPY ./src ./src
-COPY ./Cargo.toml ./Cargo.toml
-COPY ./Cargo.lock ./Cargo.lock
 COPY ./rust-toolchain.toml ./rust-toolchain.toml
-COPY ./rustfmt.toml ./rustfmt.toml
-COPY ./migrations ./migrations
-COPY ./bin ./bin
-# Not needed for the final build
-# but we specify benches in Cargo.toml so it's necessary
-COPY ./benches ./benches
 
 # Set environment variables
 ENV PATH="/root/.cargo/bin:${PATH}"
@@ -31,6 +22,16 @@ ENV CARGO_HOME="/root/.cargo"
 
 # Install the toolchain
 RUN rustup component add cargo
+
+COPY ./src ./src
+COPY ./Cargo.toml ./Cargo.toml
+COPY ./Cargo.lock ./Cargo.lock
+COPY ./rustfmt.toml ./rustfmt.toml
+COPY ./migrations ./migrations
+COPY ./bin ./bin
+# Not needed for the final build
+# but we specify benches in Cargo.toml so it's necessary
+COPY ./benches ./benches
 
 # Build the binary
 RUN cargo fetch
