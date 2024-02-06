@@ -1,22 +1,29 @@
 use clap::{Args, Parser};
 use indicatif::ProgressBar;
-use mpc::config::DbConfig;
+use mpc::config::{AwsConfig, DbConfig};
 use mpc::db::coordinator::CoordinatorDb;
 use mpc::db::participant::ParticipantDb;
 use mpc::template::Template;
+use mpc::utils::aws::sqs_client_from_config;
 use rand::{thread_rng, Rng};
 
 #[derive(Debug, Clone, Parser)]
 enum Opt {
-    HttpQuery(RandomQuery),
-    SQSQuery(RandomQuery),
+    SQSQuery(SQSQuery),
     SeedDb(SeedDb),
 }
 
 #[derive(Debug, Clone, Args)]
-struct RandomQuery {
-    #[clap(short, long, default_value = "http://localhost:8080")]
-    pub url: String,
+struct SQSQuery {
+    /// The endpoint URL for the AWS service
+    ///
+    /// Useful when using LocalStack
+    #[clap(short, long)]
+    pub endpoint_url: Option<String>,
+
+    /// The URL of the SQS queue
+    #[clap(short, long)]
+    pub queue_url: String,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -41,36 +48,22 @@ async fn main() -> eyre::Result<()> {
     let args = Opt::parse();
 
     match args {
-        Opt::HttpQuery(args) => {
-            let mut rng = thread_rng();
-
-            let template: Template = rng.gen();
-
-            reqwest::Client::new()
-                .post(&format!("{}/", args.url))
-                .json(&template)
-                .send()
-                .await?
-                .error_for_status()?;
-        }
         Opt::SeedDb(args) => {
             seed_db(&args).await?;
         }
         Opt::SQSQuery(args) => {
-            let aws_config = aws_config::load_defaults(
-                aws_config::BehaviorVersion::latest(),
-            )
-            .await;
-
-            let aws_client = aws_sdk_sqs::Client::new(&aws_config);
+            let sqs_client = sqs_client_from_config(&AwsConfig {
+                endpoint: args.endpoint_url,
+            })
+            .await?;
 
             let mut rng = thread_rng();
 
             let template: Template = rng.gen();
 
-            aws_client
+            sqs_client
                 .send_message()
-                .queue_url(args.url)
+                .queue_url(args.queue_url)
                 .message_body(serde_json::to_string(&template)?)
                 .send()
                 .await?;
