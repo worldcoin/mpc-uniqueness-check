@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use aws_config::Region;
 use aws_sdk_sqs::types::Message;
 use eyre::Context;
@@ -26,6 +28,7 @@ pub async fn sqs_client_from_config(
     Ok(aws_client)
 }
 
+#[tracing::instrument(skip(client, queue_url))]
 pub async fn sqs_dequeue(
     client: &aws_sdk_sqs::Client,
     queue_url: &str,
@@ -41,16 +44,24 @@ pub async fn sqs_dequeue(
         return Ok(vec![]);
     };
 
+    let message_receipts = messages
+        .iter()
+        .map(|message| message.receipt_handle.clone())
+        .collect::<Vec<Option<String>>>();
+
+    tracing::info!(?message_receipts, "Dequeued messages");
+
     Ok(messages)
 }
 
+#[tracing::instrument(skip(client, queue_url, message))]
 pub async fn sqs_enqueue<T>(
     client: &aws_sdk_sqs::Client,
     queue_url: &str,
     message: T,
 ) -> eyre::Result<()>
 where
-    T: Serialize,
+    T: Serialize + Debug,
 {
     let body = serde_json::to_string(&message)
         .wrap_err("Failed to serialize message")?;
@@ -62,6 +73,8 @@ where
         .send()
         .await?;
 
+    tracing::info!(?message, "Enqueued message");
+
     Ok(())
 }
 
@@ -70,12 +83,16 @@ pub async fn sqs_delete_message(
     queue_url: impl Into<String>,
     receipt_handle: impl Into<String>,
 ) -> eyre::Result<()> {
+    let receipt_handle = receipt_handle.into();
+
     client
         .delete_message()
         .queue_url(queue_url)
-        .receipt_handle(receipt_handle)
+        .receipt_handle(&receipt_handle)
         .send()
         .await?;
+
+    tracing::info!(?receipt_handle, "Deleted message from queue");
 
     Ok(())
 }
