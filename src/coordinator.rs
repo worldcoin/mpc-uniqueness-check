@@ -372,21 +372,37 @@ impl Coordinator {
 
     async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
         loop {
-            let sync_message = self.db_syncer.receive_items().await?;
+            let messages = sqs_dequeue(
+                &self.sqs_client,
+                &self.config.queues.db_sync_queue_url,
+            )
+            .await?;
 
-            if sync_message.is_empty() {
+            if messages.is_empty() {
                 tokio::time::sleep(IDLE_SLEEP_TIME).await;
                 continue;
             }
 
-            for item in sync_message {
-                let items: Vec<DbSyncPayload> = serde_json::from_str(&item)?;
+            for message in messages {
+                let body = message.body.context("Missing message body")?;
+                let receipt_handle = message
+                    .receipt_handle
+                    .context("Missing receipt handle in message")?;
+
+                let items: Vec<DbSyncPayload> = serde_json::from_str(&body)?;
                 let masks: Vec<_> = items
                     .into_iter()
                     .map(|item| (item.id, item.mask))
                     .collect();
 
                 self.database.insert_masks(&masks).await?;
+
+                sqs_delete_message(
+                    &self.sqs_client,
+                    &self.config.queues.db_sync_queue_url,
+                    receipt_handle,
+                )
+                .await?;
             }
         }
     }
