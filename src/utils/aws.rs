@@ -1,6 +1,6 @@
+use aws_config::Region;
 use aws_sdk_sqs::types::Message;
-use eyre::{Context, ContextCompat};
-use serde::de::DeserializeOwned;
+use eyre::Context;
 use serde::Serialize;
 
 use crate::config::AwsConfig;
@@ -13,6 +13,10 @@ pub async fn sqs_client_from_config(
 
     if let Some(endpoint_url) = config.endpoint.as_ref() {
         config_builder = config_builder.endpoint_url(endpoint_url);
+    }
+
+    if let Some(region) = config.region.as_ref() {
+        config_builder = config_builder.region(Region::new(region.clone()));
     }
 
     let aws_config = config_builder.load().await;

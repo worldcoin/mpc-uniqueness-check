@@ -58,6 +58,9 @@ pub struct AwsConfig {
     ///
     /// Useful when using something like LocalStack
     pub endpoint: Option<String>,
+
+    #[serde(default)]
+    pub region: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,6 +114,7 @@ mod tests {
                 },
                 aws: AwsConfig {
                     endpoint: Some("http://localhost:4566".to_string()),
+                    region: None,
                 }
             }),
             participant: None,

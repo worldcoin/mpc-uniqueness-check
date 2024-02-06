@@ -1,8 +1,10 @@
 version: '3'
 services:
   localstack:
-    hostname: localstack_main
+    hostname: localstack
     image: localstack/localstack
+    ports:
+      - "4566:4566"
     environment:
       # LocalStack configuration: https://docs.localstack.cloud/references/configuration/
       - DEBUG=${DEBUG:-0}
@@ -14,16 +16,22 @@ services:
     restart: always
     environment:
       - 'RUST_LOG=info'
-      - 'MPC__COORDINATOR__PARTICIPANTS=["127.0.0.1:8081"]'
+      - 'MPC__COORDINATOR__PARTICIPANTS=["participant:8080"]'
       - 'MPC__COORDINATOR__HAMMING_DISTANCE_THRESHOLD=0.375'
       - 'MPC__COORDINATOR__N_CLOSEST_DISTANCES=10'
-      - 'MPC__COORDINATOR__GATEWAY__TYPE=http'
-      - 'MPC__COORDINATOR__GATEWAY__SOCKET_ADDR=127.0.0.1:8080'
-      - 'MPC__COORDINATOR__GATEWAY__DISTANCE_RESULTS_URL=""'
-      - 'MPC__COORDINATOR__GATEWAY__FIRE_AND_FORGET=true'
       - 'MPC__COORDINATOR__DB__URL=postgres://postgres:postgres@coordinator_db:5432/db'
       - 'MPC__COORDINATOR__DB__MIGRATE=true'
       - 'MPC__COORDINATOR__DB__CREATE=true'
+      - 'MPC__COORDINATOR__AWS__ENDPOINT=http://localstack:4566'
+      - 'MPC__COORDINATOR__AWS__REGION=us-east-1'
+      - 'MPC__COORDINATOR__QUEUES__SHARES_QUEUE_URL=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-uniqueness-check'
+      - 'MPC__COORDINATOR__QUEUES__DISTANCES_QUEUE_URL=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-results-queue'
+      - 'MPC__COORDINATOR__QUEUES__DB_SYNC_QUEUE_URL=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-db-sync-queue'
+      # AWS env vars - they don't matter but are required
+      - 'AWS_ACCESS_KEY_ID=test'
+      - 'AWS_SECRET_ACCESS_KEY=test'
+      - 'AWS_DEFAULT_REGION=us-east-1'
+
     build:
       context: .
       dockerfile: Dockerfile
@@ -31,9 +39,10 @@ services:
       - 8080:8080
   participant:
     restart: always
+    hostname: participant
     environment:
       - 'RUST_LOG=info'
-      - 'MPC__PARTICIPANT__SOCKET_ADDR=127.0.0.1:8081'
+      - 'MPC__PARTICIPANT__SOCKET_ADDR=0.0.0.0:8080'
       - 'MPC__PARTICIPANT__BATCH_SIZE=20000'
       - 'MPC__PARTICIPANT__DB__URL=postgres://postgres:postgres@participant_db:5432/db'
       - 'MPC__PARTICIPANT__DB__MIGRATE=true'

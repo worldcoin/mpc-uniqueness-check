@@ -21,6 +21,10 @@ struct SQSQuery {
     #[clap(short, long)]
     pub endpoint_url: Option<String>,
 
+    /// The AWS region
+    #[clap(short, long)]
+    pub region: Option<String>,
+
     /// The URL of the SQS queue
     #[clap(short, long)]
     pub queue_url: String,
@@ -54,6 +58,7 @@ async fn main() -> eyre::Result<()> {
         Opt::SQSQuery(args) => {
             let sqs_client = sqs_client_from_config(&AwsConfig {
                 endpoint: args.endpoint_url,
+                region: args.region,
             })
             .await?;
 
