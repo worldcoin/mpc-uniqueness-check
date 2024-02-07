@@ -11,6 +11,7 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
+use tracing::instrument;
 
 use crate::bits::Bits;
 use crate::config::CoordinatorConfig;
@@ -401,39 +402,47 @@ impl Coordinator {
 
     async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
         loop {
-            let messages = sqs_dequeue(
+            self.db_sync().await?;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
+    #[instrument(skip(self))]
+    async fn db_sync(&self) -> eyre::Result<()> {
+        let messages = sqs_dequeue(
+            &self.sqs_client,
+            &self.config.queues.db_sync_queue_url,
+        )
+        .await?;
+
+        //TODO: messages length metric
+
+        if messages.is_empty() {
+            tokio::time::sleep(IDLE_SLEEP_TIME).await;
+            return Ok(());
+        }
+
+        for message in messages {
+            let body = message.body.context("Missing message body")?;
+            let receipt_handle = message
+                .receipt_handle
+                .context("Missing receipt handle in message")?;
+
+            let items: Vec<DbSyncPayload> = serde_json::from_str(&body)?;
+            let masks: Vec<_> =
+                items.into_iter().map(|item| (item.id, item.mask)).collect();
+
+            self.database.insert_masks(&masks).await?;
+
+            sqs_delete_message(
                 &self.sqs_client,
                 &self.config.queues.db_sync_queue_url,
+                receipt_handle,
             )
             .await?;
-
-            if messages.is_empty() {
-                tokio::time::sleep(IDLE_SLEEP_TIME).await;
-                continue;
-            }
-
-            for message in messages {
-                let body = message.body.context("Missing message body")?;
-                let receipt_handle = message
-                    .receipt_handle
-                    .context("Missing receipt handle in message")?;
-
-                let items: Vec<DbSyncPayload> = serde_json::from_str(&body)?;
-                let masks: Vec<_> = items
-                    .into_iter()
-                    .map(|item| (item.id, item.mask))
-                    .collect();
-
-                self.database.insert_masks(&masks).await?;
-
-                sqs_delete_message(
-                    &self.sqs_client,
-                    &self.config.queues.db_sync_queue_url,
-                    receipt_handle,
-                )
-                .await?;
-            }
         }
+
+        Ok(())
     }
 }
 
