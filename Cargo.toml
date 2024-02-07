@@ -28,7 +28,6 @@ rayon = "1.8.1"
 reqwest = { version = "0.11.24", features = ["json"] }
 serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0.111"
-server = "0.1.0"
 sqlx = { version = "0.7.3", features = [
     "runtime-tokio-native-tls",
     "any",
