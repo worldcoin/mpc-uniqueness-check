@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use axum::http::StatusCode;
 use axum::{routing, Router};
 use serde::{Deserialize, Serialize};
+use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,10 +16,12 @@ impl HealthCheck {
         let router = Self::router();
 
         tokio::spawn(async move {
-            axum_server::Server::bind(addr.into())
-                .serve(router.into_make_service())
-                .await
-                .map_err(|e| eyre::Report::from(e).into())
+            axum::serve(
+                TcpListener::bind(addr.into()).await?,
+                router.into_make_service(),
+            )
+            .await
+            .map_err(|e| eyre::Report::from(e).into())
         })
     }
 
