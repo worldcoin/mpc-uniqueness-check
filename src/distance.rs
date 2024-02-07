@@ -56,32 +56,29 @@ impl DistanceEngine {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Distance {
     pub distance: f64,
-    pub id: usize,
+    pub serial_id: u64,
 }
 
 impl Distance {
-    pub fn new(distance: f64, id: usize) -> Self {
-        Self { distance, id }
+    pub fn new(serial_id: u64, distance: f64) -> Self {
+        Self {
+            distance,
+            serial_id,
+        }
     }
 }
 
 //TODO: docs
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DistanceResults {
-    pub latest_id: usize,
-    pub closest_distances: Vec<Distance>,
-    pub matches: Vec<usize>,
+    pub serial_id: u64,
+    pub matches: Vec<Distance>,
 }
 
 impl DistanceResults {
-    pub fn new(
-        latest_id: usize,
-        closest_distances: Vec<Distance>,
-        matches: Vec<usize>,
-    ) -> Self {
+    pub fn new(latest_id: u64, matches: Vec<Distance>) -> Self {
         Self {
-            latest_id,
-            closest_distances,
+            serial_id: latest_id,
             matches,
         }
     }

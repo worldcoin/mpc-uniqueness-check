@@ -272,12 +272,6 @@ impl Coordinator {
             Vec<Vec<[u16; 31]>>,
         )>,
     ) -> eyre::Result<DistanceResults> {
-        // Keep track of min distances
-        let mut closest_distances =
-            BinaryHeap::with_capacity(self.n_closest_distances);
-
-        let mut max_closest_distance = 0.0;
-
         // Collect any ids where the distance is less than the threshold
         let mut matches = vec![];
 
@@ -318,29 +312,8 @@ impl Coordinator {
             for (j, distance) in distances.into_iter().enumerate() {
                 let id = j + i;
 
-                if distance > self.hamming_distance_threshold {
-                    if closest_distances.len() < self.n_closest_distances {
-                        closest_distances
-                            .push((ordered_float::OrderedFloat(distance), id));
-
-                        max_closest_distance = closest_distances
-                            .peek()
-                            .expect("There should be at least one element")
-                            .0
-                            .into_inner();
-                    } else if distance < max_closest_distance {
-                        closest_distances.pop();
-                        closest_distances
-                            .push((ordered_float::OrderedFloat(distance), id));
-
-                        max_closest_distance = closest_distances
-                            .peek()
-                            .expect("There should be at least one element")
-                            .0
-                            .into_inner();
-                    }
-                } else {
-                    matches.push(id);
+                if distance < self.hamming_distance_threshold {
+                    matches.push(Distance::new(id as u64, distance));
                 }
             }
 
@@ -348,13 +321,7 @@ impl Coordinator {
             i += batch_size;
         }
 
-        let closest_n_distances = closest_distances
-            .into_iter()
-            .map(|d| Distance::new(d.0.into_inner(), d.1))
-            .collect::<Vec<Distance>>();
-
-        let distance_results =
-            DistanceResults::new(i, closest_n_distances, matches);
+        let distance_results = DistanceResults::new(i as u64, matches);
 
         Ok(distance_results)
     }
