@@ -86,7 +86,8 @@ impl Coordinator {
                 &self.config.queues.shares_queue_url,
             )
             .await?;
-            //TODO: Add metric for number of messages in queue
+
+            metrics::gauge!("uniqueness_check_queue", messages.len() as f64);
 
             for message in messages {
                 let receipt_handle = message
@@ -244,6 +245,7 @@ impl Coordinator {
         // Collect batches of shares
         let (processed_shares_tx, processed_shares_rx) = mpsc::channel(4);
 
+        tracing::info!("Spawning batch worker");
         let batch_worker = tokio::task::spawn(async move {
             loop {
                 // Collect futures of denominator and share batches
