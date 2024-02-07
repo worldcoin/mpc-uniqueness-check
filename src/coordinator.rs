@@ -20,7 +20,6 @@ use crate::template::Template;
 use crate::utils::aws::{
     sqs_client_from_config, sqs_delete_message, sqs_dequeue, sqs_enqueue,
 };
-use crate::utils::hex::HexByteArray;
 
 const BATCH_SIZE: usize = 20_000;
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
@@ -422,7 +421,7 @@ impl Coordinator {
                 let items: Vec<DbSyncPayload> = serde_json::from_str(&body)?;
                 let masks: Vec<_> = items
                     .into_iter()
-                    .map(|item| (item.id, item.mask, item.commitment.0))
+                    .map(|item| (item.id, item.mask))
                     .collect();
 
                 self.database.insert_masks(&masks).await?;
@@ -442,5 +441,4 @@ impl Coordinator {
 pub struct DbSyncPayload {
     pub id: u64,
     pub mask: Bits,
-    pub commitment: HexByteArray<32>,
 }

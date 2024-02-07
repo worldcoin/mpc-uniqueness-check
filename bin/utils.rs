@@ -79,7 +79,7 @@ async fn main() -> eyre::Result<()> {
 }
 
 async fn seed_db(args: &SeedDb) -> eyre::Result<()> {
-    let mut templates: Vec<(Template, [u8; 32])> = Vec::with_capacity(args.num);
+    let mut templates: Vec<Template> = Vec::with_capacity(args.num);
 
     let pb =
         ProgressBar::new(args.num as u64).with_message("Generating templates");
@@ -87,7 +87,7 @@ async fn seed_db(args: &SeedDb) -> eyre::Result<()> {
     let mut rng = thread_rng();
 
     for _ in 0..args.num {
-        templates.push((rng.gen(), rng.gen()));
+        templates.push(rng.gen());
 
         pb.inc(1);
     }
@@ -122,15 +122,15 @@ async fn seed_db(args: &SeedDb) -> eyre::Result<()> {
             .map(|_| Vec::with_capacity(chunk.len()))
             .collect();
 
-        for (offset, (template, commitment)) in chunk.iter().enumerate() {
+        for (offset, template) in chunk.iter().enumerate() {
             let shares =
                 mpc::distance::encode(template).share(participant_dbs.len());
 
             let id = offset + (idx * args.batch_size);
 
-            chunk_masks.push((id as u64, template.mask, commitment.clone()));
+            chunk_masks.push((id as u64, template.mask));
             for (idx, share) in shares.iter().enumerate() {
-                chunk_shares[idx].push((id as u64, *share, commitment.clone()));
+                chunk_shares[idx].push((id as u64, *share));
             }
         }
 

@@ -56,13 +56,12 @@ impl ParticipantDb {
     #[tracing::instrument(skip(self))]
     pub async fn insert_shares(
         &self,
-        shares: &[(u64, EncodedBits, [u8; 32])],
+        shares: &[(u64, EncodedBits)],
     ) -> eyre::Result<()> {
-        let mut builder = QueryBuilder::new(
-            "INSERT INTO shares (id, share, commitment) VALUES ",
-        );
+        let mut builder =
+            QueryBuilder::new("INSERT INTO shares (id, share) VALUES ");
 
-        for (idx, (id, share, commitment)) in shares.iter().enumerate() {
+        for (idx, (id, share)) in shares.iter().enumerate() {
             if idx > 0 {
                 builder.push(", ");
             }
@@ -70,8 +69,6 @@ impl ParticipantDb {
             builder.push_bind(*id as i64);
             builder.push(", ");
             builder.push_bind(share);
-            builder.push(", ");
-            builder.push_bind(commitment);
             builder.push(")");
         }
 
@@ -123,18 +120,14 @@ mod tests {
 
         let mut rng = thread_rng();
 
-        let shares = vec![
-            (0, rng.gen::<EncodedBits>(), rng.gen::<[u8; 32]>()),
-            (1, rng.gen::<EncodedBits>(), rng.gen::<[u8; 32]>()),
-        ];
+        let shares =
+            vec![(0, rng.gen::<EncodedBits>()), (1, rng.gen::<EncodedBits>())];
 
         db.insert_shares(&shares).await?;
 
         let fetched_shares = db.fetch_shares(0).await?;
-        let shares_without_ids = shares
-            .iter()
-            .map(|(_, share, _commitment)| *share)
-            .collect::<Vec<_>>();
+        let shares_without_ids =
+            shares.iter().map(|(_, share)| *share).collect::<Vec<_>>();
 
         assert_eq!(fetched_shares.len(), 2);
         assert_eq!(fetched_shares, shares_without_ids);
@@ -148,10 +141,8 @@ mod tests {
 
         let mut rng = thread_rng();
 
-        let shares = vec![
-            (0, rng.gen::<EncodedBits>(), rng.gen::<[u8; 32]>()),
-            (1, rng.gen::<EncodedBits>(), rng.gen::<[u8; 32]>()),
-        ];
+        let shares =
+            vec![(0, rng.gen::<EncodedBits>()), (1, rng.gen::<EncodedBits>())];
 
         db.insert_shares(&shares).await?;
 

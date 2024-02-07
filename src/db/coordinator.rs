@@ -53,13 +53,12 @@ impl CoordinatorDb {
     #[tracing::instrument(skip(self))]
     pub async fn insert_masks(
         &self,
-        masks: &[(u64, Bits, [u8; 32])],
+        masks: &[(u64, Bits)],
     ) -> eyre::Result<()> {
-        let mut builder = QueryBuilder::new(
-            "INSERT INTO masks (id, mask, commitment) VALUES ",
-        );
+        let mut builder =
+            QueryBuilder::new("INSERT INTO masks (id, mask) VALUES ");
 
-        for (idx, (id, mask, commitment)) in masks.iter().enumerate() {
+        for (idx, (id, mask)) in masks.iter().enumerate() {
             if idx > 0 {
                 builder.push(", ");
             }
@@ -67,8 +66,6 @@ impl CoordinatorDb {
             builder.push_bind(*id as i64);
             builder.push(", ");
             builder.push_bind(mask);
-            builder.push(", ");
-            builder.push_bind(commitment);
             builder.push(")");
         }
 
@@ -120,18 +117,13 @@ mod tests {
 
         let mut rng = thread_rng();
 
-        let masks = vec![
-            (0, rng.gen::<Bits>(), rng.gen::<[u8; 32]>()),
-            (1, rng.gen::<Bits>(), rng.gen::<[u8; 32]>()),
-        ];
+        let masks = vec![(0, rng.gen::<Bits>()), (1, rng.gen::<Bits>())];
 
         db.insert_masks(&masks).await?;
 
         let fetched_masks = db.fetch_masks(0).await?;
-        let masks_without_ids = masks
-            .iter()
-            .map(|(_, mask, _commitment)| *mask)
-            .collect::<Vec<_>>();
+        let masks_without_ids =
+            masks.iter().map(|(_, mask)| *mask).collect::<Vec<_>>();
 
         assert_eq!(fetched_masks.len(), 2);
         assert_eq!(fetched_masks, masks_without_ids);
@@ -145,10 +137,7 @@ mod tests {
 
         let mut rng = thread_rng();
 
-        let masks = vec![
-            (0, rng.gen::<Bits>(), rng.gen::<[u8; 32]>()),
-            (1, rng.gen::<Bits>(), rng.gen::<[u8; 32]>()),
-        ];
+        let masks = vec![(0, rng.gen::<Bits>()), (1, rng.gen::<Bits>())];
 
         db.insert_masks(&masks).await?;
 

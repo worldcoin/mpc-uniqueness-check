@@ -16,7 +16,6 @@ use crate::distance::{self, DistanceEngine, EncodedBits};
 use crate::utils::aws::{
     sqs_client_from_config, sqs_delete_message, sqs_dequeue,
 };
-use crate::utils::hex::HexByteArray;
 
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
 
@@ -84,7 +83,6 @@ impl Participant {
                 .read_exact(bytemuck::bytes_of_mut(&mut template))
                 .await?;
 
-            //TODO: add id comm
             tracing::info!("Received query");
             let shares_ref = self.shares.clone();
             // Process in worker thread
@@ -127,7 +125,7 @@ impl Participant {
                 let items: Vec<DbSyncPayload> = serde_json::from_str(&body)?;
                 let shares: Vec<_> = items
                     .into_iter()
-                    .map(|item| (item.id, item.share, item.commitment.0))
+                    .map(|item| (item.id, item.share))
                     .collect();
 
                 self.database.insert_shares(&shares).await?;
@@ -159,7 +157,6 @@ impl Participant {
 struct DbSyncPayload {
     pub id: u64,
     pub share: EncodedBits,
-    pub commitment: HexByteArray<32>,
 }
 
 #[instrument(skip(shares, template, sender))]
