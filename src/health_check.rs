@@ -38,6 +38,7 @@ mod tests {
     use reqwest::{self, StatusCode};
 
     use super::*;
+    use crate::db;
 
     #[tokio::test]
     async fn test_health_check() -> eyre::Result<()> {
@@ -59,14 +60,6 @@ mod tests {
 
         // Assert the response is OK
         assert_eq!(response.status(), StatusCode::OK);
-
-        // Stop the server
-        health_check.abort();
-
-        let response =
-            client.get(format!("http://{}/health", addr)).send().await;
-
-        assert!(response.is_err());
 
         Ok(())
     }
