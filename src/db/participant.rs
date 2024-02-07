@@ -87,95 +87,78 @@ impl ParticipantDb {
 
 #[cfg(test)]
 mod tests {
-    // use rand::{thread_rng, Rng};
+    use rand::{thread_rng, Rng};
 
-    // use super::*;
+    use super::*;
 
-    // async fn setup() -> eyre::Result<(ParticipantDb, docker_db::Postgres)> {
-    //     let pg_db = docker_db::Postgres::spawn().await?;
-    //     let url =
-    //         format!("postgres://postgres:postgres@{}", pg_db.socket_addr());
+    async fn setup() -> eyre::Result<(ParticipantDb, docker_db::Postgres)> {
+        let pg_db = docker_db::Postgres::spawn().await?;
+        let url =
+            format!("postgres://postgres:postgres@{}", pg_db.socket_addr());
 
-    //     let db = ParticipantDb::new(&DbConfig { url, migrate: true, create: true }).await?;
+        let db = ParticipantDb::new(&DbConfig {
+            url,
+            migrate: true,
+            create: true,
+        })
+        .await?;
 
-    //     Ok((db, pg_db))
-    // }
+        Ok((db, pg_db))
+    }
 
-    // #[tokio::test]
-    // async fn seed_db() -> eyre::Result<()> {
-    //     // let (db, _pg) = setup().await?;
-    //     let db = ParticipantDb::new(&DbConfig {
-    //         url: "postgres://postgres:postgres@127.0.0.1:5432/db".to_string(),
-    //         migrate: true,
-    //         create: true,
-    //     }).await?;
+    #[tokio::test]
+    async fn fetch_on_empty() -> eyre::Result<()> {
+        let (db, _pg) = setup().await?;
 
-    //     const NUM: usize = 3_000_000;
-    //     let mut rng = thread_rng();
+        let shares = db.fetch_shares(0).await?;
 
-    //     println!("Generating masks");
-    //     let mut random_masks = Vec::with_capacity(NUM);
-    //     for i in 0..NUM {
-    //         random_masks.push((i as u64, rng.gen::<Bits>()));
-    //     }
+        assert!(shares.is_empty());
 
-    //     const BATCH_SIZE: usize = 10_000;
-    //     let num_batches = random_masks.len() / BATCH_SIZE;
+        Ok(())
+    }
 
-    //     println!("Inserting masks");
-    //     for (idx, chunk) in random_masks.chunks(BATCH_SIZE).enumerate() {
-    //         println!("Inserting batch {}/{}", idx + 1, num_batches);
-    //         db.insert_masks(chunk).await?;
-    //     }
+    #[tokio::test]
+    async fn insert_and_fetch() -> eyre::Result<()> {
+        let (db, _pg) = setup().await?;
 
-    //     Ok(())
-    // }
+        let mut rng = thread_rng();
 
-    // #[tokio::test]
-    // async fn fetch_on_empty() -> eyre::Result<()> {
-    //     let (db, _pg) = setup().await?;
+        let shares = vec![
+            (0, rng.gen::<EncodedBits>(), rng.gen::<[u8; 32]>()),
+            (1, rng.gen::<EncodedBits>(), rng.gen::<[u8; 32]>()),
+        ];
 
-    //     let masks = db.fetch_masks(0).await?;
+        db.insert_shares(&shares).await?;
 
-    //     assert!(masks.is_empty());
+        let fetched_shares = db.fetch_shares(0).await?;
+        let shares_without_ids = shares
+            .iter()
+            .map(|(_, share, _commitment)| *share)
+            .collect::<Vec<_>>();
 
-    //     Ok(())
-    // }
+        assert_eq!(fetched_shares.len(), 2);
+        assert_eq!(fetched_shares, shares_without_ids);
 
-    // #[tokio::test]
-    // async fn insert_and_fetch() -> eyre::Result<()> {
-    //     let (db, _pg) = setup().await?;
+        Ok(())
+    }
 
-    //     let mut rng = thread_rng();
+    #[tokio::test]
+    async fn partial_fetch() -> eyre::Result<()> {
+        let (db, _pg) = setup().await?;
 
-    //     let masks = vec![(0, rng.gen::<Bits>()), (1, rng.gen::<Bits>())];
+        let mut rng = thread_rng();
 
-    //     db.insert_masks(&masks).await?;
+        let shares = vec![
+            (0, rng.gen::<EncodedBits>(), rng.gen::<[u8; 32]>()),
+            (1, rng.gen::<EncodedBits>(), rng.gen::<[u8; 32]>()),
+        ];
 
-    //     let fetched_masks = db.fetch_masks(0).await?;
-    //     let masks_without_ids =
-    //         masks.iter().map(|(_, mask)| *mask).collect::<Vec<_>>();
+        db.insert_shares(&shares).await?;
 
-    //     assert_eq!(fetched_masks.len(), 2);
-    //     assert_eq!(fetched_masks, masks_without_ids);
+        let fetched_shares = db.fetch_shares(1).await?;
 
-    //     Ok(())
-    // }
+        assert_eq!(fetched_shares[0], shares[1].1);
 
-    // #[tokio::test]
-    // async fn partial_fetch() -> eyre::Result<()> {
-    //     let (db, _pg) = setup().await?;
-
-    //     let mut rng = thread_rng();
-
-    //     let masks = vec![(0, rng.gen::<Bits>()), (1, rng.gen::<Bits>())];
-
-    //     db.insert_masks(&masks).await?;
-
-    //     let fetched_masks = db.fetch_masks(1).await?;
-
-    //     assert_eq!(fetched_masks[0], masks[1].1);
-
-    //     Ok(())
-    // }
+        Ok(())
+    }
 }
