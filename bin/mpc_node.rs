@@ -71,7 +71,7 @@ async fn main() -> eyre::Result<()> {
 
     if let Some(participant) = config.participant {
         tasks.push(tokio::spawn(async move {
-            let participant = Participant::new(participant).await?;
+            let participant = Arc::new(Participant::new(participant).await?);
 
             participant.spawn().await?;
 

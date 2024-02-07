@@ -56,12 +56,13 @@ impl ParticipantDb {
     #[tracing::instrument(skip(self))]
     pub async fn insert_shares(
         &self,
-        shares: &[(u64, EncodedBits)],
+        shares: &[(u64, EncodedBits, [u8; 32])],
     ) -> eyre::Result<()> {
-        let mut builder =
-            QueryBuilder::new("INSERT INTO shares (id, share) VALUES ");
+        let mut builder = QueryBuilder::new(
+            "INSERT INTO shares (id, share, commitment) VALUES ",
+        );
 
-        for (idx, (id, share)) in shares.iter().enumerate() {
+        for (idx, (id, share, commitment)) in shares.iter().enumerate() {
             if idx > 0 {
                 builder.push(", ");
             }
@@ -69,6 +70,8 @@ impl ParticipantDb {
             builder.push_bind(*id as i64);
             builder.push(", ");
             builder.push_bind(share);
+            builder.push(", ");
+            builder.push_bind(commitment);
             builder.push(")");
         }
 

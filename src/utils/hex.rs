@@ -86,7 +86,8 @@ mod tests {
         let expected = "\"12345678\"";
         assert_eq!(serialized, expected);
 
-        let deserialized: HexByteArray<4> = serde_json::from_str(&serialized).unwrap();
+        let deserialized: HexByteArray<4> =
+            serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized, hex);
     }
 

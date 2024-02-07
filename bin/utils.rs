@@ -130,7 +130,7 @@ async fn seed_db(args: &SeedDb) -> eyre::Result<()> {
 
             chunk_masks.push((id as u64, template.mask, commitment.clone()));
             for (idx, share) in shares.iter().enumerate() {
-                chunk_shares[idx].push((id as u64, *share));
+                chunk_shares[idx].push((id as u64, *share, commitment.clone()));
             }
         }
 

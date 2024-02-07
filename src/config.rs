@@ -32,6 +32,9 @@ pub struct ParticipantConfig {
     pub socket_addr: SocketAddr,
     pub batch_size: usize,
     pub db: DbConfig,
+    pub queues: ParticipantQueuesConfig,
+    #[serde(default)]
+    pub aws: AwsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +52,11 @@ pub struct DbConfig {
 pub struct CoordinatorQueuesConfig {
     pub shares_queue_url: String,
     pub distances_queue_url: String,
+    pub db_sync_queue_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParticipantQueuesConfig {
     pub db_sync_queue_url: String,
 }
 
