@@ -5,6 +5,7 @@ pub mod coordinator;
 pub mod db;
 pub mod distance;
 pub mod encoded_bits;
+pub mod health_check;
 pub mod participant;
 pub mod template;
 pub mod utils;
