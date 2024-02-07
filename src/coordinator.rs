@@ -1,4 +1,3 @@
-use std::collections::BinaryHeap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -29,7 +28,6 @@ pub struct Coordinator {
     //TODO: Consider maintaining an open stream and using read_exact preceeded by a bytes length payload
     participants: Vec<String>,
     hamming_distance_threshold: f64,
-    n_closest_distances: usize,
     database: Arc<CoordinatorDb>,
     masks: Arc<Mutex<Vec<Bits>>>,
     sqs_client: Arc<aws_sdk_sqs::Client>,
@@ -38,16 +36,18 @@ pub struct Coordinator {
 
 impl Coordinator {
     pub async fn new(config: CoordinatorConfig) -> eyre::Result<Self> {
+        tracing::info!("Initializing coordinator");
         let database = Arc::new(CoordinatorDb::new(&config.db).await?);
 
+        tracing::info!("Fetching masks from database");
         let masks = database.fetch_masks(0).await?;
         let masks = Arc::new(Mutex::new(masks));
 
+        tracing::info!("Initializing SQS client");
         let sqs_client = Arc::new(sqs_client_from_config(&config.aws).await?);
 
         Ok(Self {
             hamming_distance_threshold: config.hamming_distance_threshold,
-            n_closest_distances: config.n_closest_distances,
             participants: config.participants.0.clone(),
             database,
             masks,
@@ -57,12 +57,14 @@ impl Coordinator {
     }
 
     pub async fn spawn(self: Arc<Self>) -> eyre::Result<()> {
-        tracing::info!("Starting coordinator");
-
+        tracing::info!("Spawning coordinator");
         let mut tasks = FuturesUnordered::new();
 
         // TODO: Error handling
+        tracing::info!("Spawning uniqueness check");
         tasks.push(tokio::spawn(self.clone().handle_uniqueness_check()));
+
+        tracing::info!("Spawning db sync");
         tasks.push(tokio::spawn(self.clone().handle_db_sync()));
 
         while let Some(result) = tasks.next().await {
@@ -86,25 +88,40 @@ impl Coordinator {
                 let receipt_handle = message
                     .receipt_handle
                     .context("Missing receipt handle in message")?;
+
                 let body = message.body.context("Missing message body")?;
 
                 let template: Template = serde_json::from_str(&body)
                     .context("Failed to parse message")?;
 
-                tracing::info!(?template, "Query received");
+                //TODO: Add the id comm for better observability
+                tracing::info!(?receipt_handle, "Processing message");
 
+                // Sync all new masks that have been added to the database
                 self.sync_masks().await?;
 
+                //TODO: Add the id comm
+                tracing::info!(
+                    ?receipt_handle,
+                    "Sending query to participants"
+                );
                 let streams =
                     self.send_query_to_participants(&template).await?;
 
-                let mut handles = vec![];
+                let mut handles = Vec::with_capacity(2);
 
+                //TODO: Add the id comm
+                tracing::info!(?receipt_handle, "Computing denominators");
                 let (denominator_rx, denominator_handle) =
                     self.compute_denominators(template.mask);
 
                 handles.push(denominator_handle);
 
+                //TODO: Add the id comm
+                tracing::info!(
+                    ?receipt_handle,
+                    "Processing participant shares"
+                );
                 let (batch_process_shares_rx, batch_process_shares_handle) =
                     self.batch_process_participant_shares(
                         denominator_rx,
@@ -113,9 +130,12 @@ impl Coordinator {
 
                 handles.push(batch_process_shares_handle);
 
+                //TODO: Add the id comm
+                tracing::info!(?receipt_handle, "Processing results");
                 let distance_results =
                     self.process_results(batch_process_shares_rx).await?;
 
+                tracing::info!(?receipt_handle, "Enqueuing results");
                 sqs_enqueue(
                     &self.sqs_client,
                     &self.config.queues.distances_queue_url,
@@ -123,6 +143,7 @@ impl Coordinator {
                 )
                 .await?;
 
+                tracing::info!(?receipt_handle, "Deleting message from queue");
                 sqs_delete_message(
                     &self.sqs_client,
                     &self.config.queues.shares_queue_url,
@@ -138,28 +159,41 @@ impl Coordinator {
         }
     }
 
+    #[tracing::instrument(skip(self, query))]
     pub async fn send_query_to_participants(
         &self,
         query: &Template,
     ) -> eyre::Result<Vec<BufReader<TcpStream>>> {
         // Write each share to the corresponding participant
+        let streams =
+            future::try_join_all(self.participants.iter().enumerate().map(
+                |(i, participant_host)| async move {
+                    tracing::info!(
+                        participant = i,
+                        ?participant_host,
+                        "Connecting to participant"
+                    );
+                    let mut stream =
+                        TcpStream::connect(participant_host).await?;
 
-        let streams = future::try_join_all(self.participants.iter().map(
-            |participant_host| async move {
-                let mut stream = TcpStream::connect(participant_host).await?;
-                tracing::info!(?participant_host, "Connected to participant");
+                    stream.write_all(bytemuck::bytes_of(query)).await?;
 
-                stream.write_all(bytemuck::bytes_of(query)).await?;
-                tracing::info!(?query, "Query sent to participant");
+                    //TODO: Add the id comm for better observability
+                    tracing::info!(
+                        participant = i,
+                        ?participant_host,
+                        "Query sent to participant"
+                    );
 
-                Ok::<_, eyre::Report>(BufReader::new(stream))
-            },
-        ))
-        .await?;
+                    Ok::<_, eyre::Report>(BufReader::new(stream))
+                },
+            ))
+            .await?;
 
         Ok(streams)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn compute_denominators(
         &self,
         mask: Bits,
@@ -169,17 +203,26 @@ impl Coordinator {
 
         let denominator_handle = tokio::task::spawn_blocking(move || {
             let masks = masks.blocking_lock();
-
             let masks: &[Bits] = bytemuck::cast_slice(&masks);
             let engine = MasksEngine::new(&mask);
+            let total_masks = masks.len();
 
-            tracing::info!(?mask, "Computing denominators");
+            tracing::info!("Processing denominators");
 
-            for chunk in masks.chunks(BATCH_SIZE) {
+            for (i, chunk) in masks.chunks(BATCH_SIZE).enumerate() {
                 let mut result = vec![[0_u16; 31]; chunk.len()];
                 engine.batch_process(&mut result, chunk);
+
+                tracing::debug!(
+                    masks_processed = (i + 1) * BATCH_SIZE,
+                    ?total_masks,
+                    "Denominator batch processed"
+                );
                 sender.blocking_send(result)?;
             }
+
+            tracing::info!("Denominators processed");
+
             Ok(())
         });
 
@@ -197,41 +240,51 @@ impl Coordinator {
         // Collect batches of shares
         let (processed_shares_tx, processed_shares_rx) = mpsc::channel(4);
 
+        tracing::info!("Spawning batch worker");
         let batch_worker = tokio::task::spawn(async move {
             loop {
                 // Collect futures of denominator and share batches
-                let streams_future = future::try_join_all(
-                    streams.iter_mut().map(|stream| async move {
-                        let mut batch = vec![[0_u16; 31]; BATCH_SIZE];
-                        let mut buffer: &mut [u8] =
-                            bytemuck::cast_slice_mut(batch.as_mut_slice());
+                let streams_future =
+                    future::try_join_all(streams.iter_mut().enumerate().map(
+                        |(i, stream)| async move {
+                            let mut batch = vec![[0_u16; 31]; BATCH_SIZE];
+                            let mut buffer: &mut [u8] =
+                                bytemuck::cast_slice_mut(batch.as_mut_slice());
 
-                        // We can not use read_exact here as we might get EOF before the
-                        // buffer is full But we should
-                        // still try to fill the entire buffer.
-                        // If nothing else, this guarantees that we read batches at a
-                        // [u16;31] boundary.
-                        while !buffer.is_empty() {
-                            tracing::info!("Reading buffer");
+                            // We can not use read_exact here as we might get EOF before the
+                            // buffer is full But we should
+                            // still try to fill the entire buffer.
+                            // If nothing else, this guarantees that we read batches at a
+                            // [u16;31] boundary.
+                            while !buffer.is_empty() {
+                                let bytes_read =
+                                    stream.read_buf(&mut buffer).await?;
 
-                            let bytes_read =
-                                stream.read_buf(&mut buffer).await?;
+                                tracing::debug!(
+                                    participant = i,
+                                    bytes_read,
+                                    "Bytes read from participant"
+                                );
 
-                            tracing::info!("Buffer read");
-
-                            if bytes_read == 0 {
-                                let n_incomplete = (buffer.len()
+                                if bytes_read == 0 {
+                                    let n_incomplete = (buffer.len()
                                         + std::mem::size_of::<[u16; 31]>() //TODO: make this a const
                                         - 1)
-                                    / std::mem::size_of::<[u16; 31]>(); //TODO: make this a const
-                                batch.truncate(batch.len() - n_incomplete);
-                                break;
+                                        / std::mem::size_of::<[u16; 31]>(); //TODO: make this a const
+                                    batch.truncate(batch.len() - n_incomplete);
+                                    break;
+                                }
                             }
-                        }
 
-                        Ok::<_, eyre::Report>(batch)
-                    }),
-                );
+                            tracing::info!(
+                                participant = i,
+                                batch_size = batch.len(),
+                                "Shares batch received"
+                            );
+
+                            Ok::<_, eyre::Report>(batch)
+                        },
+                    ));
 
                 // Wait on all parts concurrently
                 let (denom, shares) =
@@ -251,6 +304,8 @@ impl Coordinator {
                 shares
                     .iter_mut()
                     .for_each(|batch| batch.truncate(batch_size));
+
+                tracing::info!(?batch_size, "Batch processed");
 
                 // Send batches
                 processed_shares_tx.send((denom, shares)).await?;
@@ -287,6 +342,7 @@ impl Coordinator {
                 break;
             }
 
+            tracing::info!("Computing distances");
             // Compute batch of distances in Rayon
             let worker = tokio::task::spawn_blocking(move || {
                 (0..batch_size)
@@ -307,6 +363,7 @@ impl Coordinator {
                     })
                     .collect::<Vec<_>>()
             });
+
             let distances = worker.await?;
 
             for (j, distance) in distances.into_iter().enumerate() {
@@ -321,11 +378,16 @@ impl Coordinator {
             i += batch_size;
         }
 
+        if !matches.is_empty() {
+            tracing::info!(?matches, "Matches found");
+        }
+
         let distance_results = DistanceResults::new(i as u64, matches);
 
         Ok(distance_results)
     }
 
+    #[tracing::instrument(skip(self))]
     async fn sync_masks(&self) -> eyre::Result<()> {
         let mut masks = self.masks.lock().await;
         let next_mask_number = masks.len();

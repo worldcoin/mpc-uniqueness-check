@@ -3,6 +3,7 @@ use std::sync::Arc;
 use distance::Template;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, Mutex};
+use tracing::instrument;
 
 use crate::config::ParticipantConfig;
 use crate::db::participant::ParticipantDb;
@@ -17,7 +18,11 @@ pub struct Participant {
 
 impl Participant {
     pub async fn new(config: ParticipantConfig) -> eyre::Result<Self> {
+        tracing::info!("Initializing participant");
+
         let database = ParticipantDb::new(&config.db).await?;
+
+        tracing::info!("Fetching shares from database");
         let shares = database.fetch_shares(0).await?;
         let shares = Arc::new(Mutex::new(shares));
 
@@ -32,7 +37,7 @@ impl Participant {
     }
 
     pub async fn spawn(&self) -> eyre::Result<()> {
-        tracing::info!("Starting participant");
+        tracing::info!("Spawning participant");
 
         let batch_size = self.batch_size;
 
@@ -49,11 +54,12 @@ impl Participant {
                 .read_exact(bytemuck::bytes_of_mut(&mut template))
                 .await?;
 
-            tracing::info!(?template, "Received template");
-
+            //TODO: add id comm
+            tracing::info!("Received query");
             let shares_ref = self.shares.clone();
             // Process in worker thread
             let (sender, mut receiver) = mpsc::channel(4);
+
             let worker = tokio::task::spawn_blocking(move || {
                 calculate_share_distances(
                     shares_ref, template, batch_size, sender,
@@ -61,12 +67,14 @@ impl Participant {
             });
 
             while let Some(buffer) = receiver.recv().await {
+                tracing::info!(batch_size = ?buffer.len(), "Sending batch result to coordinator");
                 stream.write_all(&buffer).await?;
             }
             worker.await??;
         }
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn sync_shares(&self) -> eyre::Result<()> {
         let mut shares = self.shares.lock().await;
 
@@ -79,6 +87,7 @@ impl Participant {
     }
 }
 
+#[instrument(skip(shares, template, sender))]
 fn calculate_share_distances(
     shares: Arc<Mutex<Vec<EncodedBits>>>,
     template: Template,
