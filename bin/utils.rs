@@ -84,8 +84,10 @@ async fn seed_db(args: &SeedDb) -> eyre::Result<()> {
     let pb =
         ProgressBar::new(args.num as u64).with_message("Generating templates");
 
+    let mut rng = thread_rng();
+
     for _ in 0..args.num {
-        templates.push(thread_rng().gen());
+        templates.push(rng.gen());
 
         pb.inc(1);
     }
