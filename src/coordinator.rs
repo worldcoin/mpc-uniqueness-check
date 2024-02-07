@@ -29,7 +29,6 @@ pub struct Coordinator {
     //TODO: Consider maintaining an open stream and using read_exact preceeded by a bytes length payload
     participants: Vec<String>,
     hamming_distance_threshold: f64,
-    n_closest_distances: usize,
     database: Arc<CoordinatorDb>,
     masks: Arc<Mutex<Vec<Bits>>>,
     sqs_client: Arc<aws_sdk_sqs::Client>,
@@ -50,7 +49,6 @@ impl Coordinator {
 
         Ok(Self {
             hamming_distance_threshold: config.hamming_distance_threshold,
-            n_closest_distances: config.n_closest_distances,
             participants: config.participants.0.clone(),
             database,
             masks,
@@ -86,8 +84,6 @@ impl Coordinator {
                 &self.config.queues.shares_queue_url,
             )
             .await?;
-
-            metrics::gauge!("uniqueness_check_queue", messages.len() as f64);
 
             for message in messages {
                 let receipt_handle = message
@@ -381,6 +377,10 @@ impl Coordinator {
 
             // Update counter
             i += batch_size;
+        }
+
+        if !matches.is_empty() {
+            tracing::info!(?matches, "Matches found");
         }
 
         let distance_results = DistanceResults::new(i as u64, matches);
