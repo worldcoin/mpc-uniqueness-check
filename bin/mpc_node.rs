@@ -4,6 +4,7 @@ use std::sync::Arc;
 use clap::Parser;
 use mpc::config::Config;
 use mpc::coordinator::Coordinator;
+use mpc::health_check::HealthCheck;
 use mpc::participant::Participant;
 use telemetry_batteries::metrics::batteries::StatsdBattery;
 use telemetry_batteries::tracing::batteries::DatadogBattery;
@@ -77,6 +78,11 @@ async fn main() -> eyre::Result<()> {
 
             Ok(())
         }));
+    }
+
+    if let Some(health_check) = config.health_check {
+        let health_check = HealthCheck::spawn(health_check.socket_addr);
+        tasks.push(health_check);
     }
 
     for task in tasks {

@@ -14,6 +14,8 @@ pub struct Config {
     pub coordinator: Option<CoordinatorConfig>,
     #[serde(default)]
     pub participant: Option<ParticipantConfig>,
+    #[serde(default)]
+    pub health_check: Option<HealthCheckConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +78,11 @@ pub struct ServiceConfig {
     pub metrics_prefix: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthCheckConfig {
+    pub socket_addr: SocketAddr,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,9 +122,10 @@ mod tests {
                 aws: AwsConfig {
                     endpoint: Some("http://localhost:4566".to_string()),
                     region: None,
-                }
+                },
             }),
             participant: None,
+            health_check: None,
         };
 
         let toml = toml::to_string(&config).unwrap();

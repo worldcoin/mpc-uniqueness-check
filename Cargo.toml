@@ -8,6 +8,7 @@ async-trait = "0.1.77"
 aws-config = "1.1.4"
 aws-sdk-sqs = "1.12.0"
 axum = "0.7.4"
+axum-server = "0.6.0"
 bytemuck = { version = "1.14.1", features = ["derive"] }
 clap = { version = "4.4.18", features = ["derive", "env"] }
 config = "0.13.4"
@@ -27,6 +28,7 @@ rayon = "1.8.1"
 reqwest = { version = "0.11.24", features = ["json"] }
 serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0.111"
+server = "0.1.0"
 sqlx = { version = "0.7.3", features = [
     "runtime-tokio-native-tls",
     "any",
@@ -55,4 +57,3 @@ path = "bin/utils.rs"
 [[bench]]
 name = "example"
 harness = false
-
