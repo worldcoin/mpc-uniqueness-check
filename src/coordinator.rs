@@ -403,7 +403,6 @@ impl Coordinator {
     async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
         loop {
             self.db_sync().await?;
-            tokio::time::sleep(Duration::from_secs(1)).await;
         }
     }
 
@@ -414,8 +413,6 @@ impl Coordinator {
             &self.config.queues.db_sync_queue_url,
         )
         .await?;
-
-        //TODO: messages length metric
 
         if messages.is_empty() {
             tokio::time::sleep(IDLE_SLEEP_TIME).await;
