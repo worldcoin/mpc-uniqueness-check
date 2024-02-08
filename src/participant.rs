@@ -102,42 +102,48 @@ impl Participant {
         }
     }
 
-    #[tracing::instrument(skip(self))]
     async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
         loop {
-            let messages = sqs_dequeue(
+            self.db_sync().await?;
+        }
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn db_sync(&self) -> eyre::Result<()> {
+        let messages = sqs_dequeue(
+            &self.sqs_client,
+            &self.config.queues.db_sync_queue_url,
+        )
+        .await?;
+
+        if messages.is_empty() {
+            tokio::time::sleep(IDLE_SLEEP_TIME).await;
+            return Ok(());
+        }
+
+        for message in messages {
+            let body = message.body.context("Missing message body")?;
+            let receipt_handle = message
+                .receipt_handle
+                .context("Missing receipt handle in message")?;
+
+            let items: Vec<DbSyncPayload> = serde_json::from_str(&body)?;
+            let shares: Vec<_> = items
+                .into_iter()
+                .map(|item| (item.id, item.share))
+                .collect();
+
+            self.database.insert_shares(&shares).await?;
+
+            sqs_delete_message(
                 &self.sqs_client,
                 &self.config.queues.db_sync_queue_url,
+                receipt_handle,
             )
             .await?;
-
-            if messages.is_empty() {
-                tokio::time::sleep(IDLE_SLEEP_TIME).await;
-                continue;
-            }
-
-            for message in messages {
-                let body = message.body.context("Missing message body")?;
-                let receipt_handle = message
-                    .receipt_handle
-                    .context("Missing receipt handle in message")?;
-
-                let items: Vec<DbSyncPayload> = serde_json::from_str(&body)?;
-                let shares: Vec<_> = items
-                    .into_iter()
-                    .map(|item| (item.id, item.share))
-                    .collect();
-
-                self.database.insert_shares(&shares).await?;
-
-                sqs_delete_message(
-                    &self.sqs_client,
-                    &self.config.queues.db_sync_queue_url,
-                    receipt_handle,
-                )
-                .await?;
-            }
         }
+
+        Ok(())
     }
 
     #[tracing::instrument(skip(self))]
