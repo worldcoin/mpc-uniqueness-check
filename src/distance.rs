@@ -69,10 +69,20 @@ impl Distance {
     }
 }
 
-//TODO: docs
-#[derive(Debug, Serialize, Deserialize)]
+impl Eq for Distance {}
+
+impl PartialEq for Distance {
+    fn eq(&self, other: &Self) -> bool {
+        self.distance.eq(&other.distance) && self.serial_id.eq(&other.serial_id)
+    }
+}
+
+/// Result data for a uniqueness check
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DistanceResults {
+    /// The lowest serial id known across all nodes
     pub serial_id: u64,
+    /// The distances to the query
     pub matches: Vec<Distance>,
 }
 
