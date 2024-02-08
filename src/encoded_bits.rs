@@ -207,8 +207,8 @@ impl<'de> Deserialize<'de> for EncodedBits {
                 A: SeqAccess<'de>,
             {
                 let mut arr = [0u16; BITS];
-                for i in 0..BITS {
-                    arr[i] = seq
+                for (i, item) in arr.iter_mut().enumerate().take(BITS) {
+                    *item = seq
                         .next_element()?
                         .ok_or_else(|| de::Error::invalid_length(i, &self))?;
                 }

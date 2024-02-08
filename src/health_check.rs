@@ -21,7 +21,7 @@ impl HealthCheck {
                 router.into_make_service(),
             )
             .await
-            .map_err(|e| eyre::Report::from(e).into())
+            .map_err(eyre::Report::from)
         })
     }
 
