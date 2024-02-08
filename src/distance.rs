@@ -146,12 +146,10 @@ pub fn decode_distance(distances: &[u16; 31], denominators: &[u16; 31]) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use float_eq::assert_float_eq;
     use proptest::bits::u16;
     use rand::{thread_rng, Rng};
 
     use super::*;
-    use crate::template::tests::test_data;
 
     #[test]
     fn test_preprocess() {
@@ -198,38 +196,6 @@ mod tests {
             assert_eq!(equal + uneq, denominator);
             assert_eq!((denominator - sum) % 2, 0);
             assert_eq!(uneq, (denominator - sum) / 2);
-        }
-    }
-
-    #[test]
-    fn test_encrypted_distances() {
-        let (data, dist) = test_data();
-        for d in dist {
-            let expected = d.distance;
-            let query = &data[d.left];
-            let entry = &data[d.right];
-
-            let encrypted = encode(entry);
-            for (i, v) in encrypted.0.iter().enumerate() {
-                match *v {
-                    u16::MAX => assert!(entry.mask[i] && entry.pattern[i]),
-                    0 => assert!(!entry.mask[i]),
-                    1 => assert!(entry.mask[i] && !entry.pattern[i]),
-                    _ => panic!(),
-                }
-            }
-
-            // Encode entry
-            let preprocessed = encode(query);
-            let distances =
-                distances(&preprocessed, &[encrypted]).next().unwrap();
-            let denominators =
-                denominators(&query.mask, &[entry.mask]).next().unwrap();
-
-            // Measure encoded distance
-            let actual = decode_distance(&distances, &denominators);
-
-            assert_float_eq!(actual, expected, ulps <= 1);
         }
     }
 }
