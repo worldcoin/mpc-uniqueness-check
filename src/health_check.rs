@@ -41,14 +41,13 @@ mod tests {
     use reqwest::{self, StatusCode};
 
     use super::*;
-    use crate::db;
 
     #[tokio::test]
     async fn test_health_check() -> eyre::Result<()> {
         let addr: SocketAddr = "127.0.0.1:3000".parse()?;
 
         // Spawn the HealthCheck server
-        let health_check = HealthCheck::spawn(addr);
+        let _health_check = HealthCheck::spawn(addr);
 
         // Wait for the server to start
         tokio::time::sleep(Duration::from_millis(100)).await;
