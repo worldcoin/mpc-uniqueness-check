@@ -44,6 +44,6 @@ RUN /src/target/release/mpc-node --version
 FROM gcr.io/distroless/cc-debian12:nonroot
 
 # Copy the mpc-node binary
-COPY --from=build-env --chown=0:10001 --chmod=111 /src/target/release/mpc-node /bin/mpc-node
+COPY --from=build-env --chown=0:10001 --chmod=010 /src/target/release/mpc-node /bin/mpc-node
 
 ENTRYPOINT [ "/bin/mpc-node" ]
