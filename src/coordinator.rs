@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use aws_sdk_sqs::types::Message;
 use eyre::{Context, ContextCompat};
 use futures::stream::FuturesUnordered;
 use futures::{future, StreamExt};
@@ -27,7 +26,6 @@ const BATCH_SIZE: usize = 20_000;
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
 
 pub struct Coordinator {
-    //TODO: Consider maintaining an open stream and using read_exact preceeded by a bytes length payload
     participants: Vec<String>,
     hamming_distance_threshold: f64,
     database: Arc<CoordinatorDb>,
