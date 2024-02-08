@@ -140,7 +140,12 @@ impl Coordinator {
             serial_id: distance_results.serial_id,
             matches: distance_results.matches,
             signup_id,
+            span_id: tracing::Span::current()
+                .id()
+                .context("Missing span ID")?
+                .into_u64(),
         };
+
         sqs_enqueue(
             &self.sqs_client,
             &self.config.queues.distances_queue_url,
@@ -215,7 +220,7 @@ impl Coordinator {
             let masks = masks.blocking_lock();
             let masks: &[Bits] = bytemuck::cast_slice(&masks);
             let engine = MasksEngine::new(&mask);
-            let total_masks = masks.len();
+            let total_masks: usize = masks.len();
 
             tracing::info!("Processing denominators");
 
@@ -470,6 +475,7 @@ pub struct UniquenessCheckResult {
     pub serial_id: u64,
     pub matches: Vec<Distance>,
     pub signup_id: String,
+    pub span_id: u64,
 }
 
 #[cfg(test)]
