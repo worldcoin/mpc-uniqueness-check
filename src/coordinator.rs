@@ -94,8 +94,12 @@ impl Coordinator {
                 let UniquenessCheckRequest {
                     plain_code: template,
                     signup_id,
+                    span_id,
                 } = serde_json::from_str(&body)
                     .context("Failed to parse message")?;
+
+                tracing::Span::current()
+                    .follows_from(tracing::Id::from_u64(span_id));
 
                 self.uniqueness_check(receipt_handle, template, signup_id)
                     .await?;
@@ -165,6 +169,11 @@ impl Coordinator {
         &self,
         query: &Template,
     ) -> eyre::Result<Vec<BufReader<TcpStream>>> {
+        let span_id = tracing::Span::current()
+            .id()
+            .context("Missing span ID")?
+            .into_u64();
+
         // Write each share to the corresponding participant
         let streams =
             future::try_join_all(self.participants.iter().enumerate().map(
@@ -177,6 +186,7 @@ impl Coordinator {
                     let mut stream =
                         TcpStream::connect(participant_host).await?;
 
+                    stream.write_all(bytemuck::bytes_of(&span_id)).await?;
                     stream.write_all(bytemuck::bytes_of(query)).await?;
 
                     tracing::info!(
@@ -452,6 +462,7 @@ pub struct DbSyncPayload {
 pub struct UniquenessCheckRequest {
     pub plain_code: Template,
     pub signup_id: String,
+    pub span_id: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -470,6 +481,7 @@ mod tests {
         let input = UniquenessCheckRequest {
             plain_code: Template::default(),
             signup_id: "signup_id".to_string(),
+            span_id: 0,
         };
 
         const EXPECTED: &str = indoc::indoc! {r#"

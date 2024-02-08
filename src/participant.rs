@@ -70,9 +70,21 @@ impl Participant {
 
     async fn handle_uniqueness_check(self: Arc<Self>) -> eyre::Result<()> {
         loop {
-            let stream =
+            let mut stream =
                 tokio::io::BufWriter::new(self.listener.accept().await?.0);
 
+            tracing::info!("Incoming connection accepted");
+
+            // Read the span ID from the stream and add to the current span
+            let mut span_id = 0_u64;
+            stream
+                .read_exact(bytemuck::bytes_of_mut(&mut span_id))
+                .await?;
+            let span_id = tracing::Id::from_u64(span_id);
+
+            tracing::Span::current().follows_from(span_id);
+
+            // Process the query
             self.uniqueness_check(stream).await?;
         }
     }
@@ -85,7 +97,6 @@ impl Participant {
         // We could do this and reading from the stream simultaneously
         self.sync_shares().await?;
 
-        tracing::info!("Incoming connection accepted");
         let mut template = Template::default();
         stream
             .read_exact(bytemuck::bytes_of_mut(&mut template))
