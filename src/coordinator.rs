@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use aws_sdk_sqs::types::Message;
 use eyre::{Context, ContextCompat};
 use futures::stream::FuturesUnordered;
 use futures::{future, StreamExt};
@@ -86,78 +87,78 @@ impl Coordinator {
             .await?;
 
             for message in messages {
-                let receipt_handle = message
-                    .receipt_handle
-                    .context("Missing receipt handle in message")?;
-
-                let body = message.body.context("Missing message body")?;
-
-                let template: Template = serde_json::from_str(&body)
-                    .context("Failed to parse message")?;
-
-                //TODO: Add the id comm for better observability
-                tracing::info!(?receipt_handle, "Processing message");
-
-                // Sync all new masks that have been added to the database
-                self.sync_masks().await?;
-
-                //TODO: Add the id comm
-                tracing::info!(
-                    ?receipt_handle,
-                    "Sending query to participants"
-                );
-                let streams =
-                    self.send_query_to_participants(&template).await?;
-
-                let mut handles = Vec::with_capacity(2);
-
-                //TODO: Add the id comm
-                tracing::info!(?receipt_handle, "Computing denominators");
-                let (denominator_rx, denominator_handle) =
-                    self.compute_denominators(template.mask);
-
-                handles.push(denominator_handle);
-
-                //TODO: Add the id comm
-                tracing::info!(
-                    ?receipt_handle,
-                    "Processing participant shares"
-                );
-                let (batch_process_shares_rx, batch_process_shares_handle) =
-                    self.batch_process_participant_shares(
-                        denominator_rx,
-                        streams,
-                    );
-
-                handles.push(batch_process_shares_handle);
-
-                //TODO: Add the id comm
-                tracing::info!(?receipt_handle, "Processing results");
-                let distance_results =
-                    self.process_results(batch_process_shares_rx).await?;
-
-                tracing::info!(?receipt_handle, "Enqueuing results");
-                sqs_enqueue(
-                    &self.sqs_client,
-                    &self.config.queues.distances_queue_url,
-                    &distance_results,
-                )
-                .await?;
-
-                tracing::info!(?receipt_handle, "Deleting message from queue");
-                sqs_delete_message(
-                    &self.sqs_client,
-                    &self.config.queues.shares_queue_url,
-                    receipt_handle,
-                )
-                .await?;
-
-                // TODO: Make sure that all workers receive signal to stop.
-                for handle in handles {
-                    handle.await??;
-                }
+                self.uniqueness_check(message).await?;
             }
         }
+    }
+
+    #[tracing::instrument(skip(self, message))]
+    pub async fn uniqueness_check(
+        &self,
+        message: Message,
+    ) -> Result<(), eyre::Error> {
+        let receipt_handle = message
+            .receipt_handle
+            .context("Missing receipt handle in message")?;
+
+        let body = message.body.context("Missing message body")?;
+
+        let template: Template =
+            serde_json::from_str(&body).context("Failed to parse message")?;
+
+        //TODO: Add the id comm for better observability
+        tracing::info!(?receipt_handle, "Processing message");
+
+        // Sync all new masks that have been added to the database
+        self.sync_masks().await?;
+
+        //TODO: Add the id comm
+        tracing::info!(?receipt_handle, "Sending query to participants");
+        let streams = self.send_query_to_participants(&template).await?;
+
+        let mut handles = Vec::with_capacity(2);
+
+        //TODO: Add the id comm
+        tracing::info!(?receipt_handle, "Computing denominators");
+        let (denominator_rx, denominator_handle) =
+            self.compute_denominators(template.mask);
+
+        handles.push(denominator_handle);
+
+        //TODO: Add the id comm
+        tracing::info!(?receipt_handle, "Processing participant shares");
+        let (batch_process_shares_rx, batch_process_shares_handle) =
+            self.batch_process_participant_shares(denominator_rx, streams);
+
+        handles.push(batch_process_shares_handle);
+
+        //TODO: Add the id comm
+        tracing::info!(?receipt_handle, "Processing results");
+        let distance_results =
+            self.process_results(batch_process_shares_rx).await?;
+
+        tracing::info!(?receipt_handle, "Enqueuing results");
+        sqs_enqueue(
+            &self.sqs_client,
+            &self.config.queues.distances_queue_url,
+            &distance_results,
+        )
+        .await?;
+
+        tracing::info!(?receipt_handle, "Deleting message from queue");
+        sqs_delete_message(
+            &self.sqs_client,
+            &self.config.queues.shares_queue_url,
+            receipt_handle,
+        )
+        .await?;
+
+        // TODO: Make sure that all workers receive signal to stop.
+        for handle in handles {
+            handle.await??;
+        }
+
+        Ok(())
     }
 
     #[tracing::instrument(skip(self, query))]
