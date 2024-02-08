@@ -93,7 +93,7 @@ impl Coordinator {
     }
 
     #[tracing::instrument(skip(self, message))]
-    pub async fn uniqueness_check(
+    async fn uniqueness_check(
         &self,
         message: Message,
     ) -> Result<(), eyre::Error> {
