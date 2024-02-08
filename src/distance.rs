@@ -14,7 +14,7 @@ pub const BITS: usize = ROWS * COLS;
 /// unset, masked and set.
 pub fn encode(template: &Template) -> EncodedBits {
     // Make sure masked-out pattern bits are zero;
-    let pattern = &template.pattern & &template.mask;
+    let pattern = &template.code & &template.mask;
 
     // Convert to u16s
     let pattern = EncodedBits::from(&pattern);
@@ -171,9 +171,9 @@ mod tests {
             let encrypted = encode(&entry);
             for (i, v) in encrypted.0.iter().enumerate() {
                 match *v {
-                    u16::MAX => assert!(entry.mask[i] && entry.pattern[i]),
+                    u16::MAX => assert!(entry.mask[i] && entry.code[i]),
                     0 => assert!(!entry.mask[i]),
-                    1 => assert!(entry.mask[i] && !entry.pattern[i]),
+                    1 => assert!(entry.mask[i] && !entry.code[i]),
                     _ => panic!(),
                 }
             }
@@ -195,7 +195,7 @@ mod tests {
             for i in 0..BITS {
                 if a.mask[i] && b.mask[i] {
                     denominator += 1;
-                    if a.pattern[i] == b.pattern[i] {
+                    if a.code[i] == b.code[i] {
                         equal += 1;
                     } else {
                         uneq += 1;
@@ -222,9 +222,9 @@ mod tests {
             let encrypted = encode(entry);
             for (i, v) in encrypted.0.iter().enumerate() {
                 match *v {
-                    u16::MAX => assert!(entry.mask[i] && entry.pattern[i]),
+                    u16::MAX => assert!(entry.mask[i] && entry.code[i]),
                     0 => assert!(!entry.mask[i]),
-                    1 => assert!(entry.mask[i] && !entry.pattern[i]),
+                    1 => assert!(entry.mask[i] && !entry.code[i]),
                     _ => panic!(),
                 }
             }
