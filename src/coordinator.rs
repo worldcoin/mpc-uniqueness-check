@@ -511,6 +511,7 @@ mod tests {
             serial_id: 1,
             matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
             signup_id: "signup_id".to_string(),
+            span_id: 0,
         };
 
         const EXPECTED: &str = indoc::indoc! {r#"
