@@ -1,6 +1,11 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use distance::Template;
+use eyre::ContextCompat;
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
+use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, Mutex};
 use tracing::instrument;
@@ -8,12 +13,19 @@ use tracing::instrument;
 use crate::config::ParticipantConfig;
 use crate::db::participant::ParticipantDb;
 use crate::distance::{self, DistanceEngine, EncodedBits};
+use crate::utils::aws::{
+    sqs_client_from_config, sqs_delete_message, sqs_dequeue,
+};
+
+const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
 
 pub struct Participant {
     listener: tokio::net::TcpListener,
     batch_size: usize,
     database: Arc<ParticipantDb>,
     shares: Arc<Mutex<Vec<EncodedBits>>>,
+    sqs_client: aws_sdk_sqs::Client,
+    config: ParticipantConfig,
 }
 
 impl Participant {
@@ -28,17 +40,34 @@ impl Participant {
 
         let database = Arc::new(database);
 
+        let sqs_client = sqs_client_from_config(&config.aws).await?;
+
         Ok(Self {
             listener: tokio::net::TcpListener::bind(config.socket_addr).await?,
             batch_size: config.batch_size,
             database,
             shares,
+            sqs_client,
+            config,
         })
     }
 
-    pub async fn spawn(&self) -> eyre::Result<()> {
+    pub async fn spawn(self: Arc<Self>) -> eyre::Result<()> {
         tracing::info!("Spawning participant");
 
+        let mut tasks = FuturesUnordered::new();
+
+        tasks.push(tokio::spawn(self.clone().handle_uniqueness_check()));
+        tasks.push(tokio::spawn(self.clone().handle_db_sync()));
+
+        while let Some(result) = tasks.next().await {
+            result??;
+        }
+
+        Ok(())
+    }
+
+    async fn handle_uniqueness_check(self: Arc<Self>) -> eyre::Result<()> {
         let batch_size = self.batch_size;
 
         loop {
@@ -54,7 +83,6 @@ impl Participant {
                 .read_exact(bytemuck::bytes_of_mut(&mut template))
                 .await?;
 
-            //TODO: add id comm
             tracing::info!("Received query");
             let shares_ref = self.shares.clone();
             // Process in worker thread
@@ -75,6 +103,44 @@ impl Participant {
     }
 
     #[tracing::instrument(skip(self))]
+    async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
+        loop {
+            let messages = sqs_dequeue(
+                &self.sqs_client,
+                &self.config.queues.db_sync_queue_url,
+            )
+            .await?;
+
+            if messages.is_empty() {
+                tokio::time::sleep(IDLE_SLEEP_TIME).await;
+                continue;
+            }
+
+            for message in messages {
+                let body = message.body.context("Missing message body")?;
+                let receipt_handle = message
+                    .receipt_handle
+                    .context("Missing receipt handle in message")?;
+
+                let items: Vec<DbSyncPayload> = serde_json::from_str(&body)?;
+                let shares: Vec<_> = items
+                    .into_iter()
+                    .map(|item| (item.id, item.share))
+                    .collect();
+
+                self.database.insert_shares(&shares).await?;
+
+                sqs_delete_message(
+                    &self.sqs_client,
+                    &self.config.queues.db_sync_queue_url,
+                    receipt_handle,
+                )
+                .await?;
+            }
+        }
+    }
+
+    #[tracing::instrument(skip(self))]
     pub async fn sync_shares(&self) -> eyre::Result<()> {
         let mut shares = self.shares.lock().await;
 
@@ -85,6 +151,12 @@ impl Participant {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct DbSyncPayload {
+    pub id: u64,
+    pub share: EncodedBits,
 }
 
 #[instrument(skip(shares, template, sender))]

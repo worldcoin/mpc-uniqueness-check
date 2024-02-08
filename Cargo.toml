@@ -55,4 +55,3 @@ path = "bin/utils.rs"
 [[bench]]
 name = "example"
 harness = false
-

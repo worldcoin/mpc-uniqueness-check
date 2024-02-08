@@ -14,6 +14,8 @@ pub struct Config {
     pub coordinator: Option<CoordinatorConfig>,
     #[serde(default)]
     pub participant: Option<ParticipantConfig>,
+    #[serde(default)]
+    pub health_check: Option<HealthCheckConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,6 +34,9 @@ pub struct ParticipantConfig {
     pub socket_addr: SocketAddr,
     pub batch_size: usize,
     pub db: DbConfig,
+    pub queues: ParticipantQueuesConfig,
+    #[serde(default)]
+    pub aws: AwsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +54,11 @@ pub struct DbConfig {
 pub struct CoordinatorQueuesConfig {
     pub shares_queue_url: String,
     pub distances_queue_url: String,
+    pub db_sync_queue_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParticipantQueuesConfig {
     pub db_sync_queue_url: String,
 }
 
@@ -74,6 +84,11 @@ pub struct ServiceConfig {
     pub metrics_queue_size: usize,
     pub metrics_buffer_size: usize,
     pub metrics_prefix: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthCheckConfig {
+    pub socket_addr: SocketAddr,
 }
 
 #[cfg(test)]
@@ -115,9 +130,10 @@ mod tests {
                 aws: AwsConfig {
                     endpoint: Some("http://localhost:4566".to_string()),
                     region: None,
-                }
+                },
             }),
             participant: None,
+            health_check: None,
         };
 
         let toml = toml::to_string(&config).unwrap();
