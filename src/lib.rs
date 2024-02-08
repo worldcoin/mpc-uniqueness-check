@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity, clippy::comparison_chain)]
+
 pub mod arch;
 pub mod bits;
 pub mod config;
