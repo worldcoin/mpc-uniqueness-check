@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use aws_sdk_sqs::types::Message;
 use eyre::{Context, ContextCompat};
 use futures::stream::FuturesUnordered;
 use futures::{future, StreamExt};
@@ -98,18 +99,14 @@ impl Coordinator {
                 } = serde_json::from_str(&body)
                     .context("Failed to parse message")?;
 
-                self.handle_uniqueness_check(
-                    receipt_handle,
-                    template,
-                    signup_id,
-                )
-                .await?;
+                self.uniqueness_check(receipt_handle, template, signup_id)
+                    .await?;
             }
         }
     }
 
     #[tracing::instrument(skip(self, template))]
-    async fn handle_uniqueness_check(
+    pub async fn uniqueness_check(
         &self,
         receipt_handle: String,
         template: Template,
@@ -157,6 +154,7 @@ impl Coordinator {
         )
         .await?;
 
+        // TODO: Make sure that all workers receive signal to stop.
         for handle in handles {
             handle.await??;
         }
