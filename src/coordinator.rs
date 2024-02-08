@@ -62,7 +62,7 @@ impl Coordinator {
 
         // TODO: Error handling
         tracing::info!("Spawning uniqueness check");
-        tasks.push(tokio::spawn(self.clone().handle_uniqueness_check()));
+        tasks.push(tokio::spawn(self.clone().handle_uniqueness_checks()));
 
         tracing::info!("Spawning db sync");
         tasks.push(tokio::spawn(self.clone().handle_db_sync()));
@@ -74,7 +74,7 @@ impl Coordinator {
         Ok(())
     }
 
-    async fn handle_uniqueness_check(
+    async fn handle_uniqueness_checks(
         self: Arc<Self>,
     ) -> Result<(), eyre::Error> {
         loop {
@@ -91,72 +91,76 @@ impl Coordinator {
 
                 let body = message.body.context("Missing message body")?;
 
-                let template: Template = serde_json::from_str(&body)
+                let UniquenessCheckRequest {
+                    plain_code: template,
+                    signup_id,
+                } = serde_json::from_str(&body)
                     .context("Failed to parse message")?;
 
-                //TODO: Add the id comm for better observability
-                tracing::info!(?receipt_handle, "Processing message");
-
-                // Sync all new masks that have been added to the database
-                self.sync_masks().await?;
-
-                //TODO: Add the id comm
-                tracing::info!(
-                    ?receipt_handle,
-                    "Sending query to participants"
-                );
-                let streams =
-                    self.send_query_to_participants(&template).await?;
-
-                let mut handles = Vec::with_capacity(2);
-
-                //TODO: Add the id comm
-                tracing::info!(?receipt_handle, "Computing denominators");
-                let (denominator_rx, denominator_handle) =
-                    self.compute_denominators(template.mask);
-
-                handles.push(denominator_handle);
-
-                //TODO: Add the id comm
-                tracing::info!(
-                    ?receipt_handle,
-                    "Processing participant shares"
-                );
-                let (batch_process_shares_rx, batch_process_shares_handle) =
-                    self.batch_process_participant_shares(
-                        denominator_rx,
-                        streams,
-                    );
-
-                handles.push(batch_process_shares_handle);
-
-                //TODO: Add the id comm
-                tracing::info!(?receipt_handle, "Processing results");
-                let distance_results =
-                    self.process_results(batch_process_shares_rx).await?;
-
-                tracing::info!(?receipt_handle, "Enqueuing results");
-                sqs_enqueue(
-                    &self.sqs_client,
-                    &self.config.queues.distances_queue_url,
-                    &distance_results,
-                )
-                .await?;
-
-                tracing::info!(?receipt_handle, "Deleting message from queue");
-                sqs_delete_message(
-                    &self.sqs_client,
-                    &self.config.queues.shares_queue_url,
+                self.handle_uniqueness_check(
                     receipt_handle,
+                    template,
+                    signup_id,
                 )
                 .await?;
-
-                // TODO: Make sure that all workers receive signal to stop.
-                for handle in handles {
-                    handle.await??;
-                }
             }
         }
+    }
+
+    #[tracing::instrument(skip(self, template))]
+    async fn handle_uniqueness_check(
+        &self,
+        receipt_handle: String,
+        template: Template,
+        signup_id: String,
+    ) -> Result<(), eyre::Error> {
+        tracing::info!("Processing message");
+        self.sync_masks().await?;
+
+        tracing::info!("Sending query to participants");
+        let streams = self.send_query_to_participants(&template).await?;
+        let mut handles = Vec::with_capacity(2);
+
+        tracing::info!("Computing denominators");
+        let (denominator_rx, denominator_handle) =
+            self.compute_denominators(template.mask);
+        handles.push(denominator_handle);
+
+        tracing::info!("Processing participant shares");
+        let (batch_process_shares_rx, batch_process_shares_handle) =
+            self.batch_process_participant_shares(denominator_rx, streams);
+        handles.push(batch_process_shares_handle);
+
+        tracing::info!("Processing results");
+        let distance_results =
+            self.process_results(batch_process_shares_rx).await?;
+
+        tracing::info!("Enqueuing results");
+        let result = UniquenessCheckResult {
+            serial_id: distance_results.serial_id,
+            matches: distance_results.matches,
+            signup_id,
+        };
+        sqs_enqueue(
+            &self.sqs_client,
+            &self.config.queues.distances_queue_url,
+            &result,
+        )
+        .await?;
+
+        tracing::info!("Deleting message from queue");
+        sqs_delete_message(
+            &self.sqs_client,
+            &self.config.queues.shares_queue_url,
+            receipt_handle,
+        )
+        .await?;
+
+        for handle in handles {
+            handle.await??;
+        }
+
+        Ok(())
     }
 
     #[tracing::instrument(skip(self, query))]
@@ -178,7 +182,6 @@ impl Coordinator {
 
                     stream.write_all(bytemuck::bytes_of(query)).await?;
 
-                    //TODO: Add the id comm for better observability
                     tracing::info!(
                         participant = i,
                         ?participant_host,
@@ -441,4 +444,74 @@ impl Coordinator {
 pub struct DbSyncPayload {
     pub id: u64,
     pub mask: Bits,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UniquenessCheckRequest {
+    pub plain_code: Template,
+    pub signup_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UniquenessCheckResult {
+    pub serial_id: u64,
+    pub matches: Vec<Distance>,
+    pub signup_id: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_serialization() {
+        let input = UniquenessCheckRequest {
+            plain_code: Template::default(),
+            signup_id: "signup_id".to_string(),
+        };
+
+        const EXPECTED: &str = indoc::indoc! {r#"
+            {
+              "plain_code": {
+                "code": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+                "mask": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+              },
+              "signup_id": "signup_id"
+            }
+        "#};
+
+        let s = serde_json::to_string_pretty(&input).unwrap();
+
+        similar_asserts::assert_eq!(s.trim(), EXPECTED.trim());
+    }
+
+    #[test]
+    fn result_serialization() {
+        let output = UniquenessCheckResult {
+            serial_id: 1,
+            matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
+            signup_id: "signup_id".to_string(),
+        };
+
+        const EXPECTED: &str = indoc::indoc! {r#"
+            {
+              "serial_id": 1,
+              "matches": [
+                {
+                  "distance": 0.5,
+                  "serial_id": 0
+                },
+                {
+                  "distance": 0.2,
+                  "serial_id": 1
+                }
+              ],
+              "signup_id": "signup_id"
+            }
+        "#};
+
+        let s = serde_json::to_string_pretty(&output).unwrap();
+
+        similar_asserts::assert_eq!(s.trim(), EXPECTED.trim());
+    }
 }

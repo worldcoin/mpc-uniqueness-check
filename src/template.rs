@@ -24,14 +24,14 @@ pub use crate::bits::Bits;
     Zeroable,
 )]
 pub struct Template {
-    pub pattern: Bits,
+    pub code: Bits,
     pub mask: Bits,
 }
 
 impl Template {
     pub fn rotate(&mut self, amount: i32) {
         self.mask.rotate(amount);
-        self.pattern.rotate(amount);
+        self.code.rotate(amount);
     }
 
     pub fn rotated(&self, amount: i32) -> Self {
@@ -50,9 +50,9 @@ impl Template {
         let mut num = 0;
         let mut den = 0;
         for (ap, am, bp, bm) in izip!(
-            self.pattern.0.iter(),
+            self.code.0.iter(),
             self.mask.0.iter(),
-            other.pattern.0.iter(),
+            other.code.0.iter(),
             other.mask.0.iter()
         ) {
             let m = am & bm;
@@ -67,7 +67,7 @@ impl Template {
 impl Distribution<Template> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Template {
         Template {
-            pattern: rng.gen(),
+            code: rng.gen(),
             mask: rng.gen(),
         }
     }

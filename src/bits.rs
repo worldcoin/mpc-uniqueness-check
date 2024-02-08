@@ -1,7 +1,10 @@
+use std::borrow::Cow;
 use std::fmt::Debug;
 use std::ops;
 use std::ops::Index;
 
+use base64::prelude::BASE64_STANDARD;
+use base64::Engine;
 use bytemuck::{
     bytes_of, cast_slice_mut, try_cast_slice, try_cast_slice_mut, Pod, Zeroable,
 };
@@ -87,7 +90,9 @@ impl Serialize for Bits {
     where
         S: serde::Serializer,
     {
-        hex::serialize(bytes_of(self), serializer)
+        let s = BASE64_STANDARD.encode(bytes_of(self));
+
+        s.serialize(serializer)
     }
 }
 
@@ -96,7 +101,12 @@ impl<'de> Deserialize<'de> for Bits {
     where
         D: serde::Deserializer<'de>,
     {
-        let bytes: Vec<u8> = hex::deserialize(deserializer)?;
+        let s: Cow<'static, str> = Deserialize::deserialize(deserializer)?;
+
+        let bytes = BASE64_STANDARD
+            .decode(s.as_bytes())
+            .map_err(D::Error::custom)?;
+
         let limbs =
             try_cast_slice(bytes.as_slice()).map_err(D::Error::custom)?;
         let limbs = limbs.try_into().map_err(D::Error::custom)?;
