@@ -6,7 +6,8 @@ use eyre::ContextCompat;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use serde::Deserialize;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
+use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex};
 use tracing::instrument;
 
@@ -68,38 +69,46 @@ impl Participant {
     }
 
     async fn handle_uniqueness_check(self: Arc<Self>) -> eyre::Result<()> {
-        let batch_size = self.batch_size;
-
         loop {
-            let mut stream =
+            let stream =
                 tokio::io::BufWriter::new(self.listener.accept().await?.0);
 
-            // We could do this and reading from the stream simultaneously
-            self.sync_shares().await?;
-
-            tracing::info!("Incoming connection accepted");
-            let mut template = Template::default();
-            stream
-                .read_exact(bytemuck::bytes_of_mut(&mut template))
-                .await?;
-
-            tracing::info!("Received query");
-            let shares_ref = self.shares.clone();
-            // Process in worker thread
-            let (sender, mut receiver) = mpsc::channel(4);
-
-            let worker = tokio::task::spawn_blocking(move || {
-                calculate_share_distances(
-                    shares_ref, template, batch_size, sender,
-                )
-            });
-
-            while let Some(buffer) = receiver.recv().await {
-                tracing::info!(batch_size = ?buffer.len(), "Sending batch result to coordinator");
-                stream.write_all(&buffer).await?;
-            }
-            worker.await??;
+            self.uniqueness_check(stream).await?;
         }
+    }
+
+    #[tracing::instrument(skip(self, stream))]
+    async fn uniqueness_check(
+        &self,
+        mut stream: BufWriter<TcpStream>,
+    ) -> eyre::Result<()> {
+        // We could do this and reading from the stream simultaneously
+        self.sync_shares().await?;
+
+        tracing::info!("Incoming connection accepted");
+        let mut template = Template::default();
+        stream
+            .read_exact(bytemuck::bytes_of_mut(&mut template))
+            .await?;
+
+        tracing::info!("Received query");
+        let shares_ref = self.shares.clone();
+
+        let batch_size = self.batch_size;
+
+        // Process in worker thread
+        let (sender, mut receiver) = mpsc::channel(4);
+        let worker = tokio::task::spawn_blocking(move || {
+            calculate_share_distances(shares_ref, template, batch_size, sender)
+        });
+
+        while let Some(buffer) = receiver.recv().await {
+            tracing::info!(batch_size = ?buffer.len(), "Sending batch result to coordinator");
+            stream.write_all(&buffer).await?;
+        }
+        worker.await??;
+
+        Ok(())
     }
 
     async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
