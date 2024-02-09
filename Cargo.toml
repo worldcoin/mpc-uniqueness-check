@@ -57,3 +57,6 @@ path = "bin/utils.rs"
 [[bench]]
 name = "example"
 harness = false
+
+[profile.release]
+panic = "abort"
