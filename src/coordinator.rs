@@ -20,6 +20,7 @@ use crate::template::Template;
 use crate::utils::aws::{
     sqs_client_from_config, sqs_delete_message, sqs_dequeue, sqs_enqueue,
 };
+use crate::utils::templating::resolve_template;
 
 const BATCH_SIZE: usize = 20_000;
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
@@ -46,9 +47,17 @@ impl Coordinator {
         tracing::info!("Initializing SQS client");
         let sqs_client = Arc::new(sqs_client_from_config(&config.aws).await?);
 
+        let participants = config
+            .participants
+            .0
+            .iter()
+            .map(String::as_str)
+            .map(resolve_template)
+            .collect::<Result<_, _>>()?;
+
         Ok(Self {
             hamming_distance_threshold: config.hamming_distance_threshold,
-            participants: config.participants.0.clone(),
+            participants,
             database,
             masks,
             sqs_client,
