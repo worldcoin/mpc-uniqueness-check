@@ -1,8 +1,7 @@
 use clap::{Args, Parser};
 use indicatif::ProgressBar;
 use mpc::config::{AwsConfig, DbConfig};
-use mpc::db::coordinator::CoordinatorDb;
-use mpc::db::participant::ParticipantDb;
+use mpc::db::Db;
 use mpc::template::Template;
 use mpc::utils::aws::sqs_client_from_config;
 use rand::{thread_rng, Rng};
@@ -94,7 +93,7 @@ async fn seed_db(args: &SeedDb) -> eyre::Result<()> {
 
     pb.finish_with_message("done");
 
-    let coordinator_db = CoordinatorDb::new(&DbConfig {
+    let coordinator_db = Db::new(&DbConfig {
         url: args.coordinator_db_url.clone(),
         migrate: true,
         create: true,
@@ -105,7 +104,7 @@ async fn seed_db(args: &SeedDb) -> eyre::Result<()> {
 
     for db_config in args.participant_db_url.iter() {
         participant_dbs.push(
-            ParticipantDb::new(&DbConfig {
+            Db::new(&DbConfig {
                 url: db_config.clone(),
                 migrate: true,
                 create: true,
