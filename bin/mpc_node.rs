@@ -42,7 +42,12 @@ async fn main() -> eyre::Result<()> {
     let config = settings.try_deserialize::<Config>()?;
 
     if let Some(service) = &config.service {
-        DatadogBattery::init(None, &service.service_name, None, true);
+        DatadogBattery::init(
+            service.traces_endpoint.as_deref(),
+            &service.service_name,
+            None,
+            true,
+        );
 
         StatsdBattery::init(
             &service.metrics_host,

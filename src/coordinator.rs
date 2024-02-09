@@ -14,7 +14,7 @@ use tokio::task::JoinHandle;
 
 use crate::bits::Bits;
 use crate::config::CoordinatorConfig;
-use crate::db::coordinator::CoordinatorDb;
+use crate::db::Db;
 use crate::distance::{self, Distance, DistanceResults, MasksEngine};
 use crate::template::Template;
 use crate::utils::aws::{
@@ -28,7 +28,7 @@ pub struct Coordinator {
     //TODO: Consider maintaining an open stream and using read_exact preceeded by a bytes length payload
     participants: Vec<String>,
     hamming_distance_threshold: f64,
-    database: Arc<CoordinatorDb>,
+    database: Arc<Db>,
     masks: Arc<Mutex<Vec<Bits>>>,
     sqs_client: Arc<aws_sdk_sqs::Client>,
     config: CoordinatorConfig,
@@ -37,7 +37,7 @@ pub struct Coordinator {
 impl Coordinator {
     pub async fn new(config: CoordinatorConfig) -> eyre::Result<Self> {
         tracing::info!("Initializing coordinator");
-        let database = Arc::new(CoordinatorDb::new(&config.db).await?);
+        let database = Arc::new(Db::new(&config.db).await?);
 
         tracing::info!("Fetching masks from database");
         let masks = database.fetch_masks(0).await?;
