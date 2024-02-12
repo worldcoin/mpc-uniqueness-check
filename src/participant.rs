@@ -6,7 +6,11 @@ use eyre::ContextCompat;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use serde::Deserialize;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use telemetry_batteries::opentelemetry::trace::{
+    SpanContext, SpanId, TraceFlags, TraceId, TraceState,
+};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
+use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex};
 use tracing::instrument;
 
@@ -68,76 +72,126 @@ impl Participant {
     }
 
     async fn handle_uniqueness_check(self: Arc<Self>) -> eyre::Result<()> {
-        let batch_size = self.batch_size;
-
         loop {
             let mut stream =
                 tokio::io::BufWriter::new(self.listener.accept().await?.0);
 
-            // We could do this and reading from the stream simultaneously
-            self.sync_shares().await?;
+            // Process the trace and span ids to correlate traces between services
+            self.handle_traces_payload(&mut stream).await?;
 
             tracing::info!("Incoming connection accepted");
-            let mut template = Template::default();
-            stream
-                .read_exact(bytemuck::bytes_of_mut(&mut template))
-                .await?;
 
-            tracing::info!("Received query");
-            let shares_ref = self.shares.clone();
-            // Process in worker thread
-            let (sender, mut receiver) = mpsc::channel(4);
+            // Process the query
+            self.uniqueness_check(stream).await?;
+        }
+    }
 
-            let worker = tokio::task::spawn_blocking(move || {
-                calculate_share_distances(
-                    shares_ref, template, batch_size, sender,
-                )
-            });
+    async fn handle_traces_payload(
+        &self,
+        stream: &mut BufWriter<TcpStream>,
+    ) -> eyre::Result<()> {
+        // Read the span ID from the stream and add to the current span
+        let mut trace_id_bytes = [0_u8; 16];
+        let mut span_id_bytes = [0_u8; 8];
 
-            while let Some(buffer) = receiver.recv().await {
-                tracing::info!(batch_size = ?buffer.len(), "Sending batch result to coordinator");
-                stream.write_all(&buffer).await?;
-            }
-            worker.await??;
+        stream
+            .read_exact(bytemuck::bytes_of_mut(&mut trace_id_bytes))
+            .await?;
+
+        stream
+            .read_exact(bytemuck::bytes_of_mut(&mut span_id_bytes))
+            .await?;
+
+        // Create span parent context
+        let parent_ctx = SpanContext::new(
+            TraceId::from_bytes(trace_id_bytes),
+            SpanId::from_bytes(span_id_bytes),
+            TraceFlags::default(),
+            true,
+            TraceState::default(),
+        );
+
+        // Set the parent context for the current span to correlate traces between services
+        telemetry_batteries::tracing::trace_from_ctx(parent_ctx);
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, stream))]
+    async fn uniqueness_check(
+        &self,
+        mut stream: BufWriter<TcpStream>,
+    ) -> eyre::Result<()> {
+        // We could do this and reading from the stream simultaneously
+        self.sync_shares().await?;
+
+        let mut template = Template::default();
+        stream
+            .read_exact(bytemuck::bytes_of_mut(&mut template))
+            .await?;
+
+        tracing::info!("Received query");
+        let shares_ref = self.shares.clone();
+
+        let batch_size = self.batch_size;
+
+        // Process in worker thread
+        let (sender, mut receiver) = mpsc::channel(4);
+        let worker = tokio::task::spawn_blocking(move || {
+            calculate_share_distances(shares_ref, template, batch_size, sender)
+        });
+
+        while let Some(buffer) = receiver.recv().await {
+            tracing::info!(batch_size = ?buffer.len(), "Sending batch result to coordinator");
+            stream.write_all(&buffer).await?;
+        }
+        worker.await??;
+
+        Ok(())
+    }
+
+    async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
+        loop {
+            self.db_sync().await?;
         }
     }
 
     #[tracing::instrument(skip(self))]
-    async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
-        loop {
-            let messages = sqs_dequeue(
+    async fn db_sync(&self) -> eyre::Result<()> {
+        let messages = sqs_dequeue(
+            &self.sqs_client,
+            &self.config.queues.db_sync_queue_url,
+        )
+        .await?;
+
+        if messages.is_empty() {
+            tokio::time::sleep(IDLE_SLEEP_TIME).await;
+            return Ok(());
+        }
+
+        for message in messages {
+            let body = message.body.context("Missing message body")?;
+            let receipt_handle = message
+                .receipt_handle
+                .context("Missing receipt handle in message")?;
+
+            let items: Vec<DbSyncPayload> = serde_json::from_str(&body)?;
+            let shares: Vec<_> = items
+                .into_iter()
+                .map(|item| (item.id, item.share))
+                .collect();
+
+            self.database.insert_shares(&shares).await?;
+
+            sqs_delete_message(
                 &self.sqs_client,
                 &self.config.queues.db_sync_queue_url,
+                receipt_handle,
             )
             .await?;
-
-            if messages.is_empty() {
-                tokio::time::sleep(IDLE_SLEEP_TIME).await;
-                continue;
-            }
-
-            for message in messages {
-                let body = message.body.context("Missing message body")?;
-                let receipt_handle = message
-                    .receipt_handle
-                    .context("Missing receipt handle in message")?;
-
-                let items: Vec<DbSyncPayload> = serde_json::from_str(&body)?;
-                let shares: Vec<_> = items
-                    .into_iter()
-                    .map(|item| (item.id, item.share))
-                    .collect();
-
-                self.database.insert_shares(&shares).await?;
-
-                sqs_delete_message(
-                    &self.sqs_client,
-                    &self.config.queues.db_sync_queue_url,
-                    receipt_handle,
-                )
-                .await?;
-            }
         }
+
+        Ok(())
     }
 
     #[tracing::instrument(skip(self))]

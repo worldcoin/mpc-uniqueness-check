@@ -11,12 +11,14 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
+use tracing::instrument;
 
 use crate::bits::Bits;
 use crate::config::CoordinatorConfig;
 use crate::db::Db;
 use crate::distance::{self, Distance, DistanceResults, MasksEngine};
 use crate::template::Template;
+use crate::utils;
 use crate::utils::aws::{
     sqs_client_from_config, sqs_delete_message, sqs_dequeue, sqs_enqueue,
 };
@@ -26,7 +28,6 @@ const BATCH_SIZE: usize = 20_000;
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
 
 pub struct Coordinator {
-    //TODO: Consider maintaining an open stream and using read_exact preceeded by a bytes length payload
     participants: Vec<String>,
     hamming_distance_threshold: f64,
     database: Arc<Db>,
@@ -98,6 +99,18 @@ impl Coordinator {
                     .receipt_handle
                     .context("Missing receipt handle in message")?;
 
+                if let Some(message_attributes) = &message.message_attributes {
+                    utils::aws::trace_from_message_attributes(
+                        message_attributes,
+                        &receipt_handle,
+                    )?;
+                } else {
+                    tracing::warn!(
+                        ?receipt_handle,
+                        "SQS message missing message attributes"
+                    );
+                }
+
                 let body = message.body.context("Missing message body")?;
 
                 let UniquenessCheckRequest {
@@ -106,18 +119,15 @@ impl Coordinator {
                 } = serde_json::from_str(&body)
                     .context("Failed to parse message")?;
 
-                self.handle_uniqueness_check(
-                    receipt_handle,
-                    template,
-                    signup_id,
-                )
-                .await?;
+                // Process the query
+                self.uniqueness_check(receipt_handle, template, signup_id)
+                    .await?;
             }
         }
     }
 
     #[tracing::instrument(skip(self, template))]
-    async fn handle_uniqueness_check(
+    pub async fn uniqueness_check(
         &self,
         receipt_handle: String,
         template: Template,
@@ -150,6 +160,7 @@ impl Coordinator {
             matches: distance_results.matches,
             signup_id,
         };
+
         sqs_enqueue(
             &self.sqs_client,
             &self.config.queues.distances_queue_url,
@@ -165,6 +176,7 @@ impl Coordinator {
         )
         .await?;
 
+        // TODO: Make sure that all workers receive signal to stop.
         for handle in handles {
             handle.await??;
         }
@@ -177,6 +189,9 @@ impl Coordinator {
         &self,
         query: &Template,
     ) -> eyre::Result<Vec<BufReader<TcpStream>>> {
+        let (trace_id, span_id) =
+            telemetry_batteries::tracing::extract_span_ids();
+
         // Write each share to the corresponding participant
         let streams =
             future::try_join_all(self.participants.iter().enumerate().map(
@@ -189,6 +204,11 @@ impl Coordinator {
                     let mut stream =
                         TcpStream::connect(participant_host).await?;
 
+                    // Send the trace and span IDs
+                    stream.write_all(&trace_id.to_bytes()).await?;
+                    stream.write_all(&span_id.to_bytes()).await?;
+
+                    // Send the query
                     stream.write_all(bytemuck::bytes_of(query)).await?;
 
                     tracing::info!(
@@ -217,7 +237,7 @@ impl Coordinator {
             let masks = masks.blocking_lock();
             let masks: &[Bits] = bytemuck::cast_slice(&masks);
             let engine = MasksEngine::new(&mask);
-            let total_masks = masks.len();
+            let total_masks: usize = masks.len();
 
             tracing::info!("Processing denominators");
 
@@ -413,39 +433,44 @@ impl Coordinator {
 
     async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
         loop {
-            let messages = sqs_dequeue(
+            self.db_sync().await?;
+        }
+    }
+
+    #[instrument(skip(self))]
+    async fn db_sync(&self) -> eyre::Result<()> {
+        let messages = sqs_dequeue(
+            &self.sqs_client,
+            &self.config.queues.db_sync_queue_url,
+        )
+        .await?;
+
+        if messages.is_empty() {
+            tokio::time::sleep(IDLE_SLEEP_TIME).await;
+            return Ok(());
+        }
+
+        for message in messages {
+            let body = message.body.context("Missing message body")?;
+            let receipt_handle = message
+                .receipt_handle
+                .context("Missing receipt handle in message")?;
+
+            let items: Vec<DbSyncPayload> = serde_json::from_str(&body)?;
+            let masks: Vec<_> =
+                items.into_iter().map(|item| (item.id, item.mask)).collect();
+
+            self.database.insert_masks(&masks).await?;
+
+            sqs_delete_message(
                 &self.sqs_client,
                 &self.config.queues.db_sync_queue_url,
+                receipt_handle,
             )
             .await?;
-
-            if messages.is_empty() {
-                tokio::time::sleep(IDLE_SLEEP_TIME).await;
-                continue;
-            }
-
-            for message in messages {
-                let body = message.body.context("Missing message body")?;
-                let receipt_handle = message
-                    .receipt_handle
-                    .context("Missing receipt handle in message")?;
-
-                let items: Vec<DbSyncPayload> = serde_json::from_str(&body)?;
-                let masks: Vec<_> = items
-                    .into_iter()
-                    .map(|item| (item.id, item.mask))
-                    .collect();
-
-                self.database.insert_masks(&masks).await?;
-
-                sqs_delete_message(
-                    &self.sqs_client,
-                    &self.config.queues.db_sync_queue_url,
-                    receipt_handle,
-                )
-                .await?;
-            }
         }
+
+        Ok(())
     }
 }
 

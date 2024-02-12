@@ -6,8 +6,9 @@ use mpc::config::Config;
 use mpc::coordinator::Coordinator;
 use mpc::health_check::HealthCheck;
 use mpc::participant::Participant;
-use telemetry_batteries::metrics::batteries::StatsdBattery;
-use telemetry_batteries::tracing::batteries::DatadogBattery;
+use telemetry_batteries::metrics::statsd::StatsdBattery;
+use telemetry_batteries::tracing::datadog::DatadogBattery;
+use telemetry_batteries::tracing::TracingShutdownHandle;
 use tokio::task::JoinHandle;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -41,13 +42,9 @@ async fn main() -> eyre::Result<()> {
 
     let config = settings.try_deserialize::<Config>()?;
 
-    if let Some(service) = &config.service {
-        DatadogBattery::init(
-            service.traces_endpoint.as_deref(),
-            &service.service_name,
-            None,
-            true,
-        );
+    let _tracing_shutdown_handle = if let Some(service) = &config.service {
+        let tracing_shutdown_handle =
+            DatadogBattery::init(None, &service.service_name, None, true);
 
         StatsdBattery::init(
             &service.metrics_host,
@@ -56,12 +53,16 @@ async fn main() -> eyre::Result<()> {
             service.metrics_buffer_size,
             Some(&service.metrics_prefix),
         )?;
+
+        tracing_shutdown_handle
     } else {
         tracing_subscriber::registry()
             .with(tracing_subscriber::fmt::layer().pretty().compact())
             .with(tracing_subscriber::EnvFilter::from_default_env())
             .init();
-    }
+
+        TracingShutdownHandle
+    };
 
     let mut tasks: Vec<JoinHandle<eyre::Result<()>>> = vec![];
 
