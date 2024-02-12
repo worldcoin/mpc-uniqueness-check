@@ -1,6 +1,11 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use aws_sdk_sqs::types::{
+    MessageAttributeValue, MessageSystemAttributeName,
+    MessageSystemAttributeValue,
+};
 use eyre::{Context, ContextCompat};
 use futures::stream::FuturesUnordered;
 use futures::{future, StreamExt};
@@ -22,12 +27,14 @@ use crate::db::Db;
 use crate::distance::{self, Distance, DistanceResults, MasksEngine};
 use crate::template::Template;
 use crate::utils::aws::{
-    sqs_client_from_config, sqs_delete_message, sqs_dequeue, sqs_enqueue,
+    self, sqs_client_from_config, sqs_delete_message, sqs_dequeue, sqs_enqueue,
 };
 use crate::utils::templating::resolve_template;
 
 const BATCH_SIZE: usize = 20_000;
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
+
+// MessageSystemAttributeName::Unknown(crate::primitives::sealed_enum_unknown::UnknownVariantValue(other.to_owned()))
 
 pub struct Coordinator {
     participants: Vec<String>,
@@ -101,18 +108,25 @@ impl Coordinator {
                     .receipt_handle
                     .context("Missing receipt handle in message")?;
 
+                if let Some(message_attributes) = &message.message_attributes {
+                    self.trace_from_message_attributes(
+                        message_attributes,
+                        &receipt_handle,
+                    )?;
+                } else {
+                    tracing::warn!(
+                        ?receipt_handle,
+                        "SQS message missing message attributes"
+                    );
+                }
+
                 let body = message.body.context("Missing message body")?;
 
                 let UniquenessCheckRequest {
                     plain_code: template,
                     signup_id,
-                    trace_id,
-                    span_id,
                 } = serde_json::from_str(&body)
                     .context("Failed to parse message")?;
-
-                // Set the parent context to correlate traces between services
-                self.set_parent_ctx(trace_id, span_id);
 
                 // Process the query
                 self.uniqueness_check(receipt_handle, template, signup_id)
@@ -121,17 +135,41 @@ impl Coordinator {
         }
     }
 
-    pub fn set_parent_ctx(&self, trace_id: u128, span_id: u64) {
-        // Create and set the span parent context
-        let parent_ctx = SpanContext::new(
-            TraceId::from(trace_id),
-            SpanId::from(span_id),
-            TraceFlags::default(),
-            true,
-            TraceState::default(),
-        );
+    pub fn trace_from_message_attributes(
+        &self,
+        message_attributes: &HashMap<String, MessageAttributeValue>,
+        receipt_handle: &str,
+    ) -> eyre::Result<()> {
+        if let Some(trace_id) = message_attributes.get("TraceID") {
+            if let Some(span_id) = message_attributes.get("SpanID") {
+                let trace_id = trace_id
+                    .string_value()
+                    .expect("Could not convert TraceID to str")
+                    .parse::<u128>()?;
 
-        telemetry_batteries::tracing::trace_from_ctx(parent_ctx);
+                let span_id = span_id
+                    .string_value()
+                    .expect("Could not convert SpanID to str")
+                    .parse::<u64>()?;
+
+                // Create and set the span parent context
+                let parent_ctx = SpanContext::new(
+                    TraceId::from(trace_id),
+                    SpanId::from(span_id),
+                    TraceFlags::default(),
+                    true,
+                    TraceState::default(),
+                );
+
+                telemetry_batteries::tracing::trace_from_ctx(parent_ctx);
+            } else {
+                tracing::warn!(?receipt_handle, "SQS message missing SpanID");
+            }
+        } else {
+            tracing::warn!(?receipt_handle, "SQS message missing TraceID");
+        }
+
+        Ok(())
     }
 
     #[tracing::instrument(skip(self, template))]
@@ -167,10 +205,6 @@ impl Coordinator {
             serial_id: distance_results.serial_id,
             matches: distance_results.matches,
             signup_id,
-            span_id: tracing::Span::current()
-                .id()
-                .context("Missing span ID")?
-                .into_u64(),
         };
 
         sqs_enqueue(
@@ -496,8 +530,6 @@ pub struct DbSyncPayload {
 pub struct UniquenessCheckRequest {
     pub plain_code: Template,
     pub signup_id: String,
-    pub trace_id: u128,
-    pub span_id: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -505,7 +537,6 @@ pub struct UniquenessCheckResult {
     pub serial_id: u64,
     pub matches: Vec<Distance>,
     pub signup_id: String,
-    pub span_id: u64,
 }
 
 #[cfg(test)]
@@ -517,8 +548,6 @@ mod tests {
         let input = UniquenessCheckRequest {
             plain_code: Template::default(),
             signup_id: "signup_id".to_string(),
-            trace_id: 0,
-            span_id: 0,
         };
 
         const EXPECTED: &str = indoc::indoc! {r#"
@@ -527,9 +556,7 @@ mod tests {
                 "code": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
                 "mask": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
               },
-              "signup_id": "signup_id",
-              "trace_id": 0,
-              "span_id": 0
+              "signup_id": "signup_id"
             }
         "#};
 
@@ -544,7 +571,6 @@ mod tests {
             serial_id: 1,
             matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
             signup_id: "signup_id".to_string(),
-            span_id: 0,
         };
 
         const EXPECTED: &str = indoc::indoc! {r#"
@@ -560,8 +586,7 @@ mod tests {
                   "serial_id": 1
                 }
               ],
-              "signup_id": "signup_id",
-              "span_id": 0
+              "signup_id": "signup_id"
             }
         "#};
 

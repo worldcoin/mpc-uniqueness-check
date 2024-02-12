@@ -1,9 +1,10 @@
 use std::fmt::Debug;
 
 use aws_config::Region;
-use aws_sdk_sqs::types::Message;
+use aws_sdk_sqs::types::{Message, MessageAttributeValue};
 use eyre::Context;
 use serde::Serialize;
+use telemetry_batteries::opentelemetry::trace::TraceId;
 
 use crate::config::AwsConfig;
 
@@ -65,6 +66,8 @@ where
 {
     let body = serde_json::to_string(&message)
         .wrap_err("Failed to serialize message")?;
+
+    //TODO: attach the trace data to the message
 
     client
         .send_message()
