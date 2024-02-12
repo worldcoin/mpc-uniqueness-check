@@ -73,8 +73,7 @@ where
     let body = serde_json::to_string(&message)
         .wrap_err("Failed to serialize message")?;
 
-    let message_attributes = construct_message_attributes()
-        .wrap_err("Failed to construct message attributes")?;
+    let message_attributes = construct_message_attributes()?;
 
     client
         .send_message()
