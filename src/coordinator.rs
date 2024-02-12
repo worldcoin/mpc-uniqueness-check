@@ -26,6 +26,7 @@ use crate::config::CoordinatorConfig;
 use crate::db::Db;
 use crate::distance::{self, Distance, DistanceResults, MasksEngine};
 use crate::template::Template;
+use crate::utils;
 use crate::utils::aws::{
     self, sqs_client_from_config, sqs_delete_message, sqs_dequeue, sqs_enqueue,
 };
@@ -109,7 +110,7 @@ impl Coordinator {
                     .context("Missing receipt handle in message")?;
 
                 if let Some(message_attributes) = &message.message_attributes {
-                    self.trace_from_message_attributes(
+                    utils::aws::trace_from_message_attributes(
                         message_attributes,
                         &receipt_handle,
                     )?;
@@ -133,43 +134,6 @@ impl Coordinator {
                     .await?;
             }
         }
-    }
-
-    pub fn trace_from_message_attributes(
-        &self,
-        message_attributes: &HashMap<String, MessageAttributeValue>,
-        receipt_handle: &str,
-    ) -> eyre::Result<()> {
-        if let Some(trace_id) = message_attributes.get("TraceID") {
-            if let Some(span_id) = message_attributes.get("SpanID") {
-                let trace_id = trace_id
-                    .string_value()
-                    .expect("Could not convert TraceID to str")
-                    .parse::<u128>()?;
-
-                let span_id = span_id
-                    .string_value()
-                    .expect("Could not convert SpanID to str")
-                    .parse::<u64>()?;
-
-                // Create and set the span parent context
-                let parent_ctx = SpanContext::new(
-                    TraceId::from(trace_id),
-                    SpanId::from(span_id),
-                    TraceFlags::default(),
-                    true,
-                    TraceState::default(),
-                );
-
-                telemetry_batteries::tracing::trace_from_ctx(parent_ctx);
-            } else {
-                tracing::warn!(?receipt_handle, "SQS message missing SpanID");
-            }
-        } else {
-            tracing::warn!(?receipt_handle, "SQS message missing TraceID");
-        }
-
-        Ok(())
     }
 
     #[tracing::instrument(skip(self, template))]
