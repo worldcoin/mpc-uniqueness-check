@@ -1976,6 +1976,7 @@ dependencies = [
  "similar-asserts",
  "sqlx",
  "telemetry-batteries",
+ "tinytemplate",
  "tokio",
  "toml 0.8.9",
  "tracing",
