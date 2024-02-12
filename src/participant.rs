@@ -15,7 +15,7 @@ use tokio::sync::{mpsc, Mutex};
 use tracing::instrument;
 
 use crate::config::ParticipantConfig;
-use crate::db::participant::ParticipantDb;
+use crate::db::Db;
 use crate::distance::{self, DistanceEngine, EncodedBits};
 use crate::utils::aws::{
     sqs_client_from_config, sqs_delete_message, sqs_dequeue,
@@ -26,7 +26,7 @@ const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
 pub struct Participant {
     listener: tokio::net::TcpListener,
     batch_size: usize,
-    database: Arc<ParticipantDb>,
+    database: Arc<Db>,
     shares: Arc<Mutex<Vec<EncodedBits>>>,
     sqs_client: aws_sdk_sqs::Client,
     config: ParticipantConfig,
@@ -36,7 +36,7 @@ impl Participant {
     pub async fn new(config: ParticipantConfig) -> eyre::Result<Self> {
         tracing::info!("Initializing participant");
 
-        let database = ParticipantDb::new(&config.db).await?;
+        let database = Db::new(&config.db).await?;
 
         tracing::info!("Fetching shares from database");
         let shares = database.fetch_shares(0).await?;

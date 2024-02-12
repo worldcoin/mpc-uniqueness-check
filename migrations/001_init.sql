@@ -1,3 +1,8 @@
+CREATE TABLE masks (
+    id BIGINT PRIMARY KEY,
+    mask BYTEA NOT NULL
+);
+
 CREATE TABLE shares (
     id BIGINT PRIMARY KEY,
     share BYTEA NOT NULL

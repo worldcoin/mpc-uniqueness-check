@@ -78,6 +78,9 @@ pub struct ServiceConfig {
     // Service name - used for logging, metrics and tracing
     pub service_name: String,
 
+    // Traces
+    pub traces_endpoint: Option<String>,
+
     // Metrics
     pub metrics_host: String,
     pub metrics_port: u16,
@@ -100,6 +103,7 @@ mod tests {
         let config = Config {
             service: Some(ServiceConfig {
                 service_name: "mpc-coordinator".to_string(),
+                traces_endpoint: None,
                 metrics_host: "localhost".to_string(),
                 metrics_port: 8125,
                 metrics_queue_size: 5000,

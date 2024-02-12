@@ -18,12 +18,13 @@ use tracing::instrument;
 
 use crate::bits::Bits;
 use crate::config::CoordinatorConfig;
-use crate::db::coordinator::CoordinatorDb;
+use crate::db::Db;
 use crate::distance::{self, Distance, DistanceResults, MasksEngine};
 use crate::template::Template;
 use crate::utils::aws::{
     sqs_client_from_config, sqs_delete_message, sqs_dequeue, sqs_enqueue,
 };
+use crate::utils::templating::resolve_template;
 
 const BATCH_SIZE: usize = 20_000;
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
@@ -31,7 +32,7 @@ const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
 pub struct Coordinator {
     participants: Vec<String>,
     hamming_distance_threshold: f64,
-    database: Arc<CoordinatorDb>,
+    database: Arc<Db>,
     masks: Arc<Mutex<Vec<Bits>>>,
     sqs_client: Arc<aws_sdk_sqs::Client>,
     config: CoordinatorConfig,
@@ -40,7 +41,7 @@ pub struct Coordinator {
 impl Coordinator {
     pub async fn new(config: CoordinatorConfig) -> eyre::Result<Self> {
         tracing::info!("Initializing coordinator");
-        let database = Arc::new(CoordinatorDb::new(&config.db).await?);
+        let database = Arc::new(Db::new(&config.db).await?);
 
         tracing::info!("Fetching masks from database");
         let masks = database.fetch_masks(0).await?;
@@ -49,9 +50,17 @@ impl Coordinator {
         tracing::info!("Initializing SQS client");
         let sqs_client = Arc::new(sqs_client_from_config(&config.aws).await?);
 
+        let participants = config
+            .participants
+            .0
+            .iter()
+            .map(String::as_str)
+            .map(resolve_template)
+            .collect::<Result<_, _>>()?;
+
         Ok(Self {
             hamming_distance_threshold: config.hamming_distance_threshold,
-            participants: config.participants.0.clone(),
+            participants,
             database,
             masks,
             sqs_client,
