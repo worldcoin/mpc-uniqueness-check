@@ -1,19 +1,11 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use aws_sdk_sqs::types::{
-    MessageAttributeValue, MessageSystemAttributeName,
-    MessageSystemAttributeValue,
-};
 use eyre::{Context, ContextCompat};
 use futures::stream::FuturesUnordered;
 use futures::{future, StreamExt};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
-use telemetry_batteries::opentelemetry::trace::{
-    SpanContext, SpanId, TraceFlags, TraceId, TraceState,
-};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::Receiver;
@@ -28,7 +20,7 @@ use crate::distance::{self, Distance, DistanceResults, MasksEngine};
 use crate::template::Template;
 use crate::utils;
 use crate::utils::aws::{
-    self, sqs_client_from_config, sqs_delete_message, sqs_dequeue, sqs_enqueue,
+    sqs_client_from_config, sqs_delete_message, sqs_dequeue, sqs_enqueue,
 };
 use crate::utils::templating::resolve_template;
 
