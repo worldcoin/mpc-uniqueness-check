@@ -148,12 +148,12 @@ pub fn trace_from_message_attributes(
         {
             let trace_id = trace_id
                 .string_value()
-                .expect("Could not convert TraceID to str")
+                .expect("Could not parse TraceID")
                 .parse::<u128>()?;
 
             let span_id = span_id
                 .string_value()
-                .expect("Could not convert SpanID to str")
+                .expect("Could not parse SpanID")
                 .parse::<u64>()?;
 
             // Create and set the span parent context

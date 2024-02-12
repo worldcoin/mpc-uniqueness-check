@@ -27,8 +27,6 @@ use crate::utils::templating::resolve_template;
 const BATCH_SIZE: usize = 20_000;
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
 
-// MessageSystemAttributeName::Unknown(crate::primitives::sealed_enum_unknown::UnknownVariantValue(other.to_owned()))
-
 pub struct Coordinator {
     participants: Vec<String>,
     hamming_distance_threshold: f64,
