@@ -6,6 +6,9 @@ use eyre::ContextCompat;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use serde::Deserialize;
+use telemetry_batteries::opentelemetry::trace::{
+    SpanContext, SpanId, TraceFlags, TraceId, TraceState,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex};
@@ -73,20 +76,45 @@ impl Participant {
             let mut stream =
                 tokio::io::BufWriter::new(self.listener.accept().await?.0);
 
+            // Process the trace and span ids to correlate traces between services
+            self.handle_traces_payload(&mut stream).await?;
+
             tracing::info!("Incoming connection accepted");
-
-            // Read the span ID from the stream and add to the current span
-            let mut span_id = 0_u64;
-            stream
-                .read_exact(bytemuck::bytes_of_mut(&mut span_id))
-                .await?;
-            let span_id = tracing::Id::from_u64(span_id);
-
-            tracing::Span::current().follows_from(span_id);
 
             // Process the query
             self.uniqueness_check(stream).await?;
         }
+    }
+
+    async fn handle_traces_payload(
+        &self,
+        stream: &mut BufWriter<TcpStream>,
+    ) -> eyre::Result<()> {
+        // Read the span ID from the stream and add to the current span
+        let mut trace_id_bytes = [0_u8; 16];
+        let mut span_id_bytes = [0_u8; 8];
+
+        stream
+            .read_exact(bytemuck::bytes_of_mut(&mut trace_id_bytes))
+            .await?;
+
+        stream
+            .read_exact(bytemuck::bytes_of_mut(&mut span_id_bytes))
+            .await?;
+
+        // Create span parent context
+        let parent_ctx = SpanContext::new(
+            TraceId::from_bytes(trace_id_bytes),
+            SpanId::from_bytes(span_id_bytes),
+            TraceFlags::default(),
+            true,
+            TraceState::default(),
+        );
+
+        // Set the parent context for the current span to correlate traces between services
+        telemetry_batteries::tracing::trace_from_ctx(parent_ctx);
+
+        Ok(())
     }
 
     #[tracing::instrument(skip(self, stream))]

@@ -6,6 +6,9 @@ use futures::stream::FuturesUnordered;
 use futures::{future, StreamExt};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
+use telemetry_batteries::opentelemetry::trace::{
+    SpanContext, SpanId, TraceFlags, TraceId, TraceState,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::Receiver;
@@ -94,17 +97,32 @@ impl Coordinator {
                 let UniquenessCheckRequest {
                     plain_code: template,
                     signup_id,
+                    trace_id,
                     span_id,
                 } = serde_json::from_str(&body)
                     .context("Failed to parse message")?;
 
-                tracing::Span::current()
-                    .follows_from(tracing::Id::from_u64(span_id));
+                // Set the parent context to correlate traces between services
+                self.set_parent_ctx(trace_id, span_id);
 
+                // Process the query
                 self.uniqueness_check(receipt_handle, template, signup_id)
                     .await?;
             }
         }
+    }
+
+    pub fn set_parent_ctx(&self, trace_id: u128, span_id: u64) {
+        // Create and set the span parent context
+        let parent_ctx = SpanContext::new(
+            TraceId::from(trace_id),
+            SpanId::from(span_id),
+            TraceFlags::default(),
+            true,
+            TraceState::default(),
+        );
+
+        telemetry_batteries::tracing::trace_from_ctx(parent_ctx);
     }
 
     #[tracing::instrument(skip(self, template))]
@@ -174,10 +192,8 @@ impl Coordinator {
         &self,
         query: &Template,
     ) -> eyre::Result<Vec<BufReader<TcpStream>>> {
-        let span_id = tracing::Span::current()
-            .id()
-            .context("Missing span ID")?
-            .into_u64();
+        let (trace_id, span_id) =
+            telemetry_batteries::tracing::extract_span_ids();
 
         // Write each share to the corresponding participant
         let streams =
@@ -191,7 +207,11 @@ impl Coordinator {
                     let mut stream =
                         TcpStream::connect(participant_host).await?;
 
-                    stream.write_all(bytemuck::bytes_of(&span_id)).await?;
+                    // Send the trace and span IDs
+                    stream.write_all(&trace_id.to_bytes()).await?;
+                    stream.write_all(&span_id.to_bytes()).await?;
+
+                    // Send the query
                     stream.write_all(bytemuck::bytes_of(query)).await?;
 
                     tracing::info!(
@@ -467,6 +487,7 @@ pub struct DbSyncPayload {
 pub struct UniquenessCheckRequest {
     pub plain_code: Template,
     pub signup_id: String,
+    pub trace_id: u128,
     pub span_id: u64,
 }
 
@@ -487,6 +508,7 @@ mod tests {
         let input = UniquenessCheckRequest {
             plain_code: Template::default(),
             signup_id: "signup_id".to_string(),
+            trace_id: 0,
             span_id: 0,
         };
 
