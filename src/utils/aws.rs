@@ -61,10 +61,11 @@ pub async fn sqs_dequeue(
     Ok(messages)
 }
 
-#[tracing::instrument(skip(client, queue_url, message))]
+#[tracing::instrument(skip(client, message))]
 pub async fn sqs_enqueue<T>(
     client: &aws_sdk_sqs::Client,
     queue_url: &str,
+    message_group_id: &str,
     message: T,
 ) -> eyre::Result<()>
 where
@@ -78,6 +79,7 @@ where
     client
         .send_message()
         .queue_url(queue_url)
+        .message_group_id(message_group_id)
         .set_message_attributes(Some(message_attributes))
         .message_body(body)
         .send()
