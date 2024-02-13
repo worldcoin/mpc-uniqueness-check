@@ -26,6 +26,7 @@ use crate::utils::templating::resolve_template;
 
 const BATCH_SIZE: usize = 20_000;
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
+const MESSAGE_GROUP_ID: &str = "mpc-uniqueness-check-response";
 
 pub struct Coordinator {
     participants: Vec<String>,
@@ -164,6 +165,7 @@ impl Coordinator {
         sqs_enqueue(
             &self.sqs_client,
             &self.config.queues.distances_queue_url,
+            MESSAGE_GROUP_ID,
             &result,
         )
         .await?;
@@ -201,8 +203,9 @@ impl Coordinator {
                         ?participant_host,
                         "Connecting to participant"
                     );
-                    let mut stream =
-                        TcpStream::connect(participant_host).await?;
+                    let mut stream = TcpStream::connect(participant_host)
+                        .await
+                        .context("Connecting to participant")?;
 
                     // Send the trace and span IDs
                     stream.write_all(&trace_id.to_bytes()).await?;
