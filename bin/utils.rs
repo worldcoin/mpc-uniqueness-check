@@ -1,6 +1,8 @@
 use clap::{Args, Parser};
+use eyre::ContextCompat;
 use indicatif::ProgressBar;
 use mpc::config::{AwsConfig, DbConfig};
+use mpc::coordinator::{UniquenessCheckRequest, UniquenessCheckResult};
 use mpc::db::Db;
 use mpc::template::Template;
 use mpc::utils::aws::sqs_client_from_config;
@@ -10,6 +12,7 @@ use rand::{thread_rng, Rng};
 enum Opt {
     SQSQuery(SQSQuery),
     SeedDb(SeedDb),
+    SQSReceive(SQSReceive),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -44,6 +47,23 @@ struct SeedDb {
     pub batch_size: usize,
 }
 
+#[derive(Debug, Clone, Args)]
+struct SQSReceive {
+    /// The endpoint URL for the AWS service
+    ///
+    /// Useful when using LocalStack
+    #[clap(short, long)]
+    pub endpoint_url: Option<String>,
+
+    /// The AWS region
+    #[clap(short, long)]
+    pub region: Option<String>,
+
+    /// The URL of the SQS queue
+    #[clap(short, long)]
+    pub queue_url: String,
+}
+
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     dotenv::dotenv().ok();
@@ -55,22 +75,10 @@ async fn main() -> eyre::Result<()> {
             seed_db(&args).await?;
         }
         Opt::SQSQuery(args) => {
-            let sqs_client = sqs_client_from_config(&AwsConfig {
-                endpoint: args.endpoint_url,
-                region: args.region,
-            })
-            .await?;
-
-            let mut rng = thread_rng();
-
-            let template: Template = rng.gen();
-
-            sqs_client
-                .send_message()
-                .queue_url(args.queue_url)
-                .message_body(serde_json::to_string(&template)?)
-                .send()
-                .await?;
+            sqs_query(&args).await?;
+        }
+        Opt::SQSReceive(args) => {
+            sqs_receive(&args).await?;
         }
     }
 
@@ -151,6 +159,75 @@ async fn seed_db(args: &SeedDb) -> eyre::Result<()> {
     }
 
     pb.finish_with_message("done");
+
+    Ok(())
+}
+
+async fn sqs_query(args: &SQSQuery) -> eyre::Result<()> {
+    let sqs_client = sqs_client_from_config(&AwsConfig {
+        endpoint: args.endpoint_url.clone(),
+        region: args.region.clone(),
+    })
+    .await?;
+
+    let mut rng = thread_rng();
+
+    let plain_code: Template = rng.gen();
+    let request = UniquenessCheckRequest {
+        plain_code,
+        signup_id: "abcd".to_string(),
+    };
+
+    sqs_client
+        .send_message()
+        .queue_url(args.queue_url.clone())
+        .message_group_id("test")
+        .message_body(serde_json::to_string(&request)?)
+        .send()
+        .await?;
+
+    Ok(())
+}
+
+async fn sqs_receive(args: &SQSReceive) -> eyre::Result<()> {
+    let sqs_client = sqs_client_from_config(&AwsConfig {
+        endpoint: args.endpoint_url.clone(),
+        region: args.region.clone(),
+    })
+    .await?;
+
+    loop {
+        let sqs_msg = sqs_client
+            .receive_message()
+            .queue_url(args.queue_url.clone())
+            .send()
+            .await?;
+
+        let messages = sqs_msg.messages.unwrap_or_default();
+
+        if messages.is_empty() {
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            continue;
+        }
+
+        for message in messages {
+            let body = message.body.context("Missing message body")?;
+            let receipt_handle = message
+                .receipt_handle
+                .context("Missing receipt handle in message")?;
+
+            let request: UniquenessCheckResult = serde_json::from_str(&body)?;
+
+            tracing::info!(?request, "Received message");
+
+            sqs_client
+                .delete_message()
+                .queue_url(args.queue_url.clone())
+                .receipt_handle(receipt_handle)
+                .send()
+                .await?;
+        }
+    }
 
     Ok(())
 }

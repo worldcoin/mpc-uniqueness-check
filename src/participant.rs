@@ -142,7 +142,9 @@ impl Participant {
         });
 
         while let Some(buffer) = receiver.recv().await {
-            tracing::info!(batch_size = ?buffer.len(), "Sending batch result to coordinator");
+            tracing::info!(num_bytes = ?buffer.len(), "Sending batch result to coordinator");
+            let buffer_len = buffer.len() as u64;
+            stream.write_all(&buffer_len.to_be_bytes()).await?;
             stream.write_all(&buffer).await?;
         }
         worker.await??;
@@ -181,6 +183,10 @@ impl Participant {
                 .map(|item| (item.id, item.share))
                 .collect();
 
+            tracing::info!(
+                num_new_shares = shares.len(),
+                "Inserting shares into database"
+            );
             self.database.insert_shares(&shares).await?;
 
             sqs_delete_message(
@@ -202,6 +208,8 @@ impl Participant {
         let new_shares = self.database.fetch_shares(next_share_number).await?;
 
         shares.extend(new_shares);
+
+        tracing::info!(num_shares = shares.len(), "Shares synchronized");
 
         Ok(())
     }

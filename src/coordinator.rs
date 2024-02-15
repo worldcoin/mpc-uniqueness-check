@@ -155,7 +155,11 @@ impl Coordinator {
         let distance_results =
             self.process_results(batch_process_shares_rx).await?;
 
-        tracing::info!("Enqueuing results");
+        tracing::info!(
+            num_matches = distance_results.matches.len(),
+            serial_id = distance_results.serial_id,
+            "Enqueuing results"
+        );
         let result = UniquenessCheckResult {
             serial_id: distance_results.serial_id,
             matches: distance_results.matches,
@@ -282,34 +286,25 @@ impl Coordinator {
                 let streams_future =
                     future::try_join_all(streams.iter_mut().enumerate().map(
                         |(i, stream)| async move {
-                            let mut batch = vec![[0_u16; 31]; BATCH_SIZE];
-                            let mut buffer: &mut [u8] =
-                                bytemuck::cast_slice_mut(batch.as_mut_slice());
+                            let mut buffer_size_bytes: [u8; 8] = [0; 8];
+                            stream.read_exact(&mut buffer_size_bytes).await?;
+                            let buffer_size =
+                                u64::from_be_bytes(buffer_size_bytes) as usize;
 
-                            // We can not use read_exact here as we might get EOF before the
-                            // buffer is full But we should
-                            // still try to fill the entire buffer.
-                            // If nothing else, this guarantees that we read batches at a
-                            // [u16;31] boundary.
-                            while !buffer.is_empty() {
-                                let bytes_read =
-                                    stream.read_buf(&mut buffer).await?;
+                            const BATCH_PART: usize = std::mem::size_of::<[u16; 31]>();
 
-                                tracing::debug!(
-                                    participant = i,
-                                    bytes_read,
-                                    "Bytes read from participant"
-                                );
-
-                                if bytes_read == 0 {
-                                    let n_incomplete = (buffer.len()
-                                        + std::mem::size_of::<[u16; 31]>() //TODO: make this a const
-                                        - 1)
-                                        / std::mem::size_of::<[u16; 31]>(); //TODO: make this a const
-                                    batch.truncate(batch.len() - n_incomplete);
-                                    break;
-                                }
+                            if buffer_size % BATCH_PART != 0 {
+                                return Err(eyre::eyre!(
+                                    "Buffer size is not a multiple of the batch part size"
+                                ));
                             }
+
+                            let batch_size =
+                                buffer_size / BATCH_PART;
+                            let mut batch = vec![[0u16; 31]; batch_size];
+                            let mut buffer =
+                                bytemuck::cast_slice_mut(&mut batch);
+                            stream.read_exact(&mut buffer).await?;
 
                             tracing::info!(
                                 participant = i,
@@ -368,12 +363,11 @@ impl Coordinator {
         // Keep track of entry ids
         let mut i: usize = 0;
 
-        loop {
-            // Fetch batches of denominators and shares
-            let (denom_batch, shares) =
-                processed_shares_rx.recv().await.expect("channel closed");
+        while let Some((denom_batch, shares)) = processed_shares_rx.recv().await
+        {
             let batch_size = denom_batch.len();
             if batch_size == 0 {
+                tracing::warn!("Batch size is empty");
                 break;
             }
 
@@ -431,6 +425,8 @@ impl Coordinator {
 
         masks.extend(new_masks);
 
+        tracing::info!(num_masks = masks.len(), "Masks synchronized");
+
         Ok(())
     }
 
@@ -463,6 +459,10 @@ impl Coordinator {
             let masks: Vec<_> =
                 items.into_iter().map(|item| (item.id, item.mask)).collect();
 
+            tracing::info!(
+                num_new_masks = masks.len(),
+                "Inserting masks into database"
+            );
             self.database.insert_masks(&masks).await?;
 
             sqs_delete_message(
