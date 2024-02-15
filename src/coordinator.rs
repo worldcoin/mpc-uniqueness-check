@@ -309,11 +309,11 @@ impl Coordinator {
                             let batch_size =
                                 buffer_size / BATCH_ELEMENT_SIZE;
                             let mut batch = vec![[0u16; 31]; batch_size];
-                            let mut buffer =
+                            let buffer =
                                 bytemuck::cast_slice_mut(&mut batch);
 
                             // Read in the batch results
-                            stream.read_exact(&mut buffer).await?;
+                            stream.read_exact(buffer).await?;
 
                             tracing::info!(
                                 participant = i,
