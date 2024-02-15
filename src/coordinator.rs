@@ -145,12 +145,12 @@ impl Coordinator {
         tracing::info!("Computing denominators");
         let (denominator_rx, denominator_handle) =
             self.compute_denominators(template.mask);
-            tasks.push(denominator_handle);
+        tasks.push(denominator_handle);
 
         tracing::info!("Processing participant shares");
         let (batch_process_shares_rx, batch_process_shares_handle) =
             self.batch_process_participant_shares(denominator_rx, streams);
-            tasks.push(batch_process_shares_handle);
+        tasks.push(batch_process_shares_handle);
 
         tracing::info!("Processing results");
         let distance_results =
@@ -292,12 +292,10 @@ impl Coordinator {
                                 Ok(buffer_size) => buffer_size as usize,
                                 Err(e) if e.kind() == tokio::io::ErrorKind::UnexpectedEof => {
                                     tracing::info!("Connection closed by participant");
-                                    return Ok(vec![]); 
+                                    return Ok(vec![]);
                                 }
                                 Err(e) => Err(e)?
                             };
-                            
-
                             if buffer_size % BATCH_ELEMENT_SIZE != 0 {
                                 return Err(eyre::eyre!(
                                     "Buffer size is not a multiple of the batch part size"

@@ -233,8 +233,6 @@ async fn sqs_receive(args: &SQSReceive) -> eyre::Result<()> {
                 .await?;
         }
     }
-
-    Ok(())
 }
 
 fn generate_random_string(len: usize) -> String {
