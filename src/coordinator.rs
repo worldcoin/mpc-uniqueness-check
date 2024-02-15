@@ -7,7 +7,7 @@ use futures::{future, StreamExt};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{TcpStream};
+use tokio::net::TcpStream;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
@@ -140,17 +140,17 @@ impl Coordinator {
 
         tracing::info!("Sending query to participants");
         let streams = self.send_query_to_participants(&template).await?;
-        let mut handles = Vec::with_capacity(2);
+        let mut tasks = FuturesUnordered::new();
 
         tracing::info!("Computing denominators");
         let (denominator_rx, denominator_handle) =
             self.compute_denominators(template.mask);
-        handles.push(denominator_handle);
+            tasks.push(denominator_handle);
 
         tracing::info!("Processing participant shares");
         let (batch_process_shares_rx, batch_process_shares_handle) =
             self.batch_process_participant_shares(denominator_rx, streams);
-        handles.push(batch_process_shares_handle);
+            tasks.push(batch_process_shares_handle);
 
         tracing::info!("Processing results");
         let distance_results =
@@ -183,9 +183,8 @@ impl Coordinator {
         )
         .await?;
 
-        // TODO: Make sure that all workers receive signal to stop.
-        for handle in handles {
-            handle.await??;
+        while let Some(result) = tasks.next().await {
+            result??;
         }
 
         Ok(())

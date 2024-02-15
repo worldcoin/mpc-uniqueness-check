@@ -6,6 +6,7 @@ use mpc::coordinator::{UniquenessCheckRequest, UniquenessCheckResult};
 use mpc::db::Db;
 use mpc::template::Template;
 use mpc::utils::aws::sqs_client_from_config;
+use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 
 #[derive(Debug, Clone, Parser)]
@@ -173,15 +174,19 @@ async fn sqs_query(args: &SQSQuery) -> eyre::Result<()> {
     let mut rng = thread_rng();
 
     let plain_code: Template = rng.gen();
+
+    let signup_id = generate_random_string(4);
+    let group_id = generate_random_string(4);
+
     let request = UniquenessCheckRequest {
         plain_code,
-        signup_id: "abcd".to_string(),
+        signup_id,
     };
 
     sqs_client
         .send_message()
         .queue_url(args.queue_url.clone())
-        .message_group_id("test")
+        .message_group_id(group_id)
         .message_body(serde_json::to_string(&request)?)
         .send()
         .await?;
@@ -230,4 +235,12 @@ async fn sqs_receive(args: &SQSReceive) -> eyre::Result<()> {
     }
 
     Ok(())
+}
+
+fn generate_random_string(len: usize) -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(len)
+        .map(char::from)
+        .collect()
 }
