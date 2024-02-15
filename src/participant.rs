@@ -146,6 +146,7 @@ impl Participant {
             let buffer_len = buffer.len() as u64;
             stream.write_all(&buffer_len.to_be_bytes()).await?;
             stream.write_all(&buffer).await?;
+            stream.flush().await?;
         }
         worker.await??;
 

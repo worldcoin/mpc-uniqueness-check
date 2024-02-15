@@ -7,7 +7,7 @@ use futures::{future, StreamExt};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::TcpStream;
+use tokio::net::{TcpStream};
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
@@ -25,6 +25,7 @@ use crate::utils::aws::{
 use crate::utils::templating::resolve_template;
 
 const BATCH_SIZE: usize = 20_000;
+const BATCH_ELEMENT_SIZE: usize = std::mem::size_of::<[u16; 31]>();
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
 const MESSAGE_GROUP_ID: &str = "mpc-uniqueness-check-response";
 
@@ -286,24 +287,32 @@ impl Coordinator {
                 let streams_future =
                     future::try_join_all(streams.iter_mut().enumerate().map(
                         |(i, stream)| async move {
-                            let mut buffer_size_bytes: [u8; 8] = [0; 8];
-                            stream.read_exact(&mut buffer_size_bytes).await?;
-                            let buffer_size =
-                                u64::from_be_bytes(buffer_size_bytes) as usize;
 
-                            const BATCH_PART: usize = std::mem::size_of::<[u16; 31]>();
 
-                            if buffer_size % BATCH_PART != 0 {
+                            let buffer_size = match stream.read_u64().await{
+                                Ok(buffer_size) => buffer_size as usize,
+                                Err(e) if e.kind() == tokio::io::ErrorKind::UnexpectedEof => {
+                                    tracing::info!("Connection closed by participant");
+                                    return Ok(vec![]); 
+                                }
+                                Err(e) => Err(e)?
+                            };
+                            
+
+                            if buffer_size % BATCH_ELEMENT_SIZE != 0 {
                                 return Err(eyre::eyre!(
                                     "Buffer size is not a multiple of the batch part size"
                                 ));
                             }
 
+                            // Calculate the batch size
                             let batch_size =
-                                buffer_size / BATCH_PART;
+                                buffer_size / BATCH_ELEMENT_SIZE;
                             let mut batch = vec![[0u16; 31]; batch_size];
                             let mut buffer =
                                 bytemuck::cast_slice_mut(&mut batch);
+
+                            // Read in the batch results
                             stream.read_exact(&mut buffer).await?;
 
                             tracing::info!(
