@@ -279,13 +279,13 @@ mod tests {
         let mut expected = "[".to_string();
 
         for i in 0..BITS {
-            expected.push_str("0");
+            expected.push('0');
             if i < BITS - 1 {
-                expected.push_str(",");
+                expected.push(',');
             }
         }
 
-        expected.push_str("]");
+        expected.push(']');
 
         assert_eq!(serialized, expected);
 
