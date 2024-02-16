@@ -54,12 +54,11 @@ async fn main() -> eyre::Result<()> {
     })
     .await?;
 
-    // Deserialize the string into `MyJson`
     let mock_templates: Vec<Template> =
         serde_json::from_str(&fs::read_to_string(args.templates.clone())?)?;
 
     tracing::info!("Waiting for queues to be ready");
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
     wait_for_queues(&args, &sqs_client).await?;
 
     for (id, template) in mock_templates.into_iter().enumerate() {
@@ -244,106 +243,6 @@ async fn send_query(
     };
 
     Ok(messages)
-}
-
-#[tracing::instrument(skip(args, sqs_client, template))]
-async fn test_non_unique_template(
-    serial_id: usize,
-    args: &Args,
-    sqs_client: &aws_sdk_sqs::Client,
-    template: Template,
-) -> eyre::Result<()> {
-    tracing::info!("Checking template non-uniqueness");
-
-    loop {
-        let signup_id = generate_random_string(4);
-        let group_id = generate_random_string(4);
-
-        let request = UniquenessCheckRequest {
-            plain_code: template,
-            signup_id,
-        };
-
-        tracing::info!("Sending a request");
-        sqs_client
-            .send_message()
-            .queue_url(args.coordinator_query_queue.clone())
-            .message_group_id(group_id)
-            .message_body(serde_json::to_string(&request)?)
-            .send()
-            .await?;
-
-        tracing::info!("Getting results");
-        // Get a message with results back
-        let messages = sqs_client
-            .receive_message()
-            .queue_url(args.coordinator_results_queue.clone())
-            // .wait_time_seconds(10)
-            .send()
-            .await?;
-
-        let Some(mut messages) = messages.messages else {
-            tracing::warn!("No messages in response, will retry");
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-            continue;
-        };
-
-        let message = messages.pop().context("No messages in response")?;
-
-        let body = message.body.context("Missing message body")?;
-        let result: UniquenessCheckResult = serde_json::from_str(&body)?;
-
-        tracing::info!(
-            result_serial_id = result.serial_id,
-            num_matches = result.matches.len(),
-            "Got result"
-        );
-
-        let nodes_are_synced =
-            result.serial_id > 0 && result.serial_id as usize >= serial_id;
-        if nodes_are_synced {
-            eyre::ensure!(
-                result.matches.len() == 1,
-                "Expected one exact match got {} matches",
-                result.matches.len()
-            );
-
-            // eyre::ensure!(
-            //     result.matches[0].serial_id == serial_id as u64,
-            //     "Expected the same serial_id in the result. Got {} expected {}",
-            //     result.matches[0].serial_id,
-            //     serial_id
-            // );
-
-            eyre::ensure!(
-                result.matches[0].distance < EQUAL_MATCH_THRESHOLD,
-                "Should be an exact match, actual distance is {}",
-                result.matches[0].distance
-            );
-        } else {
-            tracing::warn!("Nodes not synced yet, will retry");
-        };
-
-        if let Some(receipt_handle) = message.receipt_handle {
-            tracing::info!("Deleting received message");
-            sqs_client
-                .delete_message()
-                .queue_url(args.coordinator_results_queue.clone())
-                .receipt_handle(receipt_handle)
-                .send()
-                .await?;
-        }
-
-        if nodes_are_synced {
-            tracing::info!("Nodes are synced and we got the expected results");
-            break;
-        }
-
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-    }
-
-    tracing::info!("Template non-uniqueness check passed");
-    Ok(())
 }
 
 fn generate_random_string(len: usize) -> String {

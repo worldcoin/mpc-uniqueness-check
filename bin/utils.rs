@@ -4,6 +4,8 @@ use indicatif::ProgressBar;
 use mpc::config::{AwsConfig, DbConfig};
 use mpc::coordinator::{self, UniquenessCheckRequest, UniquenessCheckResult};
 use mpc::db::Db;
+use mpc::encoded_bits::EncodedBits;
+use mpc::participant;
 use mpc::template::Template;
 use mpc::utils::aws::sqs_client_from_config;
 use rand::distributions::Alphanumeric;
