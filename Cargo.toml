@@ -52,6 +52,10 @@ name = "mpc-node"
 path = "bin/mpc_node.rs"
 
 [[bin]]
+name = "e2e-test"
+path = "bin/e2e_test.rs"
+
+[[bin]]
 name = "utils"
 path = "bin/utils.rs"
 
