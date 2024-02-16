@@ -1,3 +1,4 @@
+use aws_sdk_sqs::types::QueueAttributeName;
 use clap::Parser;
 use eyre::ContextCompat;
 use mpc::config::AwsConfig;
@@ -74,12 +75,56 @@ async fn main() -> eyre::Result<()> {
     let (non_unique_shares, _unique_shares) =
         shares.split_at(num_templates_to_seed);
 
+    wait_for_queues(&args, &sqs_client).await?;
+
     seed_db_sync(&args, &sqs_client, non_unique_templates, non_unique_shares)
         .await?;
 
     test_non_unique_templates(&args, &sqs_client, non_unique_templates).await?;
 
     // TODO: Test unique templates
+
+    Ok(())
+}
+
+async fn wait_for_queues(
+    args: &Args,
+    sqs_client: &aws_sdk_sqs::Client,
+) -> eyre::Result<()> {
+    let queues = vec![
+        &args.coordinator_db_sync_queue,
+        &args.participant_db_sync_queue,
+        &args.coordinator_query_queue,
+        &args.coordinator_results_queue,
+    ];
+
+    for queue in queues {
+        loop {
+            let Ok(response) = sqs_client
+                .get_queue_attributes()
+                .queue_url(queue)
+                .attribute_names(
+                    QueueAttributeName::ApproximateNumberOfMessages,
+                )
+                .send()
+                .await
+            else {
+                continue;
+            };
+
+            let Some(attributes) = response.attributes else {
+                continue;
+            };
+
+            let Some(_num_messages) = attributes
+                .get(&QueueAttributeName::ApproximateNumberOfMessages)
+            else {
+                continue;
+            };
+
+            break;
+        }
+    }
 
     Ok(())
 }
@@ -155,6 +200,8 @@ async fn test_non_unique_template(
     sqs_client: &aws_sdk_sqs::Client,
     template: Template,
 ) -> eyre::Result<()> {
+    tracing::info!("Checking template non-uniqueness");
+
     loop {
         let signup_id = generate_random_string(4);
         let group_id = generate_random_string(4);
@@ -204,17 +251,21 @@ async fn test_non_unique_template(
         if nodes_are_synced {
             eyre::ensure!(
                 result.matches.len() == 1,
-                "Expected one exact match"
+                "Expected one exact match got {} matches",
+                result.matches.len()
             );
 
             eyre::ensure!(
                 result.matches[0].serial_id == serial_id as u64,
-                "Expected the same serial_id in the result"
+                "Expected the same serial_id in the result. Got {} expected {}",
+                result.matches[0].serial_id,
+                serial_id
             );
 
             eyre::ensure!(
                 result.matches[0].distance < EQUAL_MATCH_THRESHOLD,
-                "Should be an exact match",
+                "Should be an exact match, actual distance is {}",
+                result.matches[0].distance
             );
         } else {
             tracing::warn!("Nodes not synced yet, will retry");
@@ -238,6 +289,7 @@ async fn test_non_unique_template(
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
 
+    tracing::info!("Template non-uniqueness check passed");
     Ok(())
 }
 
