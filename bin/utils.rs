@@ -4,13 +4,10 @@ use indicatif::ProgressBar;
 use mpc::config::{AwsConfig, DbConfig};
 use mpc::coordinator::{UniquenessCheckRequest, UniquenessCheckResult};
 use mpc::db::Db;
-
-
 use mpc::template::Template;
 use mpc::utils::aws::sqs_client_from_config;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
-
 
 #[derive(Debug, Clone, Parser)]
 enum Opt {
