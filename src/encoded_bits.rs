@@ -1,12 +1,11 @@
+use std::array;
 use std::iter::{self, Sum};
 use std::ops::{self, MulAssign};
-use std::{array, fmt};
 
 use bytemuck::{cast_slice_mut, Pod, Zeroable};
 use rand::distributions::{Distribution, Standard};
 use rand::{thread_rng, Rng};
-use serde::de::{SeqAccess, Visitor};
-use serde::{de, Deserialize, Deserializer};
+use serde::{de, Deserialize, Deserializer, Serialize};
 
 use crate::bits::{Bits, BITS, COLS};
 
@@ -193,30 +192,27 @@ impl<'de> Deserialize<'de> for EncodedBits {
     where
         D: Deserializer<'de>,
     {
-        struct EncodedBitsVisitor;
+        let inner: Vec<u16> = Deserialize::deserialize(deserializer)?;
 
-        impl<'de> Visitor<'de> for EncodedBitsVisitor {
-            type Value = EncodedBits;
+        let inner: [u16; BITS] =
+            inner.try_into().map_err(|err: Vec<u16>| {
+                de::Error::custom(format!(
+                    "Invalid length for EncodedBits, expected {} got {}",
+                    BITS,
+                    err.len()
+                ))
+            })?;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                write!(formatter, "an array of 12800 u16")
-            }
+        Ok(EncodedBits(inner))
+    }
+}
 
-            fn visit_seq<A>(self, mut seq: A) -> Result<EncodedBits, A::Error>
-            where
-                A: SeqAccess<'de>,
-            {
-                let mut arr = [0u16; BITS];
-                for (i, item) in arr.iter_mut().enumerate().take(BITS) {
-                    *item = seq
-                        .next_element()?
-                        .ok_or_else(|| de::Error::invalid_length(i, &self))?;
-                }
-                Ok(EncodedBits(arr))
-            }
-        }
-
-        deserializer.deserialize_tuple(BITS, EncodedBitsVisitor)
+impl Serialize for EncodedBits {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.serialize(serializer)
     }
 }
 
@@ -272,5 +268,30 @@ mod tests {
                 )
             }
         }
+    }
+
+    #[test]
+    fn encoded_bits_serialization() {
+        let encoded_bits = EncodedBits::default();
+
+        let serialized = serde_json::to_string(&encoded_bits).unwrap();
+
+        let mut expected = "[".to_string();
+
+        for i in 0..BITS {
+            expected.push_str("0");
+            if i < BITS - 1 {
+                expected.push_str(",");
+            }
+        }
+
+        expected.push_str("]");
+
+        assert_eq!(serialized, expected);
+
+        let deserialized = serde_json::from_str::<EncodedBits>(&serialized)
+            .expect("Failed to deserialize EncodedBits");
+
+        assert_eq!(deserialized, encoded_bits);
     }
 }
