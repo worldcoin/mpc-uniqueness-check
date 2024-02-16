@@ -2,3 +2,9 @@ target/
 .git
 README.md
 .env
+.env.example
+compose.yml
+Dockerfile
+Dockerfile.e2e
+init-scripts/
+config/
