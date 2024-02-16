@@ -5,9 +5,7 @@ use std::ops::Index;
 
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
-use bytemuck::{
-    bytes_of, cast_slice_mut, try_cast_slice, try_cast_slice_mut, Pod, Zeroable,
-};
+use bytemuck::{cast_slice_mut, try_cast_slice_mut, Pod, Zeroable};
 use rand::distributions::{Distribution, Standard};
 use rand::Rng;
 use serde::de::Error as _;
@@ -90,7 +88,14 @@ impl Serialize for Bits {
     where
         S: serde::Serializer,
     {
-        let s = BASE64_STANDARD.encode(bytes_of(self));
+        let mut bytes = [0_u8; std::mem::size_of::<Self>()];
+
+        for (i, limb) in self.0.iter().enumerate() {
+            let limb_bytes = limb.to_be_bytes();
+            bytes[i * 8..(i + 1) * 8].copy_from_slice(&limb_bytes);
+        }
+
+        let s = BASE64_STANDARD.encode(bytes);
 
         s.serialize(serializer)
     }
@@ -107,10 +112,12 @@ impl<'de> Deserialize<'de> for Bits {
             .decode(s.as_bytes())
             .map_err(D::Error::custom)?;
 
-        let limbs =
-            try_cast_slice(bytes.as_slice()).map_err(D::Error::custom)?;
-        let limbs = limbs.try_into().map_err(D::Error::custom)?;
-        Ok(Bits(limbs))
+        let mut limbs = [0_u64; LIMBS];
+        for (i, chunk) in bytes.array_chunks::<8>().enumerate() {
+            limbs[i] = u64::from_be_bytes(*chunk);
+        }
+
+        Ok(Self(limbs))
     }
 }
 
@@ -228,6 +235,7 @@ fn rotate_row(a: &mut [u8; BYTES_PER_COL], mut amount: i32) {
 
 #[cfg(test)]
 mod tests {
+    use bytemuck::bytes_of;
     use rand::{thread_rng, Rng};
 
     use super::*;
@@ -276,5 +284,22 @@ mod tests {
                 )
             }
         }
+    }
+
+    #[test]
+    fn bits_serialization() -> eyre::Result<()> {
+        let mut bits = Bits::default();
+
+        bits.0[0] = 123;
+        bits.0[5] = 456;
+        bits.0[128] = u64::MAX;
+
+        let serialized = serde_json::to_string(&bits)?;
+
+        let deserialized: Bits = serde_json::from_str(&serialized)?;
+
+        assert_eq!(bits, deserialized);
+
+        Ok(())
     }
 }

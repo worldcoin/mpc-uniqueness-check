@@ -5,7 +5,7 @@ use std::ops::{self, MulAssign};
 
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
-use bytemuck::{bytes_of, cast_slice_mut, try_cast_slice, Pod, Zeroable};
+use bytemuck::{cast_slice_mut, Pod, Zeroable};
 use rand::distributions::{Distribution, Standard};
 use rand::{thread_rng, Rng};
 use serde::de::Error as _;
@@ -202,11 +202,12 @@ impl<'de> Deserialize<'de> for EncodedBits {
             .decode(s.as_bytes())
             .map_err(D::Error::custom)?;
 
-        let bits_repr =
-            try_cast_slice(bytes.as_slice()).map_err(D::Error::custom)?;
-        let bits_repr = bits_repr.try_into().map_err(D::Error::custom)?;
+        let mut limbs = [0_u16; BITS];
+        for (i, chunk) in bytes.array_chunks::<2>().enumerate() {
+            limbs[i] = u16::from_be_bytes(*chunk);
+        }
 
-        Ok(Self(bits_repr))
+        Ok(Self(limbs))
     }
 }
 
@@ -215,7 +216,14 @@ impl Serialize for EncodedBits {
     where
         S: serde::Serializer,
     {
-        let s = BASE64_STANDARD.encode(bytes_of(self));
+        let mut bytes = [0_u8; std::mem::size_of::<Self>()];
+
+        for (i, limb) in self.0.iter().enumerate() {
+            let limb_bytes = limb.to_be_bytes();
+            bytes[i * 2..(i + 1) * 2].copy_from_slice(&limb_bytes);
+        }
+
+        let s = BASE64_STANDARD.encode(bytes);
 
         s.serialize(serializer)
     }
