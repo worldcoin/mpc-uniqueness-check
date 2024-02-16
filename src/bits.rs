@@ -290,9 +290,13 @@ mod tests {
     fn bits_serialization() -> eyre::Result<()> {
         let mut bits = Bits::default();
 
-        bits.0[0] = 123;
-        bits.0[5] = 456;
-        bits.0[128] = u64::MAX;
+        // Random changes so that we don't convert all zeros
+        let mut rng = thread_rng();
+        for _ in 0..100 {
+            let index = rng.gen_range(0..bits.0.len());
+
+            bits.0[index] = rng.gen();
+        }
 
         let serialized = serde_json::to_string(&bits)?;
 

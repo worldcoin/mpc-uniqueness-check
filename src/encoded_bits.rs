@@ -285,16 +285,17 @@ mod tests {
 
     #[test]
     fn encoded_bits_serialization() {
-        let encoded_bits = EncodedBits::default();
+        let mut encoded_bits = EncodedBits::default();
+
+        // Random changes
+        let mut rng = thread_rng();
+        for _ in 0..100 {
+            let index = rng.gen_range(0..encoded_bits.0.len());
+
+            encoded_bits.0[index] = rng.gen();
+        }
 
         let serialized = serde_json::to_string(&encoded_bits).unwrap();
-
-        let expected_bits = vec![0u16; BITS];
-        let expected_bytes: &[u8] = bytemuck::cast_slice(&expected_bits);
-        let expected = BASE64_STANDARD.encode(expected_bytes);
-        let expected = format!("\"{expected}\"");
-
-        assert_eq!(serialized, expected);
 
         let deserialized = serde_json::from_str::<EncodedBits>(&serialized)
             .expect("Failed to deserialize EncodedBits");
