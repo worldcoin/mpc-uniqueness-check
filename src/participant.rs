@@ -5,7 +5,7 @@ use distance::Template;
 use eyre::ContextCompat;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use telemetry_batteries::opentelemetry::trace::{
     SpanContext, SpanId, TraceFlags, TraceId, TraceState,
 };
@@ -217,8 +217,8 @@ impl Participant {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct DbSyncPayload {
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DbSyncPayload {
     pub id: u64,
     pub share: EncodedBits,
 }
