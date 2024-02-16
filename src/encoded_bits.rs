@@ -1,11 +1,15 @@
 use std::array;
+use std::borrow::Cow;
 use std::iter::{self, Sum};
 use std::ops::{self, MulAssign};
 
-use bytemuck::{cast_slice_mut, Pod, Zeroable};
+use base64::prelude::BASE64_STANDARD;
+use base64::Engine;
+use bytemuck::{bytes_of, cast_slice_mut, try_cast_slice, Pod, Zeroable};
 use rand::distributions::{Distribution, Standard};
 use rand::{thread_rng, Rng};
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::bits::{Bits, BITS, COLS};
 
@@ -192,18 +196,17 @@ impl<'de> Deserialize<'de> for EncodedBits {
     where
         D: Deserializer<'de>,
     {
-        let inner: Vec<u16> = Deserialize::deserialize(deserializer)?;
+        let s: Cow<'static, str> = Deserialize::deserialize(deserializer)?;
 
-        let inner: [u16; BITS] =
-            inner.try_into().map_err(|err: Vec<u16>| {
-                de::Error::custom(format!(
-                    "Invalid length for EncodedBits, expected {} got {}",
-                    BITS,
-                    err.len()
-                ))
-            })?;
+        let bytes = BASE64_STANDARD
+            .decode(s.as_bytes())
+            .map_err(D::Error::custom)?;
 
-        Ok(EncodedBits(inner))
+        let bits_repr =
+            try_cast_slice(bytes.as_slice()).map_err(D::Error::custom)?;
+        let bits_repr = bits_repr.try_into().map_err(D::Error::custom)?;
+
+        Ok(Self(bits_repr))
     }
 }
 
@@ -212,7 +215,9 @@ impl Serialize for EncodedBits {
     where
         S: serde::Serializer,
     {
-        self.0.serialize(serializer)
+        let s = BASE64_STANDARD.encode(bytes_of(self));
+
+        s.serialize(serializer)
     }
 }
 
@@ -276,16 +281,10 @@ mod tests {
 
         let serialized = serde_json::to_string(&encoded_bits).unwrap();
 
-        let mut expected = "[".to_string();
-
-        for i in 0..BITS {
-            expected.push('0');
-            if i < BITS - 1 {
-                expected.push(',');
-            }
-        }
-
-        expected.push(']');
+        let expected_bits = vec![0u16; BITS];
+        let expected_bytes: &[u8] = bytemuck::cast_slice(&expected_bits);
+        let expected = BASE64_STANDARD.encode(expected_bytes);
+        let expected = format!("\"{expected}\"");
 
         assert_eq!(serialized, expected);
 
