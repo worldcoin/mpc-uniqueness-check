@@ -144,7 +144,8 @@ impl Participant {
         while let Some(buffer) = receiver.recv().await {
             tracing::info!(num_bytes = ?buffer.len(), "Sending batch result to coordinator");
             let buffer_len = buffer.len() as u64;
-            stream.write_all(&buffer_len.to_be_bytes()).await?;
+            stream.write_u64(buffer_len).await?;
+
             stream.write_all(&buffer).await?;
             stream.flush().await?;
         }
