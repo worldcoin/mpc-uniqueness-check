@@ -26,7 +26,7 @@ jobs:
 
     # Running e2e tests
     - name: Run e2e tests
-      run: docker compose up --build e2e_test
+      run: docker compose up --build --abort-on-container-exit --exit-code-from e2e_test
       # Ensure the action fails if the e2e_test service fails
       continue-on-error: false
 
