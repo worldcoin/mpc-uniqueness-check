@@ -43,6 +43,7 @@ pub async fn sqs_dequeue(
     let messages = client
         .receive_message()
         .queue_url(queue_url)
+        .wait_time_seconds(1)
         .send()
         .await?
         .messages;

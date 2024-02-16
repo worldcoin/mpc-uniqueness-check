@@ -2,18 +2,20 @@ use clap::{Args, Parser};
 use eyre::ContextCompat;
 use indicatif::ProgressBar;
 use mpc::config::{AwsConfig, DbConfig};
-use mpc::coordinator::{UniquenessCheckRequest, UniquenessCheckResult};
+use mpc::coordinator::{self, UniquenessCheckRequest, UniquenessCheckResult};
 use mpc::db::Db;
 use mpc::template::Template;
 use mpc::utils::aws::sqs_client_from_config;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Parser)]
 enum Opt {
     SQSQuery(SQSQuery),
     SeedDb(SeedDb),
     SQSReceive(SQSReceive),
+    GenerateMockTemplates(GenerateMockTemplates),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -65,6 +67,15 @@ struct SQSReceive {
     pub queue_url: String,
 }
 
+#[derive(Debug, Clone, Args)]
+struct GenerateMockTemplates {
+    #[clap(short, long)]
+    pub output: String,
+
+    #[clap(short, long)]
+    pub num_templates: usize,
+}
+
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     dotenv::dotenv().ok();
@@ -80,6 +91,9 @@ async fn main() -> eyre::Result<()> {
         }
         Opt::SQSReceive(args) => {
             sqs_receive(&args).await?;
+        }
+        Opt::GenerateMockTemplates(args) => {
+            generate_mock_templates(&args).await?;
         }
     }
 
@@ -160,6 +174,22 @@ async fn seed_db(args: &SeedDb) -> eyre::Result<()> {
     }
 
     pb.finish_with_message("done");
+
+    Ok(())
+}
+
+async fn generate_mock_templates(
+    args: &GenerateMockTemplates,
+) -> eyre::Result<()> {
+    let mut rng = thread_rng();
+
+    let templates: Vec<Template> =
+        (0..args.num_templates).map(|_| rng.gen()).collect();
+
+    let json = serde_json::to_string(&templates)?;
+
+    //write to file
+    std::fs::write(&args.output, json)?;
 
     Ok(())
 }

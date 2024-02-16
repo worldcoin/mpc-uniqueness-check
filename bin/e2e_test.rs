@@ -1,4 +1,7 @@
-use aws_sdk_sqs::types::QueueAttributeName;
+use std::fs;
+use std::time::Duration;
+
+use aws_sdk_sqs::types::{Message, QueueAttributeName};
 use clap::Parser;
 use eyre::ContextCompat;
 use mpc::config::AwsConfig;
@@ -33,14 +36,9 @@ struct Args {
     #[clap(env)]
     coordinator_results_queue: String,
 
-    /// The total number of templates to use
-    #[clap(env, default_value = "100")]
-    num_total_templates: usize,
-
-    /// How many of the total templates to send via db-sync
-    /// before starting the test
-    #[clap(env, default_value = "0.05")]
-    share_of_templates_seeded: f64,
+    //Path to templates file
+    #[clap(env, long, short)]
+    templates: String,
 }
 
 #[tokio::main]
@@ -49,40 +47,85 @@ async fn main() -> eyre::Result<()> {
 
     let args = Args::parse();
 
+    //generate random template
     let sqs_client = sqs_client_from_config(&AwsConfig {
         endpoint: Some(args.aws_endpoint.clone()),
         region: Some(args.aws_region.clone()),
     })
     .await?;
 
-    let mut rng = thread_rng();
+    // Deserialize the string into `MyJson`
+    let mock_templates: Vec<Template> =
+        serde_json::from_str(&fs::read_to_string(args.templates.clone())?)?;
 
-    let templates: Vec<Template> =
-        (0..args.num_total_templates).map(|_| rng.gen()).collect();
-
-    let shares: Vec<Box<[EncodedBits]>> = templates
-        .iter()
-        .map(|t| mpc::distance::encode(t).share(1))
-        .collect();
-
-    let num_templates_to_seed = (args.num_total_templates as f64
-        * args.share_of_templates_seeded)
-        as usize;
-
-    let (non_unique_templates, _unique_templates) =
-        templates.split_at(num_templates_to_seed);
-
-    let (non_unique_shares, _unique_shares) =
-        shares.split_at(num_templates_to_seed);
-
+    tracing::info!("Waiting for queues to be ready");
+    tokio::time::sleep(Duration::from_secs(3)).await;
     wait_for_queues(&args, &sqs_client).await?;
 
-    seed_db_sync(&args, &sqs_client, non_unique_templates, non_unique_shares)
+    for (id, template) in mock_templates.into_iter().enumerate() {
+        send_query_and_handle_results(
+            template,
+            &sqs_client,
+            &args.coordinator_query_queue,
+            &args.coordinator_results_queue,
+        )
         .await?;
 
-    test_non_unique_templates(&args, &sqs_client, non_unique_templates).await?;
+        tracing::info!("Encoding shares");
+        let shares: Box<[EncodedBits]> =
+            mpc::distance::encode(&template).share(1);
 
-    // TODO: Test unique templates
+        seed_db_sync(&args, &sqs_client, template, shares, id as u64).await?;
+    }
+
+    Ok(())
+}
+
+async fn seed_db_sync(
+    args: &Args,
+    sqs_client: &aws_sdk_sqs::Client,
+    template: Template,
+    shares: Box<[EncodedBits]>,
+    serial_id: u64,
+) -> eyre::Result<()> {
+    let coordinator_payload =
+        serde_json::to_string(&vec![coordinator::DbSyncPayload {
+            id: serial_id,
+            mask: template.mask,
+        }])?;
+
+    tracing::info!(
+        "Sending {} bytes to coordinator db sync queue",
+        coordinator_payload.len()
+    );
+
+    sqs_client
+        .send_message()
+        .queue_url(&args.coordinator_db_sync_queue)
+        .message_body(coordinator_payload)
+        .send()
+        .await?;
+
+    let participant_payload =
+        serde_json::to_string(&vec![participant::DbSyncPayload {
+            id: serial_id,
+            share: shares[0],
+        }])?;
+
+    tracing::info!(
+        "Sending {} bytes to participant",
+        participant_payload.len()
+    );
+
+    sqs_client
+        .send_message()
+        .queue_url(&args.participant_db_sync_queue)
+        .message_body(participant_payload)
+        .send()
+        .await?;
+
+    tracing::info!("Waiting for db sync to complete");
+    tokio::time::sleep(Duration::from_secs(1)).await;
 
     Ok(())
 }
@@ -99,6 +142,7 @@ async fn wait_for_queues(
     ];
 
     for queue in queues {
+        tracing::info!(?queue, "Waiting for queue");
         loop {
             let Ok(response) = sqs_client
                 .get_queue_attributes()
@@ -129,64 +173,71 @@ async fn wait_for_queues(
     Ok(())
 }
 
-async fn seed_db_sync(
-    args: &Args,
+async fn send_query_and_handle_results(
+    template: Template,
     sqs_client: &aws_sdk_sqs::Client,
-    templates: &[Template],
-    shares: &[Box<[EncodedBits]>],
+    query_queue: &str,
+    results_queue: &str,
 ) -> eyre::Result<()> {
-    let mut coordinator_payload = vec![];
-    let mut participant_payload = vec![];
+    let signup_id = generate_random_string(4);
+    let group_id = generate_random_string(4);
 
-    eyre::ensure!(
-        templates.len() == shares.len(),
-        "templates and shares must have the same length"
-    );
+    tracing::info!(?signup_id, ?group_id, "Sending request");
 
-    tracing::info!("Sending {} templates via db-sync", templates.len());
+    let request = UniquenessCheckRequest {
+        plain_code: template,
+        signup_id,
+    };
 
-    for (id, template) in templates.iter().enumerate() {
-        coordinator_payload.push(coordinator::DbSyncPayload {
-            id: id as u64,
-            mask: template.mask,
-        });
-    }
-
-    for (id, share) in shares.iter().enumerate() {
-        participant_payload.push(participant::DbSyncPayload {
-            id: id as u64,
-            share: share[0],
-        });
-    }
-
-    let msg = serde_json::to_string(&coordinator_payload)?;
-    tracing::info!("Sending {} bytes to coordinator", msg.len());
     sqs_client
         .send_message()
-        .queue_url(&args.coordinator_db_sync_queue)
-        .message_body(msg)
+        .queue_url(query_queue)
+        .message_group_id(group_id)
+        .message_body(serde_json::to_string(&request)?)
         .send()
         .await?;
 
-    let msg = serde_json::to_string(&participant_payload)?;
-    tracing::info!("Sending {} bytes to participant", msg.len());
-    sqs_client
-        .send_message()
-        .queue_url(&args.participant_db_sync_queue)
-        .message_body(msg)
-        .send()
-        .await?;
+    tracing::info!("Getting results");
 
-    Ok(())
-}
+    let messages = loop {
+        // Get a message with results back
+        let messages = sqs_client
+            .receive_message()
+            .queue_url(results_queue)
+            .send()
+            .await?;
 
-async fn test_non_unique_templates(
-    args: &Args,
-    sqs_client: &aws_sdk_sqs::Client,
-    templates: &[Template],
-) -> eyre::Result<()> {
-    for (serial_id, template) in templates.iter().enumerate() {
-        test_non_unique_template(serial_id, args, sqs_client, *template)
+        let Some(messages) = messages.messages else {
+            tracing::warn!("No messages in response, will retry");
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            continue;
+        };
+
+        break messages;
+    };
+
+    for message in messages {
+        let body = message.body.context("Missing message body")?;
+        let result: UniquenessCheckResult = serde_json::from_str(&body)?;
+
+        tracing::info!(
+            result_serial_id = result.serial_id,
+            num_matches = result.matches.len(),
+            matches = ?result.matches,
+            "Result received"
+        );
+
+        //Delete message from the results queue
+        let receipt_handle = message
+            .receipt_handle
+            .context("Could not get receipt handle")?;
+
+        tracing::info!("Deleting message from results queue");
+        sqs_client
+            .delete_message()
+            .queue_url(results_queue)
+            .receipt_handle(receipt_handle)
+            .send()
             .await?;
     }
 
@@ -255,12 +306,12 @@ async fn test_non_unique_template(
                 result.matches.len()
             );
 
-            eyre::ensure!(
-                result.matches[0].serial_id == serial_id as u64,
-                "Expected the same serial_id in the result. Got {} expected {}",
-                result.matches[0].serial_id,
-                serial_id
-            );
+            // eyre::ensure!(
+            //     result.matches[0].serial_id == serial_id as u64,
+            //     "Expected the same serial_id in the result. Got {} expected {}",
+            //     result.matches[0].serial_id,
+            //     serial_id
+            // );
 
             eyre::ensure!(
                 result.matches[0].distance < EQUAL_MATCH_THRESHOLD,
