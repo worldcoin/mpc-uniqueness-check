@@ -1,7 +1,7 @@
 use std::fs;
 use std::time::Duration;
 
-use aws_sdk_sqs::types::{Message, QueueAttributeName};
+use aws_sdk_sqs::types::QueueAttributeName;
 use clap::Parser;
 use eyre::ContextCompat;
 use mpc::config::AwsConfig;
@@ -11,7 +11,7 @@ use mpc::template::Template;
 use mpc::utils::aws::sqs_client_from_config;
 use mpc::{coordinator, participant};
 use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
+use rand::Rng;
 
 const EQUAL_MATCH_THRESHOLD: f64 = 0.01;
 
@@ -62,45 +62,73 @@ async fn main() -> eyre::Result<()> {
     wait_for_queues(&args, &sqs_client).await?;
 
     for (id, template) in mock_templates.into_iter().enumerate() {
-        let results = send_query(
-            template,
-            &sqs_client,
-            &args.coordinator_query_queue,
-            &args.coordinator_results_queue,
-        )
-        .await?;
+        send_query(template, &sqs_client, &args.coordinator_query_queue)
+            .await?;
 
-        for message in results {
-            let body = message.body.context("Missing message body")?;
-            let result: UniquenessCheckResult = serde_json::from_str(&body)?;
+        // handle_results(&sqs_client, &args.coordinator_results_queue).await?;
 
-            tracing::info!(
-                result_serial_id = result.serial_id,
-                num_matches = result.matches.len(),
-                matches = ?result.matches,
-                "Result received"
-            );
+        // tracing::info!("Encoding shares");
+        // let shares: Box<[EncodedBits]> =
+        //     mpc::distance::encode(&template).share(1);
 
-            //Delete message from the results queue
-            let receipt_handle = message
-                .receipt_handle
-                .context("Could not get receipt handle")?;
+        // seed_db_sync(&args, &sqs_client, template, shares, id as u64).await?;
+    }
 
-            tracing::info!("Deleting message from results queue");
-            sqs_client
-                .delete_message()
-                .queue_url(&args.coordinator_results_queue)
-                .receipt_handle(receipt_handle)
-                .send()
-                .await?;
+    Ok(())
+}
 
-            tracing::info!("Encoding shares");
-            let shares: Box<[EncodedBits]> =
-                mpc::distance::encode(&template).share(1);
+async fn handle_results(
+    sqs_client: &aws_sdk_sqs::Client,
+    results_queue: &str,
+) -> eyre::Result<()> {
+    let messages = loop {
+        // Get a message with results back
+        let messages = sqs_client
+            .receive_message()
+            .queue_url(results_queue)
+            // .wait_time_seconds(10)
+            .send()
+            .await?;
 
-            seed_db_sync(&args, &sqs_client, template, shares, id as u64)
-                .await?;
-        }
+        let Some(messages) = messages.messages else {
+            tracing::warn!("No messages in response, will retry");
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            continue;
+        };
+
+        break messages;
+    };
+
+    for message in messages {
+        let body = message.body.context("Missing message body")?;
+        let result: UniquenessCheckResult = serde_json::from_str(&body)?;
+
+        tracing::info!(
+            result_serial_id = result.serial_id,
+            num_matches = result.matches.len(),
+            matches = ?result.matches,
+            "Result received"
+        );
+
+        //Delete message from the results queue
+        let receipt_handle = message
+            .receipt_handle
+            .context("Could not get receipt handle")?;
+
+        tracing::info!("Deleting message from results queue");
+
+        match sqs_client
+            .delete_message()
+            .queue_url(results_queue)
+            .receipt_handle(receipt_handle)
+            .send()
+            .await
+        {
+            Ok(deleted_msg_output) => {
+                tracing::info!(?deleted_msg_output, "Message deleted")
+            }
+            Err(e) => tracing::error!("Error deleting message: {:?}", e),
+        };
     }
 
     Ok(())
@@ -202,8 +230,7 @@ async fn send_query(
     template: Template,
     sqs_client: &aws_sdk_sqs::Client,
     query_queue: &str,
-    results_queue: &str,
-) -> eyre::Result<Vec<Message>> {
+) -> eyre::Result<()> {
     let signup_id = generate_random_string(4);
     let group_id = generate_random_string(4);
 
@@ -222,27 +249,7 @@ async fn send_query(
         .send()
         .await?;
 
-    tracing::info!("Getting results");
-
-    let messages = loop {
-        // Get a message with results back
-        let messages = sqs_client
-            .receive_message()
-            .queue_url(results_queue)
-            // .wait_time_seconds(10)
-            .send()
-            .await?;
-
-        let Some(messages) = messages.messages else {
-            tracing::warn!("No messages in response, will retry");
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-            continue;
-        };
-
-        break messages;
-    };
-
-    Ok(messages)
+    Ok(())
 }
 
 fn generate_random_string(len: usize) -> String {
