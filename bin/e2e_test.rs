@@ -38,7 +38,7 @@ struct Args {
 
     //Path to templates file
     #[clap(env, long, short)]
-    templates: String,
+    templates: Option<String>,
 
     #[clap(env, long, short)]
     db_sync: bool,
@@ -57,8 +57,13 @@ async fn main() -> eyre::Result<()> {
     })
     .await?;
 
-    let mock_templates: Vec<Template> =
-        serde_json::from_str(&fs::read_to_string(args.templates.clone())?)?;
+    let mock_templates: Vec<Template> = if let Some(templates) = &args.templates
+    {
+        serde_json::from_str(&fs::read_to_string(templates)?)?
+    } else {
+        let mut rng = rand::thread_rng();
+        (0..10).map(|_| rng.gen()).collect()
+    };
 
     tracing::info!("Waiting for queues to be ready");
     tokio::time::sleep(Duration::from_secs(2)).await;
