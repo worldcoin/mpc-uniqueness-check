@@ -13,7 +13,7 @@ use mpc::{coordinator, participant};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 
-const EQUAL_MATCH_THRESHOLD: f64 = 0.01;
+// const EQUAL_MATCH_THRESHOLD: f64 = 0.01;
 
 #[derive(Parser)]
 #[clap(version)]
@@ -84,7 +84,7 @@ async fn main() -> eyre::Result<()> {
     Ok(())
 }
 
-async fn handle_results(
+pub async fn handle_results(
     sqs_client: &aws_sdk_sqs::Client,
     results_queue: &str,
 ) -> eyre::Result<()> {

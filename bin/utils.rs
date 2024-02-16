@@ -2,15 +2,15 @@ use clap::{Args, Parser};
 use eyre::ContextCompat;
 use indicatif::ProgressBar;
 use mpc::config::{AwsConfig, DbConfig};
-use mpc::coordinator::{self, UniquenessCheckRequest, UniquenessCheckResult};
+use mpc::coordinator::{UniquenessCheckRequest, UniquenessCheckResult};
 use mpc::db::Db;
-use mpc::encoded_bits::EncodedBits;
-use mpc::participant;
+
+
 use mpc::template::Template;
 use mpc::utils::aws::sqs_client_from_config;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
-use serde::{Deserialize, Serialize};
+
 
 #[derive(Debug, Clone, Parser)]
 enum Opt {
