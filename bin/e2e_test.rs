@@ -63,7 +63,7 @@ async fn main() -> eyre::Result<()> {
     wait_for_queues(&args, &sqs_client).await?;
 
     for (id, template) in mock_templates.into_iter().enumerate() {
-        send_query_and_handle_results(
+        let results = send_query(
             template,
             &sqs_client,
             &args.coordinator_query_queue,
@@ -71,11 +71,37 @@ async fn main() -> eyre::Result<()> {
         )
         .await?;
 
-        tracing::info!("Encoding shares");
-        let shares: Box<[EncodedBits]> =
-            mpc::distance::encode(&template).share(1);
+        for message in results {
+            let body = message.body.context("Missing message body")?;
+            let result: UniquenessCheckResult = serde_json::from_str(&body)?;
 
-        seed_db_sync(&args, &sqs_client, template, shares, id as u64).await?;
+            tracing::info!(
+                result_serial_id = result.serial_id,
+                num_matches = result.matches.len(),
+                matches = ?result.matches,
+                "Result received"
+            );
+
+            //Delete message from the results queue
+            let receipt_handle = message
+                .receipt_handle
+                .context("Could not get receipt handle")?;
+
+            tracing::info!("Deleting message from results queue");
+            sqs_client
+                .delete_message()
+                .queue_url(&args.coordinator_results_queue)
+                .receipt_handle(receipt_handle)
+                .send()
+                .await?;
+
+            tracing::info!("Encoding shares");
+            let shares: Box<[EncodedBits]> =
+                mpc::distance::encode(&template).share(1);
+
+            seed_db_sync(&args, &sqs_client, template, shares, id as u64)
+                .await?;
+        }
     }
 
     Ok(())
@@ -173,12 +199,12 @@ async fn wait_for_queues(
     Ok(())
 }
 
-async fn send_query_and_handle_results(
+async fn send_query(
     template: Template,
     sqs_client: &aws_sdk_sqs::Client,
     query_queue: &str,
     results_queue: &str,
-) -> eyre::Result<()> {
+) -> eyre::Result<Vec<Message>> {
     let signup_id = generate_random_string(4);
     let group_id = generate_random_string(4);
 
@@ -204,6 +230,7 @@ async fn send_query_and_handle_results(
         let messages = sqs_client
             .receive_message()
             .queue_url(results_queue)
+            // .wait_time_seconds(10)
             .send()
             .await?;
 
@@ -216,32 +243,7 @@ async fn send_query_and_handle_results(
         break messages;
     };
 
-    for message in messages {
-        let body = message.body.context("Missing message body")?;
-        let result: UniquenessCheckResult = serde_json::from_str(&body)?;
-
-        tracing::info!(
-            result_serial_id = result.serial_id,
-            num_matches = result.matches.len(),
-            matches = ?result.matches,
-            "Result received"
-        );
-
-        //Delete message from the results queue
-        let receipt_handle = message
-            .receipt_handle
-            .context("Could not get receipt handle")?;
-
-        tracing::info!("Deleting message from results queue");
-        sqs_client
-            .delete_message()
-            .queue_url(results_queue)
-            .receipt_handle(receipt_handle)
-            .send()
-            .await?;
-    }
-
-    Ok(())
+    Ok(messages)
 }
 
 #[tracing::instrument(skip(args, sqs_client, template))]
