@@ -39,6 +39,9 @@ struct Args {
     //Path to templates file
     #[clap(env, long, short)]
     templates: String,
+
+    #[clap(env, long, short)]
+    db_sync: bool,
 }
 
 #[tokio::main]
@@ -65,13 +68,17 @@ async fn main() -> eyre::Result<()> {
         send_query(template, &sqs_client, &args.coordinator_query_queue)
             .await?;
 
+        //TODO: inspect elements from results queue
         // handle_results(&sqs_client, &args.coordinator_results_queue).await?;
 
-        // tracing::info!("Encoding shares");
-        // let shares: Box<[EncodedBits]> =
-        //     mpc::distance::encode(&template).share(1);
+        if args.db_sync {
+            tracing::info!("Encoding shares");
+            let shares: Box<[EncodedBits]> =
+                mpc::distance::encode(&template).share(1);
 
-        // seed_db_sync(&args, &sqs_client, template, shares, id as u64).await?;
+            seed_db_sync(&args, &sqs_client, template, shares, id as u64)
+                .await?;
+        }
     }
 
     Ok(())
