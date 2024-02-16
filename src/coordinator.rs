@@ -25,6 +25,7 @@ use crate::utils::aws::{
 use crate::utils::templating::resolve_template;
 
 const BATCH_SIZE: usize = 20_000;
+const BATCH_ELEMENT_SIZE: usize = std::mem::size_of::<[u16; 31]>();
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
 const MESSAGE_GROUP_ID: &str = "mpc-uniqueness-check-response";
 
@@ -139,23 +140,27 @@ impl Coordinator {
 
         tracing::info!("Sending query to participants");
         let streams = self.send_query_to_participants(&template).await?;
-        let mut handles = Vec::with_capacity(2);
+        let mut tasks = FuturesUnordered::new();
 
         tracing::info!("Computing denominators");
         let (denominator_rx, denominator_handle) =
             self.compute_denominators(template.mask);
-        handles.push(denominator_handle);
+        tasks.push(denominator_handle);
 
         tracing::info!("Processing participant shares");
         let (batch_process_shares_rx, batch_process_shares_handle) =
             self.batch_process_participant_shares(denominator_rx, streams);
-        handles.push(batch_process_shares_handle);
+        tasks.push(batch_process_shares_handle);
 
         tracing::info!("Processing results");
         let distance_results =
             self.process_results(batch_process_shares_rx).await?;
 
-        tracing::info!("Enqueuing results");
+        tracing::info!(
+            num_matches = distance_results.matches.len(),
+            serial_id = distance_results.serial_id,
+            "Enqueuing results"
+        );
         let result = UniquenessCheckResult {
             serial_id: distance_results.serial_id,
             matches: distance_results.matches,
@@ -178,9 +183,8 @@ impl Coordinator {
         )
         .await?;
 
-        // TODO: Make sure that all workers receive signal to stop.
-        for handle in handles {
-            handle.await??;
+        while let Some(result) = tasks.next().await {
+            result??;
         }
 
         Ok(())
@@ -282,34 +286,31 @@ impl Coordinator {
                 let streams_future =
                     future::try_join_all(streams.iter_mut().enumerate().map(
                         |(i, stream)| async move {
-                            let mut batch = vec![[0_u16; 31]; BATCH_SIZE];
-                            let mut buffer: &mut [u8] =
-                                bytemuck::cast_slice_mut(batch.as_mut_slice());
 
-                            // We can not use read_exact here as we might get EOF before the
-                            // buffer is full But we should
-                            // still try to fill the entire buffer.
-                            // If nothing else, this guarantees that we read batches at a
-                            // [u16;31] boundary.
-                            while !buffer.is_empty() {
-                                let bytes_read =
-                                    stream.read_buf(&mut buffer).await?;
 
-                                tracing::debug!(
-                                    participant = i,
-                                    bytes_read,
-                                    "Bytes read from participant"
-                                );
-
-                                if bytes_read == 0 {
-                                    let n_incomplete = (buffer.len()
-                                        + std::mem::size_of::<[u16; 31]>() //TODO: make this a const
-                                        - 1)
-                                        / std::mem::size_of::<[u16; 31]>(); //TODO: make this a const
-                                    batch.truncate(batch.len() - n_incomplete);
-                                    break;
+                            let buffer_size = match stream.read_u64().await{
+                                Ok(buffer_size) => buffer_size as usize,
+                                Err(e) if e.kind() == tokio::io::ErrorKind::UnexpectedEof => {
+                                    tracing::info!("Connection closed by participant");
+                                    return Ok(vec![]);
                                 }
+                                Err(e) => Err(e)?
+                            };
+                            if buffer_size % BATCH_ELEMENT_SIZE != 0 {
+                                return Err(eyre::eyre!(
+                                    "Buffer size is not a multiple of the batch part size"
+                                ));
                             }
+
+                            // Calculate the batch size
+                            let batch_size =
+                                buffer_size / BATCH_ELEMENT_SIZE;
+                            let mut batch = vec![[0u16; 31]; batch_size];
+                            let buffer =
+                                bytemuck::cast_slice_mut(&mut batch);
+
+                            // Read in the batch results
+                            stream.read_exact(buffer).await?;
 
                             tracing::info!(
                                 participant = i,
@@ -368,12 +369,11 @@ impl Coordinator {
         // Keep track of entry ids
         let mut i: usize = 0;
 
-        loop {
-            // Fetch batches of denominators and shares
-            let (denom_batch, shares) =
-                processed_shares_rx.recv().await.expect("channel closed");
+        while let Some((denom_batch, shares)) = processed_shares_rx.recv().await
+        {
             let batch_size = denom_batch.len();
             if batch_size == 0 {
+                tracing::warn!("Batch size is empty");
                 break;
             }
 
@@ -431,6 +431,8 @@ impl Coordinator {
 
         masks.extend(new_masks);
 
+        tracing::info!(num_masks = masks.len(), "Masks synchronized");
+
         Ok(())
     }
 
@@ -463,6 +465,10 @@ impl Coordinator {
             let masks: Vec<_> =
                 items.into_iter().map(|item| (item.id, item.mask)).collect();
 
+            tracing::info!(
+                num_new_masks = masks.len(),
+                "Inserting masks into database"
+            );
             self.database.insert_masks(&masks).await?;
 
             sqs_delete_message(

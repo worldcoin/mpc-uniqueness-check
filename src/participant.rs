@@ -5,7 +5,7 @@ use distance::Template;
 use eyre::ContextCompat;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use telemetry_batteries::opentelemetry::trace::{
     SpanContext, SpanId, TraceFlags, TraceId, TraceState,
 };
@@ -142,8 +142,12 @@ impl Participant {
         });
 
         while let Some(buffer) = receiver.recv().await {
-            tracing::info!(batch_size = ?buffer.len(), "Sending batch result to coordinator");
+            tracing::info!(num_bytes = ?buffer.len(), "Sending batch result to coordinator");
+            let buffer_len = buffer.len() as u64;
+            stream.write_u64(buffer_len).await?;
+
             stream.write_all(&buffer).await?;
+            stream.flush().await?;
         }
         worker.await??;
 
@@ -181,6 +185,10 @@ impl Participant {
                 .map(|item| (item.id, item.share))
                 .collect();
 
+            tracing::info!(
+                num_new_shares = shares.len(),
+                "Inserting shares into database"
+            );
             self.database.insert_shares(&shares).await?;
 
             sqs_delete_message(
@@ -203,12 +211,14 @@ impl Participant {
 
         shares.extend(new_shares);
 
+        tracing::info!(num_shares = shares.len(), "Shares synchronized");
+
         Ok(())
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct DbSyncPayload {
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DbSyncPayload {
     pub id: u64,
     pub share: EncodedBits,
 }
