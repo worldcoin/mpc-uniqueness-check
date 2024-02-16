@@ -115,6 +115,8 @@ impl Coordinator {
 
                 let body = message.body.context("Missing message body")?;
 
+                tracing::info!("Processing check message with body: {:?}", &body);
+
                 let UniquenessCheckRequest {
                     plain_code: template,
                     signup_id,

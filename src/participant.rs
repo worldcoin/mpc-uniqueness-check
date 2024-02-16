@@ -175,6 +175,10 @@ impl Participant {
 
         for message in messages {
             let body = message.body.context("Missing message body")?;
+
+            tracing::info!("Processing db sync message with body: {:?}", &body);
+
+
             let receipt_handle = message
                 .receipt_handle
                 .context("Missing receipt handle in message")?;
