@@ -28,7 +28,10 @@ struct Args {
     coordinator_db_sync_queue: String,
 
     #[clap(env)]
-    participant_db_sync_queue: String,
+    participant_0_db_sync_queue: String,
+
+    #[clap(env)]
+    participant_1_db_sync_queue: String,
 
     #[clap(env)]
     coordinator_query_queue: String,
@@ -79,7 +82,7 @@ async fn main() -> eyre::Result<()> {
         if args.db_sync {
             tracing::info!("Encoding shares");
             let shares: Box<[EncodedBits]> =
-                mpc::distance::encode(&template).share(1);
+                mpc::distance::encode(&template).share(2);
 
             seed_db_sync(&args, &sqs_client, template, shares, id as u64)
                 .await?;
@@ -171,26 +174,44 @@ async fn seed_db_sync(
         .send()
         .await?;
 
-    let participant_payload =
+    let participant_0_payload =
         serde_json::to_string(&vec![participant::DbSyncPayload {
             id: serial_id,
             share: shares[0],
         }])?;
 
     tracing::info!(
-        "Sending {} bytes to participant",
-        participant_payload.len()
+        "Sending {} bytes to participant 0",
+        participant_0_payload.len()
     );
 
     sqs_client
         .send_message()
-        .queue_url(&args.participant_db_sync_queue)
-        .message_body(participant_payload)
+        .queue_url(&args.participant_0_db_sync_queue)
+        .message_body(participant_0_payload)
         .send()
         .await?;
 
-    tracing::info!("Waiting for db sync to complete");
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    let participant_1_payload =
+        serde_json::to_string(&vec![participant::DbSyncPayload {
+            id: serial_id,
+            share: shares[1],
+        }])?;
+
+    tracing::info!(
+        "Sending {} bytes to participant 1",
+        participant_1_payload.len()
+    );
+
+    sqs_client
+        .send_message()
+        .queue_url(&args.participant_1_db_sync_queue)
+        .message_body(participant_1_payload)
+        .send()
+        .await?;
+
+    tracing::info!("Waiting for 300 ms for db sync to propagate");
+    tokio::time::sleep(Duration::from_millis(300)).await;
 
     Ok(())
 }
@@ -201,7 +222,8 @@ async fn wait_for_queues(
 ) -> eyre::Result<()> {
     let queues = vec![
         &args.coordinator_db_sync_queue,
-        &args.participant_db_sync_queue,
+        &args.participant_0_db_sync_queue,
+        &args.participant_1_db_sync_queue,
         &args.coordinator_query_queue,
         &args.coordinator_results_queue,
     ];
