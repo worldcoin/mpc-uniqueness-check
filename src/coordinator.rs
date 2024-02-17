@@ -461,7 +461,18 @@ impl Coordinator {
                 .receipt_handle
                 .context("Missing receipt handle in message")?;
 
-            let items: Vec<DbSyncPayload> = serde_json::from_str(&body)?;
+            let items = if let Ok(items) =
+                serde_json::from_str::<Vec<DbSyncPayload>>(&body)
+            {
+                items
+            } else {
+                tracing::error!(
+                    ?receipt_handle,
+                    "Failed to parse message body"
+                );
+                continue;
+            };
+
             let masks: Vec<_> =
                 items.into_iter().map(|item| (item.id, item.mask)).collect();
 
