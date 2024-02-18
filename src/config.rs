@@ -52,7 +52,7 @@ pub struct DbConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoordinatorQueuesConfig {
-    pub shares_queue_url: String,
+    pub queries_queue_url: String,
     pub distances_queue_url: String,
     pub db_sync_queue_url: String,
 }
@@ -124,7 +124,7 @@ mod tests {
                     create: true,
                 },
                 queues: CoordinatorQueuesConfig {
-                    shares_queue_url: "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
+                    queries_queue_url: "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
                         .to_string(),
                     distances_queue_url: "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-distance-results-queue"
                         .to_string(),

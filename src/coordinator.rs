@@ -92,7 +92,7 @@ impl Coordinator {
         loop {
             let messages = sqs_dequeue(
                 &self.sqs_client,
-                &self.config.queues.shares_queue_url,
+                &self.config.queues.queries_queue_url,
             )
             .await?;
 
@@ -156,11 +156,6 @@ impl Coordinator {
         let distance_results =
             self.process_results(batch_process_shares_rx).await?;
 
-        tracing::info!(
-            num_matches = distance_results.matches.len(),
-            serial_id = distance_results.serial_id,
-            "Enqueuing results"
-        );
         let result = UniquenessCheckResult {
             serial_id: distance_results.serial_id,
             matches: distance_results.matches,
@@ -175,10 +170,9 @@ impl Coordinator {
         )
         .await?;
 
-        tracing::info!("Deleting message from queue");
         sqs_delete_message(
             &self.sqs_client,
-            &self.config.queues.shares_queue_url,
+            &self.config.queues.queries_queue_url,
             receipt_handle,
         )
         .await?;
@@ -330,6 +324,7 @@ impl Coordinator {
                 let mut denom = denom.unwrap_or_default();
                 let mut shares = shares?;
 
+                //NOTE: we need to make sure that the batch sizes are the same, otherwise, it will truncate to the smaller size every time while still in the middle of batches
                 // Find the shortest prefix
                 let batch_size = shares
                     .iter()
@@ -427,7 +422,10 @@ impl Coordinator {
         let mut masks = self.masks.lock().await;
         let next_mask_number = masks.len();
 
+        tracing::info!(?next_mask_number, "Synchronizing masks");
+
         let new_masks = self.database.fetch_masks(next_mask_number).await?;
+        tracing::info!(?new_masks, "Got new masks");
 
         masks.extend(new_masks);
 
@@ -469,6 +467,7 @@ impl Coordinator {
                 num_new_masks = masks.len(),
                 "Inserting masks into database"
             );
+
             self.database.insert_masks(&masks).await?;
 
             sqs_delete_message(
