@@ -425,11 +425,10 @@ impl Coordinator {
         tracing::info!(?next_mask_number, "Synchronizing masks");
 
         let new_masks = self.database.fetch_masks(next_mask_number).await?;
-        tracing::info!(?new_masks, "Got new masks");
 
         masks.extend(new_masks);
 
-        tracing::info!(num_masks = masks.len(), "Masks synchronized");
+        tracing::info!(num_masks = masks.len(), "New masks synchronized");
 
         Ok(())
     }

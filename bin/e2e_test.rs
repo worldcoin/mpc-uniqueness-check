@@ -47,8 +47,11 @@ struct DbSyncConfig {
     #[clap(env, long)]
     coordinator_db_sync_queue: String,
 
-    #[clap(env, long, short)]
-    participant_db_sync_queue: String,
+    #[clap(env, long)]
+    participant_0_db_sync_queue: String,
+
+    #[clap(env, long)]
+    participant_1_db_sync_queue: String,
 }
 
 #[tokio::main]
@@ -72,18 +75,17 @@ async fn main() -> eyre::Result<()> {
         (0..10).map(|_| rng.gen()).collect()
     };
 
-    let queues = if let Some(db_sync_config) = &args.db_sync_config {
-        vec![
-            args.coordinator_query_queue.as_str(),
-            &args.coordinator_results_queue.as_str(),
+    let mut queues = vec![
+        args.coordinator_query_queue.as_str(),
+        args.coordinator_results_queue.as_str(),
+    ];
+
+    if let Some(db_sync_config) = &args.db_sync_config {
+        queues.extend(vec![
             db_sync_config.coordinator_db_sync_queue.as_str(),
-            db_sync_config.participant_db_sync_queue.as_str(),
-        ]
-    } else {
-        vec![
-            args.coordinator_query_queue.as_str(),
-            args.coordinator_results_queue.as_str(),
-        ]
+            db_sync_config.participant_0_db_sync_queue.as_str(),
+            db_sync_config.participant_1_db_sync_queue.as_str(),
+        ]);
     };
 
     tracing::info!("Waiting for queues to be ready");
@@ -120,14 +122,17 @@ async fn main() -> eyre::Result<()> {
         if let Some(db_sync_config) = &args.db_sync_config {
             tracing::info!("Encoding shares");
             let shares: Box<[EncodedBits]> =
-                mpc::distance::encode(&template).share(1);
+                mpc::distance::encode(&template).share(2);
 
             //NOTE: wait for one second before inserting into db sync queue
             tokio::time::sleep(Duration::from_secs(1)).await;
             seed_db_sync(
                 &sqs_client,
                 &db_sync_config.coordinator_db_sync_queue,
-                &db_sync_config.participant_db_sync_queue,
+                vec![
+                    &db_sync_config.participant_0_db_sync_queue,
+                    &db_sync_config.participant_1_db_sync_queue,
+                ],
                 template,
                 shares,
                 next_serial_id,
@@ -201,7 +206,7 @@ pub async fn handle_results(
 async fn seed_db_sync(
     sqs_client: &aws_sdk_sqs::Client,
     coordinator_db_sync_queue: &str,
-    participant_db_sync_queue: &str,
+    participant_db_sync_queues: Vec<&str>,
     template: Template,
     shares: Box<[EncodedBits]>,
     serial_id: u64,
@@ -224,26 +229,44 @@ async fn seed_db_sync(
         .send()
         .await?;
 
-    let participant_payload =
+    let participant_0_payload =
         serde_json::to_string(&vec![participant::DbSyncPayload {
             id: serial_id,
             share: shares[0],
         }])?;
 
     tracing::info!(
-        "Sending {} bytes to participant",
-        participant_payload.len()
+        "Sending {} bytes to participant 0",
+        participant_0_payload.len()
     );
 
     sqs_client
         .send_message()
-        .queue_url(participant_db_sync_queue)
-        .message_body(participant_payload)
+        .queue_url(participant_db_sync_queues[0])
+        .message_body(participant_0_payload)
         .send()
         .await?;
 
-    tracing::info!("Waiting for db sync to complete");
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    let participant_1_payload =
+        serde_json::to_string(&vec![participant::DbSyncPayload {
+            id: serial_id,
+            share: shares[1],
+        }])?;
+
+    tracing::info!(
+        "Sending {} bytes to participant 1",
+        participant_1_payload.len()
+    );
+
+    sqs_client
+        .send_message()
+        .queue_url(participant_db_sync_queues[1])
+        .message_body(participant_1_payload)
+        .send()
+        .await?;
+
+    tracing::info!("Waiting for 300 ms for db sync to propagate");
+    tokio::time::sleep(Duration::from_millis(300)).await;
 
     Ok(())
 }
