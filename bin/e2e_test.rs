@@ -4,8 +4,9 @@ use std::time::Duration;
 use aws_sdk_sqs::types::QueueAttributeName;
 use clap::Parser;
 use eyre::ContextCompat;
-use mpc::config::AwsConfig;
+use mpc::config::{AwsConfig, DbConfig};
 use mpc::coordinator::{UniquenessCheckRequest, UniquenessCheckResult};
+use mpc::db::Db;
 use mpc::encoded_bits::EncodedBits;
 use mpc::template::Template;
 use mpc::utils::aws::sqs_client_from_config;
@@ -25,15 +26,6 @@ struct Args {
     aws_region: String,
 
     #[clap(env)]
-    coordinator_db_sync_queue: String,
-
-    #[clap(env)]
-    participant_0_db_sync_queue: String,
-
-    #[clap(env)]
-    participant_1_db_sync_queue: String,
-
-    #[clap(env)]
     coordinator_query_queue: String,
 
     #[clap(env)]
@@ -43,8 +35,23 @@ struct Args {
     #[clap(env, long, short)]
     templates: Option<String>,
 
-    #[clap(env, long, short)]
-    db_sync: bool,
+    #[clap(flatten)]
+    db_sync_config: Option<DbSyncConfig>,
+}
+
+#[derive(Debug, Clone, Parser)]
+struct DbSyncConfig {
+    #[clap(env, long)]
+    coordinator_db_url: String,
+
+    #[clap(env, long)]
+    coordinator_db_sync_queue: String,
+
+    #[clap(env, long)]
+    participant_0_db_sync_queue: String,
+
+    #[clap(env, long)]
+    participant_1_db_sync_queue: String,
 }
 
 #[tokio::main]
@@ -68,24 +75,71 @@ async fn main() -> eyre::Result<()> {
         (0..10).map(|_| rng.gen()).collect()
     };
 
-    tracing::info!("Waiting for queues to be ready");
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    wait_for_queues(&args, &sqs_client).await?;
+    let mut queues = vec![
+        args.coordinator_query_queue.as_str(),
+        args.coordinator_results_queue.as_str(),
+    ];
 
-    for (id, template) in mock_templates.into_iter().enumerate() {
+    if let Some(db_sync_config) = &args.db_sync_config {
+        queues.extend(vec![
+            db_sync_config.coordinator_db_sync_queue.as_str(),
+            db_sync_config.participant_0_db_sync_queue.as_str(),
+            db_sync_config.participant_1_db_sync_queue.as_str(),
+        ]);
+    };
+
+    tracing::info!("Waiting for queues to be ready");
+    wait_for_queues(&sqs_client, queues).await?;
+
+    // If db sync is enabled, connect to the coordinator db to get the latest serial_id
+    let mut next_serial_id = if let Some(db_sync_config) = &args.db_sync_config
+    {
+        let db = Db::new(&DbConfig {
+            url: db_sync_config.coordinator_db_url.to_string(),
+            migrate: false,
+            create: false,
+        })
+        .await?;
+
+        tracing::info!("Getting next serial id");
+
+        let masks = db.fetch_masks(0).await?;
+
+        masks.len() as u64
+    } else {
+        0_u64
+    };
+
+    tracing::info!(?next_serial_id);
+
+    for template in mock_templates.into_iter() {
         send_query(template, &sqs_client, &args.coordinator_query_queue)
             .await?;
 
         //TODO: inspect elements from results queue
         // handle_results(&sqs_client, &args.coordinator_results_queue).await?;
 
-        if args.db_sync {
+        if let Some(db_sync_config) = &args.db_sync_config {
             tracing::info!("Encoding shares");
             let shares: Box<[EncodedBits]> =
                 mpc::distance::encode(&template).share(2);
 
-            seed_db_sync(&args, &sqs_client, template, shares, id as u64)
-                .await?;
+            //NOTE: wait for one second before inserting into db sync queue
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            seed_db_sync(
+                &sqs_client,
+                &db_sync_config.coordinator_db_sync_queue,
+                vec![
+                    &db_sync_config.participant_0_db_sync_queue,
+                    &db_sync_config.participant_1_db_sync_queue,
+                ],
+                template,
+                shares,
+                next_serial_id,
+            )
+            .await?;
+
+            next_serial_id += 1;
         }
     }
 
@@ -150,8 +204,9 @@ pub async fn handle_results(
 }
 
 async fn seed_db_sync(
-    args: &Args,
     sqs_client: &aws_sdk_sqs::Client,
+    coordinator_db_sync_queue: &str,
+    participant_db_sync_queues: Vec<&str>,
     template: Template,
     shares: Box<[EncodedBits]>,
     serial_id: u64,
@@ -169,7 +224,7 @@ async fn seed_db_sync(
 
     sqs_client
         .send_message()
-        .queue_url(&args.coordinator_db_sync_queue)
+        .queue_url(coordinator_db_sync_queue)
         .message_body(coordinator_payload)
         .send()
         .await?;
@@ -187,7 +242,7 @@ async fn seed_db_sync(
 
     sqs_client
         .send_message()
-        .queue_url(&args.participant_0_db_sync_queue)
+        .queue_url(participant_db_sync_queues[0])
         .message_body(participant_0_payload)
         .send()
         .await?;
@@ -205,7 +260,7 @@ async fn seed_db_sync(
 
     sqs_client
         .send_message()
-        .queue_url(&args.participant_1_db_sync_queue)
+        .queue_url(participant_db_sync_queues[1])
         .message_body(participant_1_payload)
         .send()
         .await?;
@@ -217,17 +272,9 @@ async fn seed_db_sync(
 }
 
 async fn wait_for_queues(
-    args: &Args,
     sqs_client: &aws_sdk_sqs::Client,
+    queues: Vec<&str>,
 ) -> eyre::Result<()> {
-    let queues = vec![
-        &args.coordinator_db_sync_queue,
-        &args.participant_0_db_sync_queue,
-        &args.participant_1_db_sync_queue,
-        &args.coordinator_query_queue,
-        &args.coordinator_results_queue,
-    ];
-
     for queue in queues {
         tracing::info!(?queue, "Waiting for queue");
         loop {

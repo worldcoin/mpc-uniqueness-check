@@ -24,7 +24,7 @@ services:
       - 'MPC__COORDINATOR__DB__CREATE=true'
       - 'MPC__COORDINATOR__AWS__ENDPOINT=http://localstack:4566'
       - 'MPC__COORDINATOR__AWS__REGION=us-east-1'
-      - 'MPC__COORDINATOR__QUEUES__SHARES_QUEUE_URL=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-uniqueness-check.fifo'
+      - 'MPC__COORDINATOR__QUEUES__QUERIES_QUEUE_URL=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-uniqueness-check.fifo'
       - 'MPC__COORDINATOR__QUEUES__DISTANCES_QUEUE_URL=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-results-queue.fifo'
       - 'MPC__COORDINATOR__QUEUES__DB_SYNC_QUEUE_URL=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-db-sync-queue'
       # AWS env vars - they don't matter but are required
@@ -113,6 +113,8 @@ services:
       - 'PARTICIPANT_1_DB_SYNC_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/participant-1-db-sync-queue'
       - 'COORDINATOR_QUERY_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-uniqueness-check.fifo'
       - 'COORDINATOR_RESULTS_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-results-queue.fifo'
+      - 'COORDINATOR_DB_URL=postgres://postgres:postgres@coordinator_db:5432/db'
+
       # AWS env vars - they don't matter but are required
       - 'AWS_ACCESS_KEY_ID=test'
       - 'AWS_SECRET_ACCESS_KEY=test'
