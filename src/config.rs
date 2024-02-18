@@ -167,7 +167,7 @@ mod tests {
             migrate = true
 
             [coordinator.queues]
-            shares_queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
+            queries_queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
             distances_queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-distance-results-queue"
             db_sync_queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
 
