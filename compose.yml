@@ -98,27 +98,27 @@ services:
       - 8434:5432
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
-  e2e_test:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        - BIN=e2e-test
-    environment:
-      - 'RUST_LOG=info'
-      - 'AWS_ENDPOINT=http://localstack:4566'
-      - 'AWS_REGION=us-east-1'
-      - 'COORDINATOR_DB_SYNC_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-db-sync-queue'
-      - 'PARTICIPANT_0_DB_SYNC_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/participant-0-db-sync-queue'
-      - 'PARTICIPANT_1_DB_SYNC_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/participant-1-db-sync-queue'
-      - 'COORDINATOR_QUERY_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-uniqueness-check.fifo'
-      - 'COORDINATOR_RESULTS_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-results-queue.fifo'
-      - 'COORDINATOR_DB_URL=postgres://postgres:postgres@coordinator_db:5432/db'
+  # e2e_test:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #     args:
+  #       - BIN=e2e-test
+  #   environment:
+  #     - 'RUST_LOG=info'
+  #     - 'AWS_ENDPOINT=http://localstack:4566'
+  #     - 'AWS_REGION=us-east-1'
+  #     - 'COORDINATOR_DB_SYNC_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-db-sync-queue'
+  #     - 'PARTICIPANT_0_DB_SYNC_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/participant-0-db-sync-queue'
+  #     - 'PARTICIPANT_1_DB_SYNC_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/participant-1-db-sync-queue'
+  #     - 'COORDINATOR_QUERY_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-uniqueness-check.fifo'
+  #     - 'COORDINATOR_RESULTS_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-results-queue.fifo'
+  #     - 'COORDINATOR_DB_URL=postgres://postgres:postgres@coordinator_db:5432/db'
 
-      # AWS env vars - they don't matter but are required
-      - 'AWS_ACCESS_KEY_ID=test'
-      - 'AWS_SECRET_ACCESS_KEY=test'
-      - 'AWS_DEFAULT_REGION=us-east-1'
+  #     # AWS env vars - they don't matter but are required
+  #     - 'AWS_ACCESS_KEY_ID=test'
+  #     - 'AWS_SECRET_ACCESS_KEY=test'
+  #     - 'AWS_DEFAULT_REGION=us-east-1'
 
 networks:
   default:

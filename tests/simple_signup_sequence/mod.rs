@@ -1,8 +1,11 @@
 use std::fs;
 
-use mpc::config::AwsConfig;
+use eyre::ContextCompat;
+use mpc::config::{AwsConfig, DbConfig};
+use mpc::coordinator::UniquenessCheckResult;
+use mpc::db::Db;
 use mpc::template::{Bits, Template};
-use mpc::utils::aws::{self, sqs_client_from_config};
+use mpc::utils::aws::sqs_client_from_config;
 use serde::Deserialize;
 use telemetry_batteries::tracing::stdout::StdoutBattery;
 
@@ -59,7 +62,7 @@ pub struct Match {
 
 #[tokio::test]
 async fn test_simple_signup_sequence() -> eyre::Result<()> {
-    let _ = StdoutBattery::init();
+    let _shutdown_tracing_provider = StdoutBattery::init();
 
     let config = load_config()?;
 
@@ -84,7 +87,26 @@ async fn test_simple_signup_sequence() -> eyre::Result<()> {
     )
     .await?;
 
-    const REQUEST_MESSAGE_GROUP_ID: &str = "mpc-uniqueness-check-response";
+    // If db sync is enabled, connect to the coordinator db to get the latest serial_id
+    let mut next_serial_id = {
+        let db = Db::new(&DbConfig {
+            url: config.db_sync.coordinator_db_url.to_string(),
+            migrate: false,
+            create: false,
+        })
+        .await?;
+
+        tracing::info!("Getting next serial id");
+
+        let masks = db.fetch_masks(0).await?;
+
+        masks.len() as u64
+    };
+
+    let participant_db_sync_queues = vec![
+        config.db_sync.participant_0_db_sync_queue.as_str(),
+        config.db_sync.participant_1_db_sync_queue.as_str(),
+    ];
 
     for element in signup_sequence {
         let template = Template {
@@ -97,19 +119,48 @@ async fn test_simple_signup_sequence() -> eyre::Result<()> {
             template,
             &sqs_client,
             &config.coordinator_queue.query_queue,
-            REQUEST_MESSAGE_GROUP_ID,
+            &element.signup_id,
+            &common::generate_random_string(4),
         )
         .await?;
 
-        // Receive the result
+        //TODO: fix result queue handling
 
-        //TODO: check that the serial id is correct
+        // let results = common::receive_results(
+        //     &sqs_client,
+        //     &config.coordinator_queue.results_queue,
+        // )
+        // .await?;
 
-        //TODO: check the distance result against the signup sequence json
+        // let message_body = results
+        //     .first()
+        //     .context("Could not get message")?
+        //     .clone()
+        //     .body
+        //     .context("Could not get message body")?;
 
-        //TODO: if template passes check, initiate db sync
+        // let uniqueness_check_result =
+        //     serde_json::from_str::<UniquenessCheckResult>(&message_body)?;
 
-        //TODO: wait for latest serial id to match expected  id
+        // if !uniqueness_check_result.matches.is_empty() {
+        //     for (i, distance) in
+        //         uniqueness_check_result.matches.iter().enumerate()
+        //     {
+        //         assert_eq!(distance.distance, element.matched_with[i].distance);
+        //     }
+        // } else {
+
+        common::seed_db_sync(
+            &sqs_client,
+            &config.db_sync.coordinator_db_sync_queue,
+            &participant_db_sync_queues,
+            template,
+            next_serial_id,
+        )
+        .await?;
+
+        next_serial_id += 1;
+        // }
     }
 
     Ok(())
