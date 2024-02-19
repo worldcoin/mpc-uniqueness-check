@@ -1,3 +1,4 @@
+#![feature(array_chunks)]
 #![allow(clippy::type_complexity, clippy::comparison_chain)]
 
 pub mod arch;
