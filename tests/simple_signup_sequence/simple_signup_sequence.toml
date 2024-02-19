@@ -1,0 +1,13 @@
+[coordinator_queue]
+query_queue = "your_query_queue_name"
+results_queue = "your_results_queue_name"
+
+[db_sync]
+coordinator_db_url = "your_coordinator_db_url"
+coordinator_db_sync_queue = "your_coordinator_db_sync_queue"
+participant_0_db_sync_queue = "your_participant_0_db_sync_queue"
+participant_1_db_sync_queue = "your_participant_1_db_sync_queue"
+
+[aws]
+region = "your_aws_region"
+endpoint = "your_aws_endpoint"
