@@ -5,35 +5,38 @@ use std::ops::Index;
 
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
-use bytemuck::{cast_slice_mut, try_cast_slice_mut, Pod, Zeroable};
+use bytemuck::{cast_slice_mut, Pod, Zeroable};
 use rand::distributions::{Distribution, Standard};
 use rand::Rng;
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 
+use crate::{iris, slice_utils};
+
 pub const COLS: usize = 200;
+pub const STEP_MULTI: usize = 4;
 pub const ROWS: usize = 4 * 16;
 pub const BITS: usize = ROWS * COLS;
 const LIMBS: usize = BITS / 64;
-const BYTES_PER_COL: usize = COLS / 8;
+const BYTES_PER_COL: usize = COLS * STEP_MULTI;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Bits(pub [u64; LIMBS]);
 
 impl Bits {
-    pub fn rotate(&mut self, amount: i32) {
-        let bytes: &mut [u8] =
-            try_cast_slice_mut(self.0.as_mut_slice()).unwrap();
-        for chunk in bytes.chunks_exact_mut(BYTES_PER_COL) {
-            rotate_row(chunk.try_into().unwrap(), amount)
-        }
-    }
-
     pub fn rotated(&self, amount: i32) -> Self {
-        let mut copy = *self;
-        copy.rotate(amount);
-        copy
+        // Convert to big-endian bytes
+        let mut unpacked = iris::unpack_iris_code64(&self.0);
+
+        // Rotate byte chunks
+        for chunk in unpacked.array_chunks_mut::<BYTES_PER_COL>() {
+            let rot = amount * STEP_MULTI as i32;
+            slice_utils::rotate_slice(chunk, rot as i64);
+        }
+
+        let limbs = iris::pack_iris_code(&unpacked);
+        Bits::try_from(limbs).expect("Invalid bits size")
     }
 
     pub fn count_ones(&self) -> u16 {
@@ -70,7 +73,7 @@ impl Index<usize> for Bits {
 
 impl Default for Bits {
     fn default() -> Self {
-        Self([0; LIMBS])
+        Self([u64::MAX; LIMBS])
     }
 }
 
@@ -83,7 +86,10 @@ impl Debug for Bits {
     }
 }
 
-impl Serialize for Bits {
+impl Serialize for Bits
+where
+    [(); std::mem::size_of::<Self>()]:,
+{
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -112,12 +118,54 @@ impl<'de> Deserialize<'de> for Bits {
             .decode(s.as_bytes())
             .map_err(D::Error::custom)?;
 
+        Self::try_from(bytes)
+            .map_err(|()| D::Error::custom("Invalid bits size"))
+    }
+}
+
+impl From<[u8; LIMBS * 8]> for Bits {
+    fn from(bytes: [u8; LIMBS * 8]) -> Self {
         let mut limbs = [0_u64; LIMBS];
         for (i, chunk) in bytes.array_chunks::<8>().enumerate() {
             limbs[i] = u64::from_be_bytes(*chunk);
         }
+        Self(limbs)
+    }
+}
+
+impl From<Bits> for [u8; LIMBS * 8] {
+    fn from(bits: Bits) -> Self {
+        let mut bytes = [0_u8; LIMBS * 8];
+        for (i, limb) in bits.0.iter().enumerate() {
+            let limb_bytes = limb.to_be_bytes();
+            bytes[i * 8..(i + 1) * 8].copy_from_slice(&limb_bytes);
+        }
+        bytes
+    }
+}
+
+impl TryFrom<&[u8]> for Bits {
+    type Error = ();
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if value.len() != LIMBS * 8 {
+            return Err(());
+        }
+
+        let mut limbs = [0_u64; LIMBS];
+        for (i, chunk) in value.array_chunks::<8>().enumerate() {
+            limbs[i] = u64::from_be_bytes(*chunk);
+        }
 
         Ok(Self(limbs))
+    }
+}
+
+impl TryFrom<Vec<u8>> for Bits {
+    type Error = ();
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_slice())
     }
 }
 
@@ -204,56 +252,19 @@ impl ops::BitXorAssign<&Bits> for Bits {
     }
 }
 
-fn rotate_row(a: &mut [u8; BYTES_PER_COL], mut amount: i32) {
-    if amount <= -8 {
-        a.rotate_left((amount.unsigned_abs() as usize) / 8);
-        amount %= 8;
-    } else if amount >= 8 {
-        a.rotate_right((amount as usize) / 8);
-        amount %= 8;
-    }
-    if amount < 0 {
-        let r = amount.abs();
-        let l = 8 - r;
-        let mut carry = a[0] << l;
-        for b in a.iter_mut().rev() {
-            let old = *b;
-            *b = (old >> r) | carry;
-            carry = old << l;
-        }
-    } else if amount > 0 {
-        let l = amount.abs();
-        let r = 8 - l;
-        let mut carry = a[24] >> r;
-        for b in a.iter_mut() {
-            let old = *b;
-            *b = (old << l) | carry;
-            carry = old >> r;
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use bytemuck::bytes_of;
     use rand::{thread_rng, Rng};
 
     use super::*;
+    use crate::distance::ROTATIONS;
 
     #[test]
     fn limbs_exact() {
         assert_eq!(LIMBS * 64, BITS);
-        assert_eq!(BYTES_PER_COL * 8, COLS);
+        assert_eq!(BYTES_PER_COL, COLS * STEP_MULTI);
     }
-
-    // #[test]
-    // fn random_bits() {
-    //     let mut rng = thread_rng();
-    //     let bits: Bits = rng.gen();
-
-    //     println!("bits num bytes = {}", BITS / 8);
-    //     println!("{:?}", bits);
-    // }
 
     #[test]
     fn test_index() {
@@ -276,7 +287,7 @@ mod tests {
         let mut rng = thread_rng();
         for _ in 0..100 {
             let bits: Bits = rng.gen();
-            for amount in -15..=15 {
+            for amount in ROTATIONS {
                 assert_eq!(
                     bits.rotated(amount).rotated(-amount),
                     bits,

@@ -11,7 +11,7 @@ use rand::{thread_rng, Rng};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::bits::{Bits, BITS, COLS};
+use crate::bits::{Bits, BITS};
 
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -40,26 +40,6 @@ impl EncodedBits {
         *last = self - rest.iter().sum::<EncodedBits>();
 
         result
-    }
-
-    pub fn rotate(&mut self, amount: i32) {
-        if amount < 0 {
-            let amount = amount.unsigned_abs() as usize;
-            for row in self.0.chunks_exact_mut(COLS) {
-                row.rotate_left(amount);
-            }
-        } else if amount > 0 {
-            let amount = amount as usize;
-            for row in self.0.chunks_exact_mut(COLS) {
-                row.rotate_right(amount);
-            }
-        }
-    }
-
-    pub fn rotated(&self, amount: i32) -> Self {
-        let mut copy = *self;
-        copy.rotate(amount);
-        copy
     }
 
     pub fn sum(&self) -> u16 {
@@ -232,56 +212,6 @@ impl Serialize for EncodedBits {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_rotated_inverse() {
-        let mut rng = thread_rng();
-
-        for _ in 0..100 {
-            let secret: EncodedBits = rng.gen();
-            for amount in -15..=15 {
-                assert_eq!(
-                    secret.rotated(amount).rotated(-amount),
-                    secret,
-                    "Rotation failed for {amount}"
-                )
-            }
-        }
-    }
-
-    #[test]
-    fn test_rotated_number() {
-        let secret = EncodedBits(array::from_fn(|i| {
-            let (row, col) = (i / COLS, i % COLS);
-            (row << 8 | col) as u16
-        }));
-        for amount in -15..=15 {
-            let rotated = secret.rotated(amount);
-            for (i, &v) in rotated.0.iter().enumerate() {
-                let (row, col) = (i / COLS, i % COLS);
-                let col =
-                    (((COLS + col) as i32 - amount) % (COLS as i32)) as usize;
-                assert_eq!(v, (row << 8 | col) as u16);
-            }
-        }
-    }
-
-    #[test]
-    fn test_rotated_bits() {
-        let mut rng = thread_rng();
-
-        for _ in 0..100 {
-            let bits: Bits = rng.gen();
-            let secret = EncodedBits::from(&bits);
-            for amount in -15..=15 {
-                assert_eq!(
-                    EncodedBits::from(&bits.rotated(amount)),
-                    secret.rotated(amount),
-                    "Rotation equivalence failed for {amount}"
-                )
-            }
-        }
-    }
 
     #[test]
     fn encoded_bits_serialization() {

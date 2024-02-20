@@ -40,13 +40,14 @@ pub async fn sqs_dequeue(
     client: &aws_sdk_sqs::Client,
     queue_url: &str,
 ) -> eyre::Result<Vec<Message>> {
-    let messages = client
+    let sqs_message = client
         .receive_message()
         .queue_url(queue_url)
         .wait_time_seconds(1)
         .send()
-        .await?
-        .messages;
+        .await?;
+
+    let messages = sqs_message.messages;
 
     let Some(messages) = messages else {
         return Ok(vec![]);

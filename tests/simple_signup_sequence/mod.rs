@@ -62,8 +62,14 @@ pub struct Match {
 
 #[tokio::test]
 async fn test_simple_signup_sequence() -> eyre::Result<()> {
+    std::env::set_var("RUST_LOG", "info");
+    std::env::set_var("AWS_ACCESS_KEY_ID", "test");
+    std::env::set_var("AWS_SECRET_ACCESS_KEY", "test");
+    std::env::set_var("AWS_DEFAULT_REGION", "us-east-1");
+
     let _shutdown_tracing_provider = StdoutBattery::init();
 
+    tracing::info!("Loading config");
     let config = load_config()?;
 
     //TODO: read in signup sequence json
@@ -75,6 +81,7 @@ async fn test_simple_signup_sequence() -> eyre::Result<()> {
     //generate random template
     let sqs_client = sqs_client_from_config(&config.aws).await?;
 
+    tracing::info!("Waiting for queues");
     common::wait_for_queues(
         &sqs_client,
         vec![
@@ -126,41 +133,44 @@ async fn test_simple_signup_sequence() -> eyre::Result<()> {
 
         //TODO: fix result queue handling
 
-        // let results = common::receive_results(
-        //     &sqs_client,
-        //     &config.coordinator_queue.results_queue,
-        // )
-        // .await?;
-
-        // let message_body = results
-        //     .first()
-        //     .context("Could not get message")?
-        //     .clone()
-        //     .body
-        //     .context("Could not get message body")?;
-
-        // let uniqueness_check_result =
-        //     serde_json::from_str::<UniquenessCheckResult>(&message_body)?;
-
-        // if !uniqueness_check_result.matches.is_empty() {
-        //     for (i, distance) in
-        //         uniqueness_check_result.matches.iter().enumerate()
-        //     {
-        //         assert_eq!(distance.distance, element.matched_with[i].distance);
-        //     }
-        // } else {
-
-        common::seed_db_sync(
+        let results = common::receive_results(
             &sqs_client,
-            &config.db_sync.coordinator_db_sync_queue,
-            &participant_db_sync_queues,
-            template,
-            next_serial_id,
+            &config.coordinator_queue.results_queue,
         )
         .await?;
 
-        next_serial_id += 1;
-        // }
+        let message_body = results
+            .first()
+            .context("Could not get message")?
+            .clone()
+            .body
+            .context("Could not get message body")?;
+
+        let uniqueness_check_result =
+            serde_json::from_str::<UniquenessCheckResult>(&message_body)?;
+
+        tracing::info!("Checking signup ids match");
+        assert_eq!(uniqueness_check_result.signup_id, element.signup_id);
+
+        if !uniqueness_check_result.matches.is_empty() {
+            tracing::info!("Checking distances");
+            for (i, distance) in
+                uniqueness_check_result.matches.iter().enumerate()
+            {
+                assert_eq!(distance.distance, element.matched_with[i].distance);
+            }
+        } else {
+            common::seed_db_sync(
+                &sqs_client,
+                &config.db_sync.coordinator_db_sync_queue,
+                &participant_db_sync_queues,
+                template,
+                next_serial_id,
+            )
+            .await?;
+
+            next_serial_id += 1;
+        }
     }
 
     Ok(())

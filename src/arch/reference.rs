@@ -1,16 +1,16 @@
 #![allow(unused)]
 
-use crate::distance::Bits;
+use crate::distance::{Bits, ROTATIONS};
 use crate::encoded_bits::EncodedBits;
 
 pub fn distances<'a>(
-    query: &'a EncodedBits,
+    query_rotations: Vec<EncodedBits>,
     db: &'a [EncodedBits],
 ) -> impl Iterator<Item = [u16; 31]> + 'a {
-    db.iter().map(|entry| {
+    db.iter().map(move |entry| {
         let mut result = [0_u16; 31];
-        for (d, r) in result.iter_mut().zip(-15..=15) {
-            *d = query.rotated(r).dot(entry);
+        for (d, r) in result.iter_mut().zip(0..=31) {
+            *d = query_rotations[r].dot(entry);
         }
         result
     })
@@ -22,7 +22,7 @@ pub fn denominators<'a>(
 ) -> impl Iterator<Item = [u16; 31]> + 'a {
     db.iter().map(|entry| {
         let mut result = [0_u16; 31];
-        for (d, r) in result.iter_mut().zip(-15..=15) {
+        for (d, r) in result.iter_mut().zip(ROTATIONS) {
             *d = query.rotated(r).dot(entry);
         }
         result
