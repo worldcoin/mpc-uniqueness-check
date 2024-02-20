@@ -1,15 +1,12 @@
 use std::fs;
+mod common;
 
-use eyre::ContextCompat;
 use mpc::config::{AwsConfig, DbConfig};
-use mpc::coordinator::UniquenessCheckResult;
 use mpc::db::Db;
 use mpc::template::{Bits, Template};
 use mpc::utils::aws::sqs_client_from_config;
 use serde::Deserialize;
 use telemetry_batteries::tracing::stdout::StdoutBattery;
-
-use crate::common;
 
 #[derive(Debug, Deserialize)]
 pub struct SimpleSignupSequenceConfig {
@@ -33,9 +30,7 @@ struct DbSyncConfig {
 }
 
 pub fn load_config() -> eyre::Result<SimpleSignupSequenceConfig> {
-    let signup_sequence_path = std::path::Path::new(
-        "tests/simple_signup_sequence/simple_signup_sequence.toml",
-    );
+    let signup_sequence_path = std::path::Path::new("e2e.toml");
 
     let settings = config::Config::builder()
         .add_source(config::File::from(signup_sequence_path).required(true))
@@ -60,17 +55,16 @@ pub struct Match {
     distance: f64,
 }
 
-#[tokio::test]
-async fn test_simple_signup_sequence() -> eyre::Result<()> {
+#[tokio::main]
+async fn main() -> eyre::Result<()> {
     let _shutdown_tracing_provider = StdoutBattery::init();
 
     let config = load_config()?;
 
     //TODO: read in signup sequence json
-    let signup_sequence: Vec<SignupSequenceElement> =
-        serde_json::from_str(&fs::read_to_string(
-            "tests/simple_signup_sequence/simple_signup_sequence.json",
-        )?)?;
+    let signup_sequence: Vec<SignupSequenceElement> = serde_json::from_str(
+        &fs::read_to_string("tests/signup_sequence/signup_sequence.json")?,
+    )?;
 
     //generate random template
     let sqs_client = sqs_client_from_config(&config.aws).await?;
