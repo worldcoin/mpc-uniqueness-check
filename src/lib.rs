@@ -12,3 +12,4 @@ pub mod health_check;
 pub mod participant;
 pub mod template;
 pub mod utils;
+pub mod hamming;
