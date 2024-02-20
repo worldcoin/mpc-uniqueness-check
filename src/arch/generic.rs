@@ -8,10 +8,10 @@ use rayon::prelude::*;
 use crate::distance::{Bits, ROTATIONS};
 use crate::encoded_bits::EncodedBits;
 
-pub fn distances<'a>(
+pub fn distances(
     query_rotations: Vec<EncodedBits>,
-    db: &'a [EncodedBits],
-) -> impl Iterator<Item = [u16; 31]> + 'a {
+    db: &[EncodedBits],
+) -> impl Iterator<Item = [u16; 31]> + '_ {
     const BATCH: usize = 10_000;
 
     // Iterate over a batch of database entries

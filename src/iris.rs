@@ -15,7 +15,7 @@ pub fn unpack_iris_code64(c: &[u64]) -> Vec<u8> {
                     unpacked[idx] = 0;
                 }
 
-                b = b >> 1;
+                b >>= 1;
             }
         }
     }
@@ -67,8 +67,7 @@ mod tests {
     #[test_case(&[255, 255, 255, 255, 255, 255, 255, 255] => vec![255])]
     #[test_case(UNPACKED => vec![254, 91, 239, 125, 135, 254, 175, 122])]
     fn pack(unpacked: &[u8]) -> Vec<u8> {
-        let packed = pack_iris_code(&unpacked);
-        packed
+        pack_iris_code(unpacked)
     }
 
     #[test]

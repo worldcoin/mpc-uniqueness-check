@@ -3,10 +3,10 @@
 use crate::distance::{Bits, ROTATIONS};
 use crate::encoded_bits::EncodedBits;
 
-pub fn distances<'a>(
+pub fn distances(
     query_rotations: Vec<EncodedBits>,
-    db: &'a [EncodedBits],
-) -> impl Iterator<Item = [u16; 31]> + 'a {
+    db: &[EncodedBits],
+) -> impl Iterator<Item = [u16; 31]> + '_ {
     db.iter().map(move |entry| {
         let mut result = [0_u16; 31];
         for (d, r) in result.iter_mut().zip(0..=31) {
