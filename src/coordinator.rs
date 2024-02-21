@@ -412,7 +412,10 @@ impl Coordinator {
             tracing::info!(?matches, "Matches found");
         }
 
-        let distance_results = DistanceResults::new(i as u64, matches);
+        // Latest serial id is the last id shared across all nodes
+        // so we need to subtract 1 from the counter
+        let latest_serial_id = i.saturating_sub(1) as u64;
+        let distance_results = DistanceResults::new(latest_serial_id, matches);
 
         Ok(distance_results)
     }
