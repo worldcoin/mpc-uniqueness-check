@@ -4,7 +4,7 @@ mod common;
 
 use clap::Parser;
 use eyre::ContextCompat;
-use mpc::config::{AwsConfig, DbConfig};
+use mpc::config::{load_config, AwsConfig, DbConfig};
 use mpc::coordinator::UniquenessCheckResult;
 use mpc::db::Db;
 use mpc::template::{Bits, Template};
@@ -35,21 +35,15 @@ struct DbSyncConfig {
 
 #[derive(Parser, Debug, Deserialize)]
 #[clap(version)]
+#[clap(rename_all = "kebab-case")]
 struct Args {
-    #[clap(default_value = "bin/e2e/e2e.toml")]
-    config: String,
-    #[clap(default_value = "bin/e2e/signup_sequence.json")]
+    /// The path to the config file
+    #[clap(short, long)]
+    config: Option<PathBuf>,
+
+    /// The path to the signup sequence file to use
+    #[clap(short, long, default_value = "bin/e2e/signup_sequence.json")]
     signup_sequence: String,
-}
-
-pub fn load_config(path: PathBuf) -> eyre::Result<SimpleSignupSequenceConfig> {
-    let settings = config::Config::builder()
-        .add_source(config::File::from(path).required(true))
-        .build()?;
-
-    let config = settings.try_deserialize::<SimpleSignupSequenceConfig>()?;
-
-    Ok(config)
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,17 +62,23 @@ pub struct Match {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    std::env::set_var("RUST_LOG", "info");
-    std::env::set_var("AWS_ACCESS_KEY_ID", "test");
-    std::env::set_var("AWS_SECRET_ACCESS_KEY", "test");
-    std::env::set_var("AWS_DEFAULT_REGION", "us-east-1");
-
     let args = Args::parse();
+
+    if std::env::var("AWS_ACCESS_KEY_ID").is_err() {
+        tracing::warn!("AWS_ACCESS_KEY_ID not set");
+    }
+    if std::env::var("AWS_SECRET_ACCESS_KEY").is_err() {
+        tracing::warn!("AWS_SECRET_ACCESS_KEY not set");
+    }
+    if std::env::var("AWS_DEFAULT_REGION").is_err() {
+        tracing::warn!("AWS_DEFAULT_REGION not set");
+    }
 
     let _shutdown_tracing_provider = StdoutBattery::init();
 
     tracing::info!("Loading config");
-    let config = load_config(args.config.parse::<PathBuf>()?)?;
+    let config: SimpleSignupSequenceConfig =
+        load_config("E2E", args.config.as_deref())?;
 
     let signup_sequence: Vec<SignupSequenceElement> = serde_json::from_str(
         &fs::read_to_string(args.signup_sequence.parse::<PathBuf>()?)?,
