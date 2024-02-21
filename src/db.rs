@@ -38,9 +38,9 @@ impl Db {
 
     #[tracing::instrument(skip(self))]
     pub async fn fetch_masks(&self, id: usize) -> eyre::Result<Vec<Bits>> {
-        let masks: Vec<(Bits,)> = sqlx::query_as(
+        let masks: Vec<(i64, Bits)> = sqlx::query_as(
             r#"
-            SELECT mask
+            SELECT id, mask
             FROM masks
             WHERE id >= $1
             ORDER BY id ASC
@@ -50,7 +50,7 @@ impl Db {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(masks.into_iter().map(|(mask,)| mask).collect())
+        Ok(filter_sequential_items(masks, id as i64))
     }
 
     #[tracing::instrument(skip(self))]
@@ -86,9 +86,9 @@ impl Db {
         &self,
         id: usize,
     ) -> eyre::Result<Vec<EncodedBits>> {
-        let shares: Vec<(EncodedBits,)> = sqlx::query_as(
+        let shares: Vec<(i64, EncodedBits)> = sqlx::query_as(
             r#"
-            SELECT share
+            SELECT id, share
             FROM shares
             WHERE id >= $1
             ORDER BY id ASC
@@ -98,7 +98,7 @@ impl Db {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(shares.into_iter().map(|(share,)| share).collect())
+        Ok(filter_sequential_items(shares, id as i64))
     }
 
     #[tracing::instrument(skip(self))]
@@ -128,6 +128,33 @@ impl Db {
 
         Ok(())
     }
+}
+
+fn filter_sequential_items<T>(
+    items: impl IntoIterator<Item = (i64, T)>,
+    first_id: i64,
+) -> Vec<T> {
+    let mut last_key = None;
+
+    let mut items = items.into_iter();
+
+    std::iter::from_fn(move || {
+        let (key, value) = items.next()?;
+
+        if let Some(last_key) = last_key {
+            if key != last_key + 1 {
+                return None;
+            }
+        } else if key != first_id {
+            return None;
+        }
+
+        last_key = Some(key);
+
+        Some(value)
+    })
+    .fuse()
+    .collect()
 }
 
 #[cfg(test)]
@@ -245,6 +272,81 @@ mod tests {
         let fetched_shares = db.fetch_shares(1).await?;
 
         assert_eq!(fetched_shares[0], shares[1].1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn fetch_shares_returns_sequential_data() -> eyre::Result<()> {
+        let (db, _pg) = setup().await?;
+
+        let mut rng = thread_rng();
+
+        let shares = vec![
+            (0, rng.gen::<EncodedBits>()),
+            (1, rng.gen::<EncodedBits>()),
+            (4, rng.gen::<EncodedBits>()),
+            (5, rng.gen::<EncodedBits>()),
+            (7, rng.gen::<EncodedBits>()),
+        ];
+
+        db.insert_shares(&shares).await?;
+
+        let fetched_shares = db.fetch_shares(0).await?;
+
+        assert_eq!(fetched_shares.len(), 2);
+        assert_eq!(fetched_shares[0], shares[0].1);
+        assert_eq!(fetched_shares[1], shares[1].1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn fetch_masks_returns_sequential_data() -> eyre::Result<()> {
+        let (db, _pg) = setup().await?;
+
+        let mut rng = thread_rng();
+
+        let masks = vec![
+            (0, rng.gen::<Bits>()),
+            (1, rng.gen::<Bits>()),
+            (2, rng.gen::<Bits>()),
+            (3, rng.gen::<Bits>()),
+            (5, rng.gen::<Bits>()),
+        ];
+
+        db.insert_masks(&masks).await?;
+
+        let fetched_masks = db.fetch_masks(1).await?;
+
+        assert_eq!(fetched_masks.len(), 3);
+        assert_eq!(fetched_masks[0], masks[1].1);
+        assert_eq!(fetched_masks[1], masks[2].1);
+        assert_eq!(fetched_masks[2], masks[3].1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn fetch_masks_returns_nothing_if_non_sequential() -> eyre::Result<()>
+    {
+        let (db, _pg) = setup().await?;
+
+        let mut rng = thread_rng();
+
+        let masks = vec![
+            (0, rng.gen::<Bits>()),
+            (1, rng.gen::<Bits>()),
+            (2, rng.gen::<Bits>()),
+            (3, rng.gen::<Bits>()),
+            (5, rng.gen::<Bits>()),
+        ];
+
+        db.insert_masks(&masks).await?;
+
+        let fetched_masks = db.fetch_masks(4).await?;
+
+        assert!(fetched_masks.is_empty());
 
         Ok(())
     }
