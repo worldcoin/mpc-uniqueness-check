@@ -6,4 +6,5 @@ awslocal sqs create-queue --queue-name coordinator-uniqueness-check.fifo --attri
 awslocal sqs create-queue --queue-name coordinator-results-queue.fifo --attributes FifoQueue=true,ContentBasedDeduplication=true
 
 awslocal sqs create-queue --queue-name coordinator-db-sync-queue
-awslocal sqs create-queue --queue-name participant-db-sync-queue
+awslocal sqs create-queue --queue-name participant-0-db-sync-queue
+awslocal sqs create-queue --queue-name participant-1-db-sync-queue

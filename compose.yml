@@ -16,7 +16,7 @@ services:
     restart: always
     environment:
       - 'RUST_LOG=mpc=debug,mpc-node=debug,mpc_node=debug,info'
-      - 'MPC__COORDINATOR__PARTICIPANTS=["participant:8080"]'
+      - 'MPC__COORDINATOR__PARTICIPANTS=["participant_0:8080", "participant_1:8081"]'
       - 'MPC__COORDINATOR__HAMMING_DISTANCE_THRESHOLD=0.375'
       - 'MPC__COORDINATOR__N_CLOSEST_DISTANCES=10'
       - 'MPC__COORDINATOR__DB__URL=postgres://postgres:postgres@coordinator_db:5432/db'
@@ -24,7 +24,7 @@ services:
       - 'MPC__COORDINATOR__DB__CREATE=true'
       - 'MPC__COORDINATOR__AWS__ENDPOINT=http://localstack:4566'
       - 'MPC__COORDINATOR__AWS__REGION=us-east-1'
-      - 'MPC__COORDINATOR__QUEUES__SHARES_QUEUE_URL=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-uniqueness-check.fifo'
+      - 'MPC__COORDINATOR__QUEUES__QUERIES_QUEUE_URL=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-uniqueness-check.fifo'
       - 'MPC__COORDINATOR__QUEUES__DISTANCES_QUEUE_URL=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-results-queue.fifo'
       - 'MPC__COORDINATOR__QUEUES__DB_SYNC_QUEUE_URL=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-db-sync-queue'
       # AWS env vars - they don't matter but are required
@@ -37,19 +37,39 @@ services:
       dockerfile: Dockerfile
     ports:
       - 8080:8080
-  participant:
+  participant_0:
     restart: always
     hostname: participant
     environment:
       - 'RUST_LOG=mpc=debug,mpc-node=debug,mpc_node=debug,info'
       - 'MPC__PARTICIPANT__SOCKET_ADDR=0.0.0.0:8080'
       - 'MPC__PARTICIPANT__BATCH_SIZE=20000'
-      - 'MPC__PARTICIPANT__DB__URL=postgres://postgres:postgres@participant_db:5432/db'
+      - 'MPC__PARTICIPANT__DB__URL=postgres://postgres:postgres@participant_0_db:5432/db'
       - 'MPC__PARTICIPANT__DB__MIGRATE=true'
       - 'MPC__PARTICIPANT__DB__CREATE=true'
       - 'MPC__PARTICIPANT__AWS__ENDPOINT=http://localstack:4566'
       - 'MPC__PARTICIPANT__AWS__REGION=us-east-1'
-      - 'MPC__PARTICIPANT__QUEUES__DB_SYNC_QUEUE_URL=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/participant-db-sync-queue'
+      - 'MPC__PARTICIPANT__QUEUES__DB_SYNC_QUEUE_URL=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/participant-0-db-sync-queue'
+      # AWS env vars - they don't matter but are required
+      - 'AWS_ACCESS_KEY_ID=test'
+      - 'AWS_SECRET_ACCESS_KEY=test'
+      - 'AWS_DEFAULT_REGION=us-east-1'
+    build:
+      context: .
+      dockerfile: Dockerfile
+  participant_1:
+    restart: always
+    hostname: participant
+    environment:
+      - 'RUST_LOG=mpc=debug,mpc-node=debug,mpc_node=debug,info'
+      - 'MPC__PARTICIPANT__SOCKET_ADDR=0.0.0.0:8081'
+      - 'MPC__PARTICIPANT__BATCH_SIZE=20000'
+      - 'MPC__PARTICIPANT__DB__URL=postgres://postgres:postgres@participant_1_db:5432/db'
+      - 'MPC__PARTICIPANT__DB__MIGRATE=true'
+      - 'MPC__PARTICIPANT__DB__CREATE=true'
+      - 'MPC__PARTICIPANT__AWS__ENDPOINT=http://localstack:4566'
+      - 'MPC__PARTICIPANT__AWS__REGION=us-east-1'
+      - 'MPC__PARTICIPANT__QUEUES__DB_SYNC_QUEUE_URL=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/participant-1-db-sync-queue'
       # AWS env vars - they don't matter but are required
       - 'AWS_ACCESS_KEY_ID=test'
       - 'AWS_SECRET_ACCESS_KEY=test'
@@ -64,28 +84,37 @@ services:
       - 8432:5432
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
-  participant_db:
+  participant_0_db:
     hostname: participant_db
     image: postgres
     ports:
       - 8433:5432
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
-
+  participant_1_db:
+    hostname: participant_db
+    image: postgres
+    ports:
+      - 8434:5432
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust
   e2e_test:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        - BIN=e2e-test
+        - BIN=e2e
     environment:
       - 'RUST_LOG=info'
       - 'AWS_ENDPOINT=http://localstack:4566'
       - 'AWS_REGION=us-east-1'
       - 'COORDINATOR_DB_SYNC_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-db-sync-queue'
-      - 'PARTICIPANT_DB_SYNC_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/participant-db-sync-queue'
+      - 'PARTICIPANT_0_DB_SYNC_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/participant-0-db-sync-queue'
+      - 'PARTICIPANT_1_DB_SYNC_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/participant-1-db-sync-queue'
       - 'COORDINATOR_QUERY_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-uniqueness-check.fifo'
       - 'COORDINATOR_RESULTS_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-results-queue.fifo'
+      - 'COORDINATOR_DB_URL=postgres://postgres:postgres@coordinator_db:5432/db'
+
       # AWS env vars - they don't matter but are required
       - 'AWS_ACCESS_KEY_ID=test'
       - 'AWS_SECRET_ACCESS_KEY=test'
@@ -96,4 +125,6 @@ networks:
     driver: bridge
 
 volumes:
-  localstack-data: # Define the Docker volume
+  localstack-data:
+    # Define the Docker volume
+

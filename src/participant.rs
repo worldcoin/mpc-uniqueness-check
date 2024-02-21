@@ -16,7 +16,7 @@ use tracing::instrument;
 
 use crate::config::ParticipantConfig;
 use crate::db::Db;
-use crate::distance::{self, DistanceEngine, EncodedBits};
+use crate::distance::{self, encode, DistanceEngine, EncodedBits};
 use crate::utils::aws::{
     sqs_client_from_config, sqs_delete_message, sqs_dequeue,
 };
@@ -243,7 +243,9 @@ fn calculate_share_distances(
 ) -> eyre::Result<()> {
     let shares = shares.blocking_lock();
     let patterns: &[EncodedBits] = bytemuck::cast_slice(&shares);
-    let engine = DistanceEngine::new(&distance::encode(&template));
+
+    let template_rotations = template.rotations().map(|r| encode(&r));
+    let engine = DistanceEngine::new(template_rotations);
 
     for chunk in patterns.chunks(batch_size) {
         let mut result = vec![

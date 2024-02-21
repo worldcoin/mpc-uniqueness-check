@@ -58,7 +58,7 @@ jobs:
 
       # Starting background services
       - name: Start background services
-        run: docker compose up -d --build localstack coordinator participant coordinator_db participant_db
+        run: docker compose up -d --build localstack coordinator participant_0 participant_1 coordinator_db participant_0_db participant_1_db
 
       # Running e2e tests
       - name: Run e2e tests
