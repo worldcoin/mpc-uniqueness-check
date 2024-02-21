@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
-use mpc::config::Config;
+use mpc::config::{load_config, Config};
 use mpc::coordinator::Coordinator;
 use mpc::health_check::HealthCheck;
 use mpc::participant::Participant;
@@ -26,21 +26,7 @@ async fn main() -> eyre::Result<()> {
 
     let args = Args::parse();
 
-    let mut settings = config::Config::builder();
-
-    if let Some(path) = args.config {
-        settings = settings.add_source(config::File::from(path).required(true));
-    }
-
-    let settings = settings
-        .add_source(
-            config::Environment::with_prefix("MPC")
-                .separator("__")
-                .try_parsing(true),
-        )
-        .build()?;
-
-    let config = settings.try_deserialize::<Config>()?;
+    let config: Config = load_config("MPC", args.config.as_deref())?;
 
     let _tracing_shutdown_handle = if let Some(service) = &config.service {
         let tracing_shutdown_handle =
