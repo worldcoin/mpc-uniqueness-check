@@ -4,8 +4,8 @@ use aws_sdk_sqs::types::{Message, QueueAttributeName};
 use eyre::ContextCompat;
 use mpc::coordinator::{self, UniquenessCheckRequest};
 use mpc::encoded_bits::EncodedBits;
-use mpc::participant;
 use mpc::template::Template;
+use mpc::{db, participant};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 
@@ -70,56 +70,54 @@ pub async fn send_query(
     Ok(())
 }
 
-pub async fn receive_results(
+pub async fn receive_result(
     sqs_client: &aws_sdk_sqs::Client,
     results_queue: &str,
-) -> eyre::Result<Vec<Message>> {
-    let messages = loop {
-        // Get a message with results back
-        let messages = sqs_client
-            .receive_message()
+) -> eyre::Result<Message> {
+    wait_for_messages(sqs_client, results_queue).await?;
+
+    let messages = sqs_client
+        .receive_message()
+        .queue_url(results_queue)
+        .max_number_of_messages(1)
+        .send()
+        .await?;
+
+    let message = messages.messages.context("No messages found")?.remove(0);
+
+    tracing::info!(?message, "Message received from queue");
+
+    return Ok(message);
+}
+
+pub async fn wait_for_messages(
+    sqs_client: &aws_sdk_sqs::Client,
+    results_queue: &str,
+) -> eyre::Result<()> {
+    loop {
+        let queue_attributes = sqs_client
+            .get_queue_attributes()
+            .attribute_names(QueueAttributeName::ApproximateNumberOfMessages)
             .queue_url(results_queue)
-            // .wait_time_seconds(10)
             .send()
             .await?;
 
-        let Some(messages) = messages.messages else {
-            tracing::warn!("No messages in response, will retry");
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        let attributes = queue_attributes
+            .attributes
+            .expect("Could not get queue attributes ");
+
+        let approx_num_messages = attributes
+            .get(&QueueAttributeName::ApproximateNumberOfMessages)
+            .expect("Could not get approximate number of messages in queue");
+
+        if approx_num_messages == "0" {
+            tracing::info!("No messages in queue, retrying");
+            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
             continue;
-        };
-
-        break messages;
-    };
-
-    for message in messages.iter() {
-        if message.body.is_none() {
-            return Err(eyre::eyre!("Missing message body"));
+        } else {
+            return Ok(());
         }
-
-        //Delete message from the results queue
-        let receipt_handle = message
-            .receipt_handle
-            .clone()
-            .context("Could not get receipt handle")?;
-
-        tracing::info!("Deleting message from results queue");
-
-        match sqs_client
-            .delete_message()
-            .queue_url(results_queue)
-            .receipt_handle(receipt_handle)
-            .send()
-            .await
-        {
-            Ok(deleted_msg_output) => {
-                tracing::info!(?deleted_msg_output, "Message deleted")
-            }
-            Err(e) => tracing::error!("Error deleting message: {:?}", e),
-        };
     }
-
-    Ok(messages)
 }
 
 pub async fn seed_db_sync(
@@ -173,7 +171,7 @@ pub async fn seed_db_sync(
     }
 
     tracing::info!("Waiting for 300 ms for db sync to propagate");
-    tokio::time::sleep(Duration::from_millis(1000)).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
 
     Ok(())
 }

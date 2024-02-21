@@ -1,10 +1,14 @@
 use std::fs;
+use std::path::PathBuf;
 mod common;
 
+use clap::Parser;
+use eyre::ContextCompat;
 use mpc::config::{AwsConfig, DbConfig};
+use mpc::coordinator::UniquenessCheckResult;
 use mpc::db::Db;
 use mpc::template::{Bits, Template};
-use mpc::utils::aws::sqs_client_from_config;
+use mpc::utils::aws::{self, sqs_client_from_config};
 use serde::Deserialize;
 use telemetry_batteries::tracing::stdout::StdoutBattery;
 
@@ -29,11 +33,17 @@ struct DbSyncConfig {
     participant_1_db_sync_queue: String,
 }
 
-pub fn load_config() -> eyre::Result<SimpleSignupSequenceConfig> {
-    let signup_sequence_path = std::path::Path::new("e2e.toml");
+#[derive(Parser, Debug, Deserialize)]
+struct Args {
+    #[clap(default_value = "bin/e2e/e2e.toml")]
+    config: String,
+    #[clap(default_value = "bin/e2e/signup_sequence.json")]
+    signup_sequence: String,
+}
 
+pub fn load_config(path: PathBuf) -> eyre::Result<SimpleSignupSequenceConfig> {
     let settings = config::Config::builder()
-        .add_source(config::File::from(signup_sequence_path).required(true))
+        .add_source(config::File::from(path).required(true))
         .build()?;
 
     let config = settings.try_deserialize::<SimpleSignupSequenceConfig>()?;
@@ -57,18 +67,27 @@ pub struct Match {
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
+    std::env::set_var("RUST_LOG", "info");
+    std::env::set_var("AWS_ACCESS_KEY_ID", "test");
+    std::env::set_var("AWS_SECRET_ACCESS_KEY", "test");
+    std::env::set_var("AWS_DEFAULT_REGION", "us-east-1");
+
+    let args = Args::parse();
+
     let _shutdown_tracing_provider = StdoutBattery::init();
 
-    let config = load_config()?;
+    tracing::info!("Loading config");
+    let config = load_config(args.config.parse::<PathBuf>()?)?;
 
-    //TODO: read in signup sequence json
     let signup_sequence: Vec<SignupSequenceElement> = serde_json::from_str(
-        &fs::read_to_string("tests/signup_sequence/signup_sequence.json")?,
+        &fs::read_to_string(args.signup_sequence.parse::<PathBuf>()?)?,
     )?;
 
     //generate random template
     let sqs_client = sqs_client_from_config(&config.aws).await?;
 
+    tracing::info!("Waiting for queues");
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     common::wait_for_queues(
         &sqs_client,
         vec![
@@ -81,7 +100,7 @@ async fn main() -> eyre::Result<()> {
     )
     .await?;
 
-    // If db sync is enabled, connect to the coordinator db to get the latest serial_id
+    // Get the latest serial id from the coordinator, this assumes that the participants are synced
     let mut next_serial_id = {
         let db = Db::new(&DbConfig {
             url: config.db_sync.coordinator_db_url.to_string(),
@@ -89,8 +108,6 @@ async fn main() -> eyre::Result<()> {
             create: false,
         })
         .await?;
-
-        tracing::info!("Getting next serial id");
 
         let masks = db.fetch_masks(0).await?;
 
@@ -118,43 +135,55 @@ async fn main() -> eyre::Result<()> {
         )
         .await?;
 
-        //TODO: fix result queue handling
-
-        // let results = common::receive_results(
-        //     &sqs_client,
-        //     &config.coordinator_queue.results_queue,
-        // )
-        // .await?;
-
-        // let message_body = results
-        //     .first()
-        //     .context("Could not get message")?
-        //     .clone()
-        //     .body
-        //     .context("Could not get message body")?;
-
-        // let uniqueness_check_result =
-        //     serde_json::from_str::<UniquenessCheckResult>(&message_body)?;
-
-        // if !uniqueness_check_result.matches.is_empty() {
-        //     for (i, distance) in
-        //         uniqueness_check_result.matches.iter().enumerate()
-        //     {
-        //         assert_eq!(distance.distance, element.matched_with[i].distance);
-        //     }
-        // } else {
-
-        common::seed_db_sync(
+        let result = common::receive_result(
             &sqs_client,
-            &config.db_sync.coordinator_db_sync_queue,
-            &participant_db_sync_queues,
-            template,
-            next_serial_id,
+            &config.coordinator_queue.results_queue,
         )
         .await?;
 
-        next_serial_id += 1;
-        // }
+        let message_body = result.body.context("Could not get message body")?;
+
+        let uniqueness_check_result =
+            serde_json::from_str::<UniquenessCheckResult>(&message_body)?;
+
+        // Check that signup id and serial id match expected values
+        assert_eq!(uniqueness_check_result.signup_id, element.signup_id);
+        assert_eq!(uniqueness_check_result.serial_id, next_serial_id);
+
+        // If there are matches, check that the distances match the expected values
+        if !uniqueness_check_result.matches.is_empty() {
+            for (i, distance) in
+                uniqueness_check_result.matches.iter().enumerate()
+            {
+                assert_eq!(distance.distance, element.matched_with[i].distance);
+                assert_eq!(
+                    distance.serial_id,
+                    element.matched_with[i].serial_id
+                );
+            }
+        } else {
+            common::seed_db_sync(
+                &sqs_client,
+                &config.db_sync.coordinator_db_sync_queue,
+                &participant_db_sync_queues,
+                template,
+                next_serial_id,
+            )
+            .await?;
+
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            next_serial_id += 1;
+        }
+
+        // Delete message from queue
+        aws::sqs_delete_message(
+            &sqs_client,
+            &config.coordinator_queue.results_queue,
+            result
+                .receipt_handle
+                .context("Could not get receipt handle")?,
+        )
+        .await?;
     }
 
     Ok(())

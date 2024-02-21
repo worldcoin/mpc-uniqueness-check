@@ -4,6 +4,8 @@ use std::fmt::Debug;
 use aws_config::Region;
 use aws_sdk_sqs::types::{Message, MessageAttributeValue};
 use eyre::Context;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 use serde::Serialize;
 use telemetry_batteries::opentelemetry::trace::{
     SpanContext, SpanId, TraceFlags, TraceId, TraceState,
@@ -40,13 +42,14 @@ pub async fn sqs_dequeue(
     client: &aws_sdk_sqs::Client,
     queue_url: &str,
 ) -> eyre::Result<Vec<Message>> {
-    let messages = client
+    let sqs_message = client
         .receive_message()
         .queue_url(queue_url)
         .wait_time_seconds(1)
         .send()
-        .await?
-        .messages;
+        .await?;
+
+    let messages = sqs_message.messages;
 
     let Some(messages) = messages else {
         return Ok(vec![]);
@@ -77,7 +80,7 @@ where
 
     let message_attributes = construct_message_attributes()?;
 
-    client
+    let send_message_output = client
         .send_message()
         .queue_url(queue_url)
         .message_group_id(message_group_id)
@@ -86,7 +89,7 @@ where
         .send()
         .await?;
 
-    tracing::info!(?message, "Enqueued message");
+    tracing::info!(?send_message_output, ?message, "Enqueued message");
 
     Ok(())
 }
