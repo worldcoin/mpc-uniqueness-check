@@ -34,6 +34,7 @@ struct DbSyncConfig {
 }
 
 #[derive(Parser, Debug, Deserialize)]
+#[clap(version)]
 struct Args {
     #[clap(default_value = "bin/e2e/e2e.toml")]
     config: String,
