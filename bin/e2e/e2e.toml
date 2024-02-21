@@ -1,0 +1,13 @@
+[coordinator_queue]
+query_queue = "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-uniqueness-check.fifo"
+results_queue = "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-results-queue.fifo"
+
+[db_sync]
+coordinator_db_url = "postgres://postgres:postgres@localhost:8432/db"
+coordinator_db_sync_queue = "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-db-sync-queue"
+participant_0_db_sync_queue = "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/participant-0-db-sync-queue"
+participant_1_db_sync_queue = "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/participant-1-db-sync-queue"
+
+[aws]
+region = "us-east-1"
+endpoint = "http://localhost:4566"

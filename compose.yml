@@ -103,7 +103,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        - BIN=e2e-test
+        - BIN=e2e
     environment:
       - 'RUST_LOG=info'
       - 'AWS_ENDPOINT=http://localstack:4566'

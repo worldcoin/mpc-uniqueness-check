@@ -1,5 +1,4 @@
 mod generic; // Optimized generic implementation
-mod neon; // Optimized aarch64 NEON implementation
 mod reference; // Simple generic implementations
 
 pub use generic::{denominators, distances};
@@ -15,8 +14,5 @@ pub mod benches {
         reference::benches::group(c);
 
         generic::benches::group(c);
-
-        #[cfg(target_feature = "neon")]
-        neon::benches::group(c);
     }
 }

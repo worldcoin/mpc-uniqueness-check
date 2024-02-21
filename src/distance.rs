@@ -1,3 +1,5 @@
+use std::ops::RangeInclusive;
+
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +11,8 @@ pub use crate::template::Template;
 pub const COLS: usize = 200;
 pub const ROWS: usize = 4 * 16;
 pub const BITS: usize = ROWS * COLS;
+
+pub const ROTATIONS: RangeInclusive<i32> = -15..=15;
 
 /// Generate a [`EncodedBits`] such that values are $\{-1,0,1\}$, representing
 /// unset, masked and set.
@@ -29,13 +33,10 @@ pub struct DistanceEngine {
 }
 
 impl DistanceEngine {
-    pub fn new(query: &EncodedBits) -> Self {
-        let rotations = (-15..=15)
-            .map(|r| query.rotated(r))
-            .collect::<Box<[EncodedBits]>>()
-            .try_into()
-            .unwrap();
-        Self { rotations }
+    pub fn new(rotations: impl Iterator<Item = EncodedBits>) -> Self {
+        Self {
+            rotations: rotations.collect::<Box<[_]>>().try_into().unwrap(),
+        }
     }
 
     #[tracing::instrument(skip(self, out, db), level = "debug")]
@@ -101,7 +102,7 @@ pub struct MasksEngine {
 
 impl MasksEngine {
     pub fn new(query: &Bits) -> Self {
-        let rotations = (-15..=15)
+        let rotations = ROTATIONS
             .map(|r| query.rotated(r))
             .collect::<Box<[Bits]>>()
             .try_into()
@@ -127,10 +128,13 @@ impl MasksEngine {
 
 /// Compute encoded distances for each rotation, iterating over a database
 pub fn distances<'a>(
-    query: &'a EncodedBits,
+    query: &'a Template,
     db: &'a [EncodedBits],
 ) -> impl Iterator<Item = [u16; 31]> + 'a {
-    arch::distances(query, db)
+    let query_rotations: Vec<_> =
+        query.rotations().map(|query| encode(&query)).collect();
+
+    arch::distances(query_rotations, db)
 }
 
 /// Compute the 31 rotated mask popcounts.

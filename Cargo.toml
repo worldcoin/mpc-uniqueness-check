@@ -46,18 +46,20 @@ url = "2.5.0"
 float_eq = "1.0.1"
 proptest = "1.4.0"
 similar-asserts = "1.5.0"
+config = "0.13.4"
+test-case = "3.3.1"
 
 [[bin]]
 name = "mpc-node"
 path = "bin/mpc_node.rs"
 
 [[bin]]
-name = "e2e-test"
-path = "bin/e2e_test.rs"
-
-[[bin]]
 name = "utils"
 path = "bin/utils.rs"
+
+[[bin]]
+name = "e2e"
+path = "bin/e2e/e2e.rs"
 
 [[bench]]
 name = "example"

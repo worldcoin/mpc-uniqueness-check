@@ -5,17 +5,14 @@ use std::thread::JoinHandle;
 
 use rayon::prelude::*;
 
-use crate::distance::Bits;
+use crate::distance::{Bits, ROTATIONS};
 use crate::encoded_bits::EncodedBits;
 
 pub fn distances<'a>(
-    query: &'a EncodedBits,
+    query_rotations: Vec<EncodedBits>,
     db: &'a [EncodedBits],
 ) -> impl Iterator<Item = [u16; 31]> + 'a {
     const BATCH: usize = 10_000;
-
-    // Prepare 31 rotations of query in advance
-    let rotations: Box<[_]> = (-15..=15).map(|r| query.rotated(r)).collect();
 
     // Iterate over a batch of database entries
     db.chunks(BATCH).flat_map(move |chunk| {
@@ -25,7 +22,9 @@ pub fn distances<'a>(
         results.par_iter_mut().zip(chunk.par_iter()).for_each(
             |(result, entry)| {
                 // Compute dot product for each rotation
-                for (d, rotation) in result.iter_mut().zip(rotations.iter()) {
+                for (d, rotation) in
+                    result.iter_mut().zip(query_rotations.iter())
+                {
                     *d = rotation.dot(entry);
                 }
             },
@@ -43,7 +42,7 @@ pub fn denominators<'a>(
     const BATCH: usize = 10_000;
 
     // Prepare 31 rotations of query in advance
-    let rotations: Box<[_]> = (-15..=15).map(|r| query.rotated(r)).collect();
+    let rotations: Box<[_]> = ROTATIONS.map(|r| query.rotated(r)).collect();
 
     // Iterate over a batch of database entries
     db.chunks(BATCH).flat_map(move |chunk| {
