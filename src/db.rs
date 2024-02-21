@@ -142,16 +142,11 @@ fn filter_sequential_items<T>(
         let (key, value) = items.next()?;
 
         if let Some(last_key) = last_key {
-            println!("{key}, {first_id}, {last_key}");
-
             if key != last_key + 1 {
                 return None;
             }
         } else if key != first_id {
-            println!("{key}, {first_id}");
             return None;
-        } else {
-            println!("ELSE: {key}, {first_id}");
         }
 
         last_key = Some(key);
@@ -351,7 +346,6 @@ mod tests {
 
         let fetched_masks = db.fetch_masks(4).await?;
 
-        println!("{:?}", fetched_masks);
         assert!(fetched_masks.is_empty());
 
         Ok(())
