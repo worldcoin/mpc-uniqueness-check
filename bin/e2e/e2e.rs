@@ -112,7 +112,7 @@ async fn main() -> eyre::Result<()> {
 
         let masks = db.fetch_masks(0).await?;
 
-        masks.len() as u64
+        masks.len().saturating_sub(1) as u64
     };
 
     let participant_db_sync_queues = vec![
