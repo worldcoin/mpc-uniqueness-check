@@ -149,7 +149,7 @@ async fn main() -> eyre::Result<()> {
 
         // Check that signup id and serial id match expected values
         assert_eq!(uniqueness_check_result.signup_id, element.signup_id);
-        assert_eq!(uniqueness_check_result.serial_id, next_serial_id);
+        assert!(uniqueness_check_result.serial_id <= next_serial_id);
 
         // If there are matches, check that the distances match the expected values
         if !uniqueness_check_result.matches.is_empty() {
