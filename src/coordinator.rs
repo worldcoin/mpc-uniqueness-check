@@ -4,8 +4,6 @@ use std::time::Duration;
 use eyre::{Context, ContextCompat};
 use futures::stream::FuturesUnordered;
 use futures::{future, StreamExt};
-use rand::distributions::Alphanumeric;
-use rand::Rng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};

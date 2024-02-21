@@ -4,8 +4,8 @@ use aws_sdk_sqs::types::{Message, QueueAttributeName};
 use eyre::ContextCompat;
 use mpc::coordinator::{self, UniquenessCheckRequest};
 use mpc::encoded_bits::EncodedBits;
+use mpc::participant;
 use mpc::template::Template;
-use mpc::{db, participant};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 
@@ -87,7 +87,7 @@ pub async fn receive_result(
 
     tracing::info!(?message, "Message received from queue");
 
-    return Ok(message);
+    Ok(message)
 }
 
 pub async fn wait_for_messages(

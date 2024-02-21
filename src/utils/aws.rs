@@ -4,8 +4,6 @@ use std::fmt::Debug;
 use aws_config::Region;
 use aws_sdk_sqs::types::{Message, MessageAttributeValue};
 use eyre::Context;
-use rand::distributions::Alphanumeric;
-use rand::Rng;
 use serde::Serialize;
 use telemetry_batteries::opentelemetry::trace::{
     SpanContext, SpanId, TraceFlags, TraceId, TraceState,
