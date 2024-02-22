@@ -22,6 +22,8 @@ indicatif = "0.17.7"
 indoc = "2.0.4"
 itertools = "0.12.0"
 metrics = "0.21.1"
+# TODO: only include this for migrate-codes bin
+mongodb = "2.8.1"
 ordered-float = "4.2.0"
 rand = "0.8.5"
 rayon = "1.8.1"
@@ -60,6 +62,10 @@ path = "bin/utils.rs"
 [[bin]]
 name = "e2e"
 path = "bin/e2e/e2e.rs"
+
+[[bin]]
+name = "migrate-codes"
+path = "bin/migrate-codes/migrate.rs"
 
 [[bench]]
 name = "example"
