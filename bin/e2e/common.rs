@@ -138,6 +138,7 @@ pub async fn seed_db_sync(
         }])?;
 
     tracing::info!(
+        serial_id,
         "Sending {} bytes to coordinator db sync queue",
         coordinator_payload.len()
     );
@@ -158,6 +159,7 @@ pub async fn seed_db_sync(
             }])?;
 
         tracing::info!(
+            serial_id,
             "Sending {} bytes to participant db sync queue",
             participant_payload.len()
         );
@@ -170,10 +172,40 @@ pub async fn seed_db_sync(
             .await?;
     }
 
-    tracing::info!("Waiting for 300 ms for db sync to propagate");
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    tracing::info!("Waiting until db sync messages are received");
+    wait_for_empty_queue(sqs_client, coordinator_db_sync_queue).await?;
+    for queue in participant_db_sync_queues {
+        wait_for_empty_queue(sqs_client, queue).await?;
+    }
 
     Ok(())
+}
+
+async fn wait_for_empty_queue(sqs_client: &aws_sdk_sqs::Client, queue_url: &str) -> eyre::Result<()> {
+    loop {
+        let queue_attributes = sqs_client
+            .get_queue_attributes()
+            .attribute_names(QueueAttributeName::ApproximateNumberOfMessages)
+            .queue_url(queue_url)
+            .send()
+            .await?;
+
+        let attributes = queue_attributes
+            .attributes
+            .context("Missing queue attributes")?;
+
+        let approx_num_messages = attributes
+            .get(&QueueAttributeName::ApproximateNumberOfMessages)
+            .context("Could not get approximate number of messages in queue")?;
+
+        if approx_num_messages == "0" {
+            return Ok(());
+        } else {
+            tracing::debug!(queue_url, "Messages still in queue");
+            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+            continue;
+        }
+    }
 }
 
 pub fn generate_random_string(len: usize) -> String {

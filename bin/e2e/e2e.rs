@@ -112,7 +112,7 @@ async fn main() -> eyre::Result<()> {
 
         let masks = db.fetch_masks(0).await?;
 
-        masks.len().saturating_sub(1) as u64
+        (masks.len() as u64).checked_sub(1)
     };
 
     let participant_db_sync_queues = vec![
@@ -149,7 +149,7 @@ async fn main() -> eyre::Result<()> {
 
         // Check that signup id and serial id match expected values
         assert_eq!(uniqueness_check_result.signup_id, element.signup_id);
-        assert!(uniqueness_check_result.serial_id <= next_serial_id);
+        assert_eq!(uniqueness_check_result.serial_id, next_serial_id);
 
         // If there are matches, check that the distances match the expected values
         if !uniqueness_check_result.matches.is_empty() {
@@ -163,17 +163,23 @@ async fn main() -> eyre::Result<()> {
                 );
             }
         } else {
+            if let Some(id) = next_serial_id.as_mut() {
+                *id += 1;
+            } else {
+                next_serial_id = Some(0);
+            }
+
             common::seed_db_sync(
                 &sqs_client,
                 &config.db_sync.coordinator_db_sync_queue,
                 &participant_db_sync_queues,
                 template,
-                next_serial_id,
+                next_serial_id.unwrap_or(0),
             )
             .await?;
 
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-            next_serial_id += 1;
+            // Sleep a little to give the nodes time to sync dbs
+            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
         }
 
         // Delete message from queue
