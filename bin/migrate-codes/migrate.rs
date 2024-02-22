@@ -28,7 +28,6 @@ pub struct SeedDbConfig {
     pub mpc_db: MPCDbConfig,
 }
 
-pub const IRIS_CODE_BATCH_SIZE: i64 = 30_000;
 //TODO: update this
 pub const INSERTION_BATCH_SIZE: usize = 10;
 

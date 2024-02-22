@@ -1,8 +1,9 @@
 use futures::TryStreamExt;
+use mongodb::bson::doc;
 use mpc::bits::Bits;
 use serde::{Deserialize, Serialize};
 
-use crate::IRIS_CODE_BATCH_SIZE;
+pub const IRIS_CODE_BATCH_SIZE: u32 = 30_000;
 
 #[derive(Serialize, Deserialize)]
 pub struct IrisCodeEntry {
@@ -34,20 +35,37 @@ impl IrisDb {
     pub async fn get_iris_code_snapshot(
         &self,
     ) -> eyre::Result<Vec<IrisCodeEntry>> {
-        let collection = self.db.collection("codes.v2");
-
         let mut items = vec![];
 
-        let find_options = mongodb::options::FindOptions::builder()
-            .limit(IRIS_CODE_BATCH_SIZE) // Ensure this constant is defined somewhere
-            .build();
+        let mut last_serial_id = 0_i64;
 
-        let mut cursor = collection.find(None, find_options).await?;
+        let collection = self.db.collection("codes.v2");
 
-        while let Some(document) = cursor.try_next().await? {
-            let iris_code_element =
-                mongodb::bson::from_document::<IrisCodeEntry>(document)?;
-            items.push(iris_code_element);
+        loop {
+            let find_options = mongodb::options::FindOptions::builder()
+                .batch_size(IRIS_CODE_BATCH_SIZE)
+                .sort(doc! {"serial_id": 1})
+                .build();
+
+            let mut cursor = collection
+                .find(doc! {"serial_id": {"$gt": last_serial_id}}, find_options)
+                .await?;
+
+            let mut items_added = 0;
+            while let Some(document) = cursor.try_next().await? {
+                let iris_code_element =
+                    mongodb::bson::from_document::<IrisCodeEntry>(document)?;
+
+                last_serial_id += iris_code_element.serial_id as i64;
+
+                items.push(iris_code_element);
+
+                items_added += 1;
+            }
+
+            if items_added == 0 {
+                break;
+            }
         }
 
         Ok(items)
