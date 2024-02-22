@@ -51,12 +51,10 @@ async fn main() -> eyre::Result<()> {
     let mpc_db = MPCDbs::new(config.mpc_db).await?;
     let iris_db = IrisDb::new(&config.iris_code_db).await?;
 
-    //TODO: get the latest serialId from all of the dbs within mpcdb, panic if the serial ids are not the same
-    let mut latest_serial_id = 0; //TODO: should be +1 unless the db is empty
+    //TODO: Get the latest serial ids from all mpc db
+    let mut latest_serial_id = 0;
 
-    let iris_code_entries = iris_db
-        .fetch_iris_codes(latest_serial_id, IRIS_CODE_BATCH_SIZE)
-        .await?;
+    let iris_code_entries = iris_db.get_iris_code_snapshot().await?;
 
     for entries in iris_code_entries.chunks(INSERTION_BATCH_SIZE) {
         let (left_templates, right_templates): (Vec<Template>, Vec<Template>) =
@@ -107,9 +105,14 @@ pub async fn populate_iris_db() -> eyre::Result<()> {
 
     let collection = iris_db.db.collection::<IrisCodeEntry>("codes.v2"); // Specify your collection name
 
-    for (left, right) in left_templates.iter().zip(right_templates.iter()) {
+    for (serial_id, (left, right)) in left_templates
+        .iter()
+        .zip(right_templates.iter())
+        .enumerate()
+    {
         let iris_code_entry = IrisCodeEntry {
             signup_id: generate_random_string(10),
+            serial_id: serial_id as u64,
             iris_code_left: left.code,
             mask_code_left: left.mask,
             iris_code_right: right.code,

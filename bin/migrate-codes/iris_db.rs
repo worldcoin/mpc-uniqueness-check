@@ -2,9 +2,12 @@ use futures::TryStreamExt;
 use mpc::bits::Bits;
 use serde::{Deserialize, Serialize};
 
+use crate::IRIS_CODE_BATCH_SIZE;
+
 #[derive(Serialize, Deserialize)]
 pub struct IrisCodeEntry {
     pub signup_id: String,
+    pub serial_id: u64,
     pub iris_code_left: Bits,
     pub mask_code_left: Bits,
     pub iris_code_right: Bits,
@@ -28,31 +31,23 @@ impl IrisDb {
         Ok(Self { db })
     }
 
-    pub async fn fetch_iris_codes(
+    pub async fn get_iris_code_snapshot(
         &self,
-        mut from: u64,
-        batch_size: i64,
     ) -> eyre::Result<Vec<IrisCodeEntry>> {
         let collection = self.db.collection("codes.v2");
-        let total_items = collection.estimated_document_count(None).await?;
 
         let mut items = vec![];
 
-        while from < total_items {
-            let find_options = mongodb::options::FindOptions::builder()
-                .skip(from as u64)
-                .limit(batch_size as i64)
-                .build();
+        let find_options = mongodb::options::FindOptions::builder()
+            .limit(IRIS_CODE_BATCH_SIZE) // Ensure this constant is defined somewhere
+            .build();
 
-            let mut cursor = collection.find(None, find_options).await?;
+        let mut cursor = collection.find(None, find_options).await?;
 
-            while let Some(document) = cursor.try_next().await? {
-                let iris_code_element =
-                    mongodb::bson::from_document::<IrisCodeEntry>(document)?;
-                items.push(iris_code_element);
-            }
-
-            from += batch_size as u64;
+        while let Some(document) = cursor.try_next().await? {
+            let iris_code_element =
+                mongodb::bson::from_document::<IrisCodeEntry>(document)?;
+            items.push(iris_code_element);
         }
 
         Ok(items)
