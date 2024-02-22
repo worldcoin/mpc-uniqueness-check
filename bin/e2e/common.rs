@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use aws_sdk_sqs::types::{Message, QueueAttributeName};
 use eyre::ContextCompat;
 use mpc::coordinator::{self, UniquenessCheckRequest};
@@ -181,7 +179,10 @@ pub async fn seed_db_sync(
     Ok(())
 }
 
-async fn wait_for_empty_queue(sqs_client: &aws_sdk_sqs::Client, queue_url: &str) -> eyre::Result<()> {
+async fn wait_for_empty_queue(
+    sqs_client: &aws_sdk_sqs::Client,
+    queue_url: &str,
+) -> eyre::Result<()> {
     loop {
         let queue_attributes = sqs_client
             .get_queue_attributes()
