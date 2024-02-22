@@ -82,17 +82,14 @@ impl PartialEq for Distance {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DistanceResults {
     /// The lowest serial id known across all nodes
-    pub serial_id: u64,
+    pub serial_id: Option<u64>,
     /// The distances to the query
     pub matches: Vec<Distance>,
 }
 
 impl DistanceResults {
-    pub fn new(latest_id: u64, matches: Vec<Distance>) -> Self {
-        Self {
-            serial_id: latest_id,
-            matches,
-        }
+    pub fn new(serial_id: Option<u64>, matches: Vec<Distance>) -> Self {
+        Self { serial_id, matches }
     }
 }
 

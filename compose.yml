@@ -99,6 +99,14 @@ services:
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
   e2e_test:
+    depends_on:
+      - localstack
+      - coordinator
+      - participant_0
+      - participant_1
+      - coordinator_db
+      - participant_0_db
+      - participant_1_db
     build:
       context: .
       dockerfile: Dockerfile
