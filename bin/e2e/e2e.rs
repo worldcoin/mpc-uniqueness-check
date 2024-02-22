@@ -174,7 +174,7 @@ async fn main() -> eyre::Result<()> {
                 &config.db_sync.coordinator_db_sync_queue,
                 &participant_db_sync_queues,
                 template,
-                next_serial_id.unwrap_or(0),
+                next_serial_id.context("Could not get next serial id")?,
             )
             .await?;
 
