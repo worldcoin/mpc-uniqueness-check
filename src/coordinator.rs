@@ -414,7 +414,7 @@ impl Coordinator {
 
         // Latest serial id is the last id shared across all nodes
         // so we need to subtract 1 from the counter
-        let latest_serial_id = i.saturating_sub(1) as u64;
+        let latest_serial_id: Option<u64> = (i as u64).checked_sub(1);
         let distance_results = DistanceResults::new(latest_serial_id, matches);
 
         Ok(distance_results)
@@ -509,7 +509,8 @@ pub struct UniquenessCheckRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UniquenessCheckResult {
-    pub serial_id: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial_id: Option<u64>,
     pub matches: Vec<Distance>,
     pub signup_id: String,
 }
@@ -543,7 +544,7 @@ mod tests {
     #[test]
     fn result_serialization() {
         let output = UniquenessCheckResult {
-            serial_id: 1,
+            serial_id: Some(1),
             matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
             signup_id: "signup_id".to_string(),
         };
@@ -551,6 +552,35 @@ mod tests {
         const EXPECTED: &str = indoc::indoc! {r#"
             {
               "serial_id": 1,
+              "matches": [
+                {
+                  "distance": 0.5,
+                  "serial_id": 0
+                },
+                {
+                  "distance": 0.2,
+                  "serial_id": 1
+                }
+              ],
+              "signup_id": "signup_id"
+            }
+        "#};
+
+        let s = serde_json::to_string_pretty(&output).unwrap();
+
+        similar_asserts::assert_eq!(s.trim(), EXPECTED.trim());
+    }
+
+    #[test]
+    fn result_serialization_no_serial_id() {
+        let output = UniquenessCheckResult {
+            serial_id: None,
+            matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
+            signup_id: "signup_id".to_string(),
+        };
+
+        const EXPECTED: &str = indoc::indoc! {r#"
+            {
               "matches": [
                 {
                   "distance": 0.5,
