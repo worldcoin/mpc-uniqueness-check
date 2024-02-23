@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-use futures::stream::FuturesUnordered;
 use mpc::config::DbConfig;
 use mpc::db::Db;
 use mpc::distance::EncodedBits;
@@ -19,6 +18,7 @@ impl MPCDb {
         right_coordinator_db_url: String,
         right_participant_db_urls: Vec<String>,
     ) -> eyre::Result<Self> {
+        tracing::info!("Connecting to left coordinator db");
         let left_coordinator_db = Db::new(&DbConfig {
             url: left_coordinator_db_url,
             migrate: false,
@@ -28,7 +28,8 @@ impl MPCDb {
 
         let mut left_participant_dbs = vec![];
 
-        for url in left_participant_db_urls {
+        for (i, url) in left_participant_db_urls.into_iter().enumerate() {
+            tracing::info!(participant=?i, "Connecting to left participant db");
             let db = Db::new(&DbConfig {
                 url,
                 migrate: false,
@@ -38,6 +39,7 @@ impl MPCDb {
             left_participant_dbs.push(db);
         }
 
+        tracing::info!("Connecting to right coordinator db");
         let right_coordinator_db = Db::new(&DbConfig {
             url: right_coordinator_db_url,
             migrate: false,
@@ -46,7 +48,8 @@ impl MPCDb {
         .await?;
 
         let mut right_participant_dbs = vec![];
-        for url in right_participant_db_urls {
+        for (i, url) in right_participant_db_urls.into_iter().enumerate() {
+            tracing::info!(participant=?i, "Connecting to right participant db");
             let db = Db::new(&DbConfig {
                 url,
                 migrate: false,
@@ -64,6 +67,12 @@ impl MPCDb {
         })
     }
 
+    #[tracing::instrument(skip(
+        self,
+        serial_id,
+        left_templates,
+        right_templates
+    ))]
     pub async fn insert_shares_and_masks(
         &self,
         mut serial_id: u64,
@@ -124,6 +133,7 @@ impl MPCDb {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self,))]
     pub async fn fetch_latest_serial_id(&self) -> eyre::Result<u64> {
         let mut ids = HashSet::new();
 

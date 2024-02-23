@@ -34,6 +34,7 @@ impl IrisDb {
         Ok(Self { db })
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn get_iris_code_snapshot(
         &self,
     ) -> eyre::Result<Vec<IrisCodeEntry>> {

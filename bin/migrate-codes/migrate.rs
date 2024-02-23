@@ -24,8 +24,8 @@ pub struct Args {
     pub right_participant_db: Vec<String>,
     #[clap(long, env, default_value = "10000")]
     pub batch_size: usize,
-    #[clap(long, env, default_value = "28800")] //NOTE: default 8 Hours
-    pub wait_time: usize,
+    #[clap(long, env, default_value = "28800")]
+    pub wait_time_seconds: usize,
 }
 
 #[tokio::main]
@@ -39,7 +39,6 @@ async fn main() -> eyre::Result<()> {
         args.right_participant_db.len()
     );
 
-    // Connect to the dbs
     let mpc_db = MPCDb::new(
         args.left_coordinator_db,
         args.left_participant_db,
@@ -52,7 +51,6 @@ async fn main() -> eyre::Result<()> {
 
     loop {
         let iris_code_entries = iris_db.get_iris_code_snapshot().await?;
-
         let mut next_serial_id = mpc_db.fetch_latest_serial_id().await? + 1;
 
         for entries in
@@ -88,8 +86,7 @@ async fn main() -> eyre::Result<()> {
             next_serial_id += 1;
         }
 
-        tokio::time::sleep(Duration::from_secs(args.wait_time as u64)).await;
+        tokio::time::sleep(Duration::from_secs(args.wait_time_seconds as u64))
+            .await;
     }
-
-    Ok(())
 }
