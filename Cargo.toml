@@ -9,6 +9,7 @@ aws-config = "1.1.4"
 aws-sdk-sqs = "1.12.0"
 axum = "0.7.4"
 base64 = "0.21.7"
+bitvec = "1"
 bytemuck = { version = "1.14.1", features = ["derive"] }
 clap = { version = "4.4.18", features = ["derive", "env"] }
 config = "0.13.4"
@@ -62,7 +63,7 @@ name = "e2e"
 path = "bin/e2e/e2e.rs"
 
 [[bench]]
-name = "example"
+name = "rotation_comparison"
 harness = false
 
 [profile.release]

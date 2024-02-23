@@ -5,6 +5,7 @@ use std::ops::Index;
 
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
+use bitvec::prelude::*;
 use bytemuck::{cast_slice_mut, Pod, Zeroable};
 use rand::distributions::{Distribution, Standard};
 use rand::Rng;
@@ -37,6 +38,22 @@ impl Bits {
 
         let limbs = iris::pack_iris_code(&unpacked);
         Bits::try_from(limbs).expect("Invalid bits size")
+    }
+
+    pub fn rotate_right(&mut self) {
+        BitSlice::<_, Lsb0>::from_slice_mut(&mut self.0)
+            .chunks_exact_mut(COLS)
+            .for_each(|chunk| chunk.rotate_right(1));
+    }
+
+    // For some insane reason, chunks_exact_mut benchmarks faster than manually indexing
+    // for rotate_right but not for rotate_left. Compileres are weird.
+    pub fn rotate_left(&mut self) {
+        let bit_slice = BitSlice::<_, Lsb0>::from_slice_mut(&mut self.0);
+        for row in 0..ROWS {
+            let row_slice = &mut bit_slice[row * COLS..(row + 1) * COLS];
+            row_slice.rotate_left(1);
+        }
     }
 
     pub fn count_ones(&self) -> u16 {
