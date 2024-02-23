@@ -6,6 +6,7 @@ pub mod bits;
 pub mod config;
 pub mod coordinator;
 pub mod db;
+mod debug_encoding;
 pub mod distance;
 pub mod encoded_bits;
 pub mod health_check;
