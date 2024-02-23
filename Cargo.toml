@@ -22,6 +22,8 @@ indicatif = "0.17.7"
 indoc = "2.0.4"
 itertools = "0.12.0"
 metrics = "0.21.1"
+# TODO: only include this for migrate-codes bin
+mongodb = "2.8.1"
 ordered-float = "4.2.0"
 rand = "0.8.5"
 rayon = "1.8.1"
@@ -55,7 +57,7 @@ path = "bin/mpc_node.rs"
 
 [[bin]]
 name = "utils"
-path = "bin/utils.rs"
+path = "bin/utils/utils.rs"
 
 [[bin]]
 name = "e2e"
