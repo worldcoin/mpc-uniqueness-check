@@ -102,6 +102,38 @@ impl Db {
     }
 
     #[tracing::instrument(skip(self))]
+    pub async fn fetch_latest_share_id(&self) -> eyre::Result<u64> {
+        let (id,) = sqlx::query_as::<_, (i64,)>(
+            r#"
+            SELECT id
+            FROM shares
+            ORDER BY id DESC
+            LIMIT 1
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(id as u64)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn fetch_latest_mask_id(&self) -> eyre::Result<u64> {
+        let (id,) = sqlx::query_as::<_, (i64,)>(
+            r#"
+            SELECT id
+            FROM masks
+            ORDER BY id DESC
+            LIMIT 1
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(id as u64)
+    }
+
+    #[tracing::instrument(skip(self))]
     pub async fn insert_shares(
         &self,
         shares: &[(u64, EncodedBits)],
@@ -272,6 +304,20 @@ mod tests {
         let fetched_shares = db.fetch_shares(1).await?;
 
         assert_eq!(fetched_shares[0], shares[1].1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn fetch_latest_mask_id() -> eyre::Result<()> {
+        todo!();
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn fetch_latest_share_id() -> eyre::Result<()> {
+        todo!();
 
         Ok(())
     }

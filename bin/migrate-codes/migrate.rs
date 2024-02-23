@@ -1,15 +1,10 @@
-use std::path::PathBuf;
+use std::time::Duration;
 
-use ::config::{Config, File};
 use clap::Parser;
-use mpc::db;
 use mpc::template::Template;
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
-use serde::Deserialize;
 use telemetry_batteries::tracing::stdout::StdoutBattery;
 
-use crate::iris_db::{IrisCodeEntry, IrisDb};
+use crate::iris_db::IrisDb;
 use crate::mpc_db::MPCDb;
 
 mod iris_db;
@@ -27,10 +22,11 @@ pub struct Args {
     pub right_coordinator_db: String,
     #[clap(long, env)]
     pub right_participant_db: Vec<String>,
+    #[clap(long, env, default_value = "10000")]
+    pub batch_size: usize,
+    #[clap(long, env, default_value = "28800")] //NOTE: default 8 Hours
+    pub wait_time: usize,
 }
-
-//TODO: update this to be configurable
-pub const INSERTION_BATCH_SIZE: usize = 10;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
@@ -54,14 +50,18 @@ async fn main() -> eyre::Result<()> {
 
     let iris_db = IrisDb::new(args.iris_code_db).await?;
 
-    //TODO: Get the latest serial ids from all mpc db
-    let mut latest_serial_id = 0;
+    loop {
+        let iris_code_entries = iris_db.get_iris_code_snapshot().await?;
 
-    let iris_code_entries = iris_db.get_iris_code_snapshot().await?;
+        let mut next_serial_id = mpc_db.fetch_latest_serial_id().await? + 1;
 
-    for entries in iris_code_entries.chunks(INSERTION_BATCH_SIZE) {
-        let (left_templates, right_templates): (Vec<Template>, Vec<Template>) =
-            entries
+        for entries in
+            iris_code_entries[next_serial_id as usize..].chunks(args.batch_size)
+        {
+            let (left_templates, right_templates): (
+                Vec<Template>,
+                Vec<Template>,
+            ) = entries
                 .iter()
                 .map(|entry| {
                     (
@@ -77,15 +77,18 @@ async fn main() -> eyre::Result<()> {
                 })
                 .unzip();
 
-        mpc_db
-            .insert_shares_and_masks(
-                latest_serial_id,
-                &left_templates,
-                &right_templates,
-            )
-            .await?;
+            mpc_db
+                .insert_shares_and_masks(
+                    next_serial_id,
+                    &left_templates,
+                    &right_templates,
+                )
+                .await?;
 
-        latest_serial_id += 1;
+            next_serial_id += 1;
+        }
+
+        tokio::time::sleep(Duration::from_secs(args.wait_time as u64)).await;
     }
 
     Ok(())

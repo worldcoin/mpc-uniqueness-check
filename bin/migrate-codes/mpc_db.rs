@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+
+use futures::stream::FuturesUnordered;
 use mpc::config::DbConfig;
 use mpc::db::Db;
 use mpc::distance::EncodedBits;
@@ -119,5 +122,37 @@ impl MPCDb {
         self.right_coordinator_db.insert_masks(&right_masks).await?;
 
         Ok(())
+    }
+
+    pub async fn fetch_latest_serial_id(&self) -> eyre::Result<u64> {
+        let mut ids = HashSet::new();
+
+        let left_coordinator_id =
+            self.left_coordinator_db.fetch_latest_mask_id().await?;
+
+        tracing::info!(?left_coordinator_id, "Latest left mask Id");
+
+        let right_coordinator_id =
+            self.right_coordinator_db.fetch_latest_share_id().await?;
+
+        tracing::info!(?right_coordinator_id, "Latest right mask Id");
+
+        for (i, db) in self.left_participant_dbs.iter().enumerate() {
+            let id = db.fetch_latest_share_id().await?;
+            tracing::info!(?id, participant=?i, "Latest left share Id");
+            ids.insert(id);
+        }
+
+        for (i, db) in self.right_participant_dbs.iter().enumerate() {
+            let id = db.fetch_latest_share_id().await?;
+            tracing::info!(?id, participant=?i, "Latest right share Id");
+            ids.insert(id);
+        }
+
+        if ids.len() != 1 {
+            return Err(eyre::eyre!("Mismatched serial ids"));
+        }
+
+        Ok(left_coordinator_id)
     }
 }

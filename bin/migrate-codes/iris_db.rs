@@ -70,6 +70,8 @@ impl IrisDb {
             }
         }
 
+        items.sort_by(|a, b| a.serial_id.cmp(&b.serial_id));
+
         Ok(items)
     }
 }
