@@ -2182,6 +2182,7 @@ dependencies = [
  "aws-sdk-sqs",
  "axum",
  "base64 0.21.7",
+ "bitvec",
  "bytemuck",
  "clap",
  "config",

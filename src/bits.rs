@@ -5,38 +5,57 @@ use std::ops::Index;
 
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
+use bitvec::prelude::*;
 use bytemuck::{cast_slice_mut, Pod, Zeroable};
 use rand::distributions::{Distribution, Standard};
 use rand::Rng;
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 
-use crate::{iris, slice_utils};
+use crate::distance::ROTATION_DISTANCE;
 
 pub const COLS: usize = 200;
 pub const STEP_MULTI: usize = 4;
 pub const ROWS: usize = 4 * 16;
 pub const BITS: usize = ROWS * COLS;
 const LIMBS: usize = BITS / 64;
-const BYTES_PER_COL: usize = COLS * STEP_MULTI;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Bits(pub [u64; LIMBS]);
 
 impl Bits {
-    pub fn rotated(&self, amount: i32) -> Self {
-        // Convert to big-endian bytes
-        let mut unpacked = iris::unpack_iris_code64(&self.0);
+    /// Returns an unordered iterator over the 31 possible rotations.
+    /// Rotations are done consecutively because the underlying `rotate_left\right`
+    /// methods are less efficient for larger rotations.
+    pub fn rotations(&self) -> impl Iterator<Item = Self> + '_ {
+        let mut left = *self;
+        let iter_left = (0..ROTATION_DISTANCE).map(move |_| {
+            left.rotate_left(1);
+            left
+        });
+        let mut right = *self;
+        let iter_right = (0..ROTATION_DISTANCE).map(move |_| {
+            right.rotate_left(1);
+            right
+        });
+        std::iter::once(*self).chain(iter_left).chain(iter_right)
+    }
 
-        // Rotate byte chunks
-        for chunk in unpacked.array_chunks_mut::<BYTES_PER_COL>() {
-            let rot = amount * STEP_MULTI as i32;
-            slice_utils::rotate_slice(chunk, rot as i64);
+    pub fn rotate_right(&mut self, by: usize) {
+        BitSlice::<_, Lsb0>::from_slice_mut(&mut self.0)
+            .chunks_exact_mut(COLS)
+            .for_each(|chunk| chunk.rotate_right(by));
+    }
+
+    /// For some insane reason, chunks_exact_mut benchmarks faster than manually indexing
+    /// for rotate_right but not for rotate_left. Compilers are weird.
+    pub fn rotate_left(&mut self, by: usize) {
+        let bit_slice = BitSlice::<_, Lsb0>::from_slice_mut(&mut self.0);
+        for row in 0..ROWS {
+            let row_slice = &mut bit_slice[row * COLS..(row + 1) * COLS];
+            row_slice.rotate_left(by);
         }
-
-        let limbs = iris::pack_iris_code(&unpacked);
-        Bits::try_from(limbs).expect("Invalid bits size")
     }
 
     pub fn count_ones(&self) -> u16 {
@@ -258,12 +277,10 @@ mod tests {
     use rand::{thread_rng, Rng};
 
     use super::*;
-    use crate::distance::ROTATIONS;
 
     #[test]
     fn limbs_exact() {
         assert_eq!(LIMBS * 64, BITS);
-        assert_eq!(BYTES_PER_COL, COLS * STEP_MULTI);
     }
 
     #[test]
@@ -285,16 +302,12 @@ mod tests {
     #[test]
     fn test_rotated_inverse() {
         let mut rng = thread_rng();
-        for _ in 0..100 {
-            let bits: Bits = rng.gen();
-            for amount in ROTATIONS {
-                assert_eq!(
-                    bits.rotated(amount).rotated(-amount),
-                    bits,
-                    "Rotation failed for {amount}"
-                )
-            }
-        }
+        let bits: Bits = rng.gen();
+        let mut other = bits;
+        other.rotate_left(1);
+        other.rotate_right(1);
+
+        assert_eq!(bits, other)
     }
 
     #[test]
