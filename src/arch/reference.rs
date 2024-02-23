@@ -22,8 +22,8 @@ pub fn denominators<'a>(
 ) -> impl Iterator<Item = [u16; 31]> + 'a {
     db.iter().map(|entry| {
         let mut result = [0_u16; 31];
-        for (d, r) in result.iter_mut().zip(ROTATIONS) {
-            *d = query.rotated(r).dot(entry);
+        for (d, r) in result.iter_mut().zip(query.rotations()) {
+            *d = r.dot(entry);
         }
         result
     })

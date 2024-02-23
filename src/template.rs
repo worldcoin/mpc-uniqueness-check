@@ -7,7 +7,6 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 pub use crate::bits::Bits;
-use crate::distance::ROTATIONS;
 
 #[repr(C)]
 #[derive(
@@ -30,44 +29,17 @@ pub struct Template {
 }
 
 impl Template {
-    pub fn rotated(&self, amount: i32) -> Self {
-        Self {
-            code: self.code.rotated(amount),
-            mask: self.mask.rotated(amount),
-        }
-    }
-
     pub fn rotations(&self) -> impl Iterator<Item = Template> + '_ {
-        ROTATIONS.map(move |r| self.rotated(r))
-    }
-
-    pub fn rotations_v2(&self) -> impl Iterator<Item = Template> + '_ {
-        const DISTANCE: usize = 8;
-        let mut left = self.clone();
-        let iter_left = (1..=DISTANCE).map(move |_| {
-            left.code.rotate_left();
-            left.mask.rotate_left();
-            left.clone()
-        });
-        let mut right = self.clone();
-        let iter_right = (1..=DISTANCE).map(move |_| {
-            right.code.rotate_left();
-            right.mask.rotate_left();
-            right.clone()
-        });
-        iter_left
-            .chain(iter_right)
-            .chain(std::iter::once(self.clone()))
+        let codes = self.code.rotations();
+        let masks = self.mask.rotations();
+        codes
+            .into_iter()
+            .zip(masks)
+            .map(|(code, mask)| Template { code, mask })
     }
 
     pub fn distance(&self, other: &Self) -> f64 {
         self.rotations()
-            .map(|r| r.fraction_hamming(other))
-            .fold(f64::INFINITY, |a, b| a.min(b))
-    }
-
-    pub fn distance_v2(&self, other: &Self) -> f64 {
-        self.rotations_v2()
             .map(|r| r.fraction_hamming(other))
             .fold(f64::INFINITY, |a, b| a.min(b))
     }
@@ -121,7 +93,7 @@ mod tests {
         let a: Template = serde_json::from_str(A).unwrap();
         let b: Template = serde_json::from_str(B).unwrap();
 
-        let d = a.distance_v2(&b);
+        let d = a.distance(&b);
 
         assert_eq!(d, 0.493125);
     }

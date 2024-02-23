@@ -22,16 +22,5 @@ pub fn rotation_comparison(c: &mut Criterion) {
     });
 }
 
-pub fn rotation_comparison_v2(c: &mut Criterion) {
-    let a: Template = serde_json::from_str(A).unwrap();
-    let b: Template = serde_json::from_str(B).unwrap();
-    c.bench_function("rotation comparison v2", |bencher| {
-        bencher.iter(|| {
-            // Benchmark logic here
-            a.distance_v2(&b);
-        })
-    });
-}
-
-criterion_group!(benches, rotation_comparison, rotation_comparison_v2);
+criterion_group!(benches, rotation_comparison);
 criterion_main!(benches);
