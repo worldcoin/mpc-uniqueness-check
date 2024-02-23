@@ -1,10 +1,38 @@
 use std::net::SocketAddr;
+use std::path::Path;
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use self::json_wrapper::JsonStrWrapper;
 
 mod json_wrapper;
+
+pub fn load_config<T>(
+    prefix: &str,
+    config_path: Option<&Path>,
+) -> eyre::Result<T>
+where
+    T: DeserializeOwned,
+{
+    let mut settings = config::Config::builder();
+
+    if let Some(path) = config_path {
+        settings = settings.add_source(config::File::from(path).required(true));
+    }
+
+    let settings = settings
+        .add_source(
+            config::Environment::with_prefix(prefix)
+                .separator("__")
+                .try_parsing(true),
+        )
+        .build()?;
+
+    let config = settings.try_deserialize::<T>()?;
+
+    Ok(config)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
