@@ -29,19 +29,17 @@ impl Bits {
     /// Rotations are done consecutively because the underlying `rotate_left\right`
     /// methods are less efficient for larger rotations.
     pub fn rotations(&self) -> impl Iterator<Item = Self> + '_ {
-        let mut left = self.clone();
+        let mut left = *self;
         let iter_left = (0..ROTATION_DISTANCE).map(move |_| {
             left.rotate_left();
-            left.clone()
+            left
         });
-        let mut right = self.clone();
+        let mut right = *self;
         let iter_right = (0..ROTATION_DISTANCE).map(move |_| {
             right.rotate_left();
-            right.clone()
+            right
         });
-        std::iter::once(self.clone())
-            .chain(iter_left)
-            .chain(iter_right)
+        std::iter::once(*self).chain(iter_left).chain(iter_right)
     }
 
     pub fn rotate_right(&mut self) {
@@ -305,7 +303,7 @@ mod tests {
     fn test_rotated_inverse() {
         let mut rng = thread_rng();
         let bits: Bits = rng.gen();
-        let mut other = bits.clone();
+        let mut other = bits;
         other.rotate_left();
         other.rotate_right();
 
