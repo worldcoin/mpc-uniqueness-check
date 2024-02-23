@@ -59,5 +59,9 @@ pub async fn sqs_receive(args: &SQSReceive) -> eyre::Result<()> {
                 .send()
                 .await?;
         }
+
+        break;
     }
+
+    Ok(())
 }

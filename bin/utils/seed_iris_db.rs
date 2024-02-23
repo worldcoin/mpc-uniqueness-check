@@ -13,6 +13,9 @@ pub const COLLECTION_NAME: &str = "codes.v2";
 pub struct SeedIrisDb {
     #[clap(short, long)]
     pub iris_code_db: String,
+
+    #[clap(short, long)]
+    pub num_templates: usize,
 }
 
 pub async fn seed_iris_db(args: &SeedIrisDb) -> eyre::Result<()> {
@@ -24,14 +27,13 @@ pub async fn seed_iris_db(args: &SeedIrisDb) -> eyre::Result<()> {
 
     let iris_db = client.database(DATABASE_NAME);
 
-    let num_templates = 100;
     let mut rng = thread_rng();
 
-    let left_templates = (0..num_templates)
+    let left_templates = (0..args.num_templates)
         .map(|_| rng.gen())
         .collect::<Vec<Template>>();
 
-    let right_templates = (0..num_templates)
+    let right_templates = (0..args.num_templates)
         .map(|_| rng.gen())
         .collect::<Vec<Template>>();
 

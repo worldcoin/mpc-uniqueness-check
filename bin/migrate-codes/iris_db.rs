@@ -4,6 +4,8 @@ use mpc::bits::Bits;
 use serde::{Deserialize, Serialize};
 
 pub const IRIS_CODE_BATCH_SIZE: u32 = 30_000;
+pub const DATABASE_NAME: &str = "iris";
+pub const COLLECTION_NAME: &str = "codes.v2";
 
 #[derive(Serialize, Deserialize)]
 pub struct IrisCodeEntry {
@@ -27,7 +29,7 @@ impl IrisDb {
         let client: mongodb::Client =
             mongodb::Client::with_options(client_options)?;
 
-        let db = client.database("iris");
+        let db = client.database(DATABASE_NAME);
 
         Ok(Self { db })
     }
@@ -39,7 +41,7 @@ impl IrisDb {
 
         let mut last_serial_id = 0_i64;
 
-        let collection = self.db.collection("codes.v2");
+        let collection = self.db.collection(COLLECTION_NAME);
 
         loop {
             let find_options = mongodb::options::FindOptions::builder()

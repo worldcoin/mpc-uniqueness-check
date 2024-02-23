@@ -14,21 +14,25 @@ pub struct SeedMPCDb {
     pub participant_db_url: Vec<String>,
 
     #[clap(short, long, default_value = "3000000")]
-    pub num: usize,
+    pub num_templates: usize,
 
     #[clap(short, long, default_value = "10000")]
     pub batch_size: usize,
 }
 
 pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
-    let mut templates: Vec<Template> = Vec::with_capacity(args.num);
+    if args.participant_db_url.len() == 0 {
+        return Err(eyre::eyre!("No participant DBs provided"));
+    }
 
-    let pb =
-        ProgressBar::new(args.num as u64).with_message("Generating templates");
+    let mut templates: Vec<Template> = Vec::with_capacity(args.num_templates);
+
+    let pb = ProgressBar::new(args.num_templates as u64)
+        .with_message("Generating templates");
 
     let mut rng = thread_rng();
 
-    for _ in 0..args.num {
+    for _ in 0..args.num_templates {
         templates.push(rng.gen());
 
         pb.inc(1);
@@ -56,7 +60,8 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
         );
     }
 
-    let pb = ProgressBar::new(args.num as u64).with_message("Seeding DBs");
+    let pb =
+        ProgressBar::new(args.num_templates as u64).with_message("Seeding DBs");
 
     for (idx, chunk) in templates.chunks(args.batch_size).enumerate() {
         let mut chunk_masks = Vec::with_capacity(chunk.len());

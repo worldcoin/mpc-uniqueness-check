@@ -28,7 +28,7 @@ pub struct SeedDbConfig {
     pub mpc_db: MPCDbConfig,
 }
 
-//TODO: update this
+//TODO: update this to be configurable
 pub const INSERTION_BATCH_SIZE: usize = 10;
 
 #[tokio::main]
