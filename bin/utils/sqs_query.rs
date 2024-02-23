@@ -1,11 +1,9 @@
 use clap::Args;
 use mpc::config::AwsConfig;
 use mpc::coordinator::UniquenessCheckRequest;
-
 use mpc::template::Template;
 use mpc::utils::aws::sqs_client_from_config;
 use rand::{thread_rng, Rng};
-
 
 use crate::generate_random_string;
 
