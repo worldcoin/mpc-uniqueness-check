@@ -1,5 +1,5 @@
 use clap::Args;
-use indicatif::ProgressBar;
+
 use mpc::bits::Bits;
 use mpc::template::Template;
 use rand::{thread_rng, Rng};

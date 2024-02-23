@@ -21,7 +21,7 @@ pub struct SeedMPCDb {
 }
 
 pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
-    if args.participant_db_url.len() == 0 {
+    if args.participant_db_url.is_empty() {
         return Err(eyre::eyre!("No participant DBs provided"));
     }
 
