@@ -1,13 +1,13 @@
 use clap::Args;
 use mpc::config::AwsConfig;
 use mpc::coordinator::UniquenessCheckRequest;
+use mpc::db;
 use mpc::template::Template;
 use mpc::utils::aws::sqs_client_from_config;
 use rand::{thread_rng, Rng};
+use telemetry_batteries::tracing::stdout::StdoutBattery;
 
 use crate::generate_random_string;
-
-const REQUEST_MESSAGE_GROUP_ID: &str = "mpc-uniqueness-check-request";
 
 #[derive(Debug, Clone, Args)]
 pub struct SQSQuery {
@@ -37,6 +37,10 @@ pub async fn sqs_query(args: &SQSQuery) -> eyre::Result<()> {
     let plain_code: Template = rng.gen();
 
     let signup_id = generate_random_string(10);
+    let group_id = generate_random_string(10);
+
+    tracing::info!(?signup_id, ?group_id, "Sending message");
+
     let request = UniquenessCheckRequest {
         plain_code,
         signup_id,
@@ -45,7 +49,7 @@ pub async fn sqs_query(args: &SQSQuery) -> eyre::Result<()> {
     sqs_client
         .send_message()
         .queue_url(args.queue_url.clone())
-        .message_group_id(REQUEST_MESSAGE_GROUP_ID)
+        .message_group_id(group_id)
         .message_body(serde_json::to_string(&request)?)
         .send()
         .await?;
