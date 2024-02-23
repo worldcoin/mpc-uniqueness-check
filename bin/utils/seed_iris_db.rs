@@ -1,4 +1,5 @@
 use clap::Args;
+use indicatif::ProgressBar;
 use mpc::bits::Bits;
 use mpc::template::Template;
 use rand::{thread_rng, Rng};
@@ -16,6 +17,9 @@ pub struct SeedIrisDb {
 
     #[clap(short, long)]
     pub num_templates: usize,
+
+    #[clap(short, long, default_value = "10000")]
+    pub batch_size: usize,
 }
 
 pub async fn seed_iris_db(args: &SeedIrisDb) -> eyre::Result<()> {
@@ -29,6 +33,7 @@ pub async fn seed_iris_db(args: &SeedIrisDb) -> eyre::Result<()> {
 
     let mut rng = thread_rng();
 
+    tracing::info!("Generating codes");
     let left_templates = (0..args.num_templates)
         .map(|_| rng.gen())
         .collect::<Vec<Template>>();
@@ -38,23 +43,29 @@ pub async fn seed_iris_db(args: &SeedIrisDb) -> eyre::Result<()> {
         .collect::<Vec<Template>>();
 
     let collection = iris_db.collection::<IrisCodeEntry>(COLLECTION_NAME);
+    let next_serial_id = collection.count_documents(None, None).await?;
 
-    //TODO: update to insert many in batches
-    for (serial_id, (left, right)) in left_templates
+    let documents = left_templates
         .iter()
         .zip(right_templates.iter())
         .enumerate()
-    {
-        let iris_code_entry = IrisCodeEntry {
+        .map(|(serial_id, (left, right))| IrisCodeEntry {
             signup_id: generate_random_string(10),
-            serial_id: serial_id as u64,
+            serial_id: next_serial_id + serial_id as u64,
             iris_code_left: left.code,
             mask_code_left: left.mask,
             iris_code_right: right.code,
             mask_code_right: right.mask,
-        };
+        })
+        .collect::<Vec<IrisCodeEntry>>();
 
-        collection.insert_one(iris_code_entry, None).await?;
+    for (i, chunk) in documents.chunks(args.batch_size).enumerate() {
+        tracing::info!(
+            "Seeding iris codes, chunk {}/{}",
+            i + 1,
+            (documents.len() / args.batch_size) + 1
+        );
+        collection.insert_many(chunk, None).await?;
     }
 
     Ok(())
