@@ -12,6 +12,7 @@ services:
       - "./init-scripts/ready.d:/etc/localstack/init/ready.d"
       - "localstack-data:/var/lib/localstack"
       - "/var/run/docker.sock:/var/run/docker.sock"
+      
   coordinator:
     restart: always
     environment:
@@ -57,6 +58,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      
   participant_1:
     restart: always
     hostname: participant
@@ -77,6 +79,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      
   coordinator_db:
     hostname: coordinator_db
     image: postgres
@@ -84,6 +87,7 @@ services:
       - 8432:5432
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
+      
   participant_0_db:
     hostname: participant_db
     image: postgres
@@ -91,6 +95,7 @@ services:
       - 8433:5432
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
+      
   participant_1_db:
     hostname: participant_db
     image: postgres
@@ -98,6 +103,7 @@ services:
       - 8434:5432
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
+      
   e2e_test:
     depends_on:
       - localstack
