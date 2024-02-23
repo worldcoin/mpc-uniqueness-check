@@ -9,8 +9,6 @@ pub mod db;
 pub mod distance;
 pub mod encoded_bits;
 pub mod health_check;
-pub mod iris;
 pub mod participant;
-pub mod slice_utils;
 pub mod template;
 pub mod utils;

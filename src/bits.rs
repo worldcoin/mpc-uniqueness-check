@@ -31,30 +31,30 @@ impl Bits {
     pub fn rotations(&self) -> impl Iterator<Item = Self> + '_ {
         let mut left = *self;
         let iter_left = (0..ROTATION_DISTANCE).map(move |_| {
-            left.rotate_left();
+            left.rotate_left(1);
             left
         });
         let mut right = *self;
         let iter_right = (0..ROTATION_DISTANCE).map(move |_| {
-            right.rotate_left();
+            right.rotate_left(1);
             right
         });
         std::iter::once(*self).chain(iter_left).chain(iter_right)
     }
 
-    pub fn rotate_right(&mut self) {
+    pub fn rotate_right(&mut self, by: usize) {
         BitSlice::<_, Lsb0>::from_slice_mut(&mut self.0)
             .chunks_exact_mut(COLS)
-            .for_each(|chunk| chunk.rotate_right(1));
+            .for_each(|chunk| chunk.rotate_right(by));
     }
 
-    // For some insane reason, chunks_exact_mut benchmarks faster than manually indexing
-    // for rotate_right but not for rotate_left. Compilers are weird.
-    pub fn rotate_left(&mut self) {
+    /// For some insane reason, chunks_exact_mut benchmarks faster than manually indexing
+    /// for rotate_right but not for rotate_left. Compilers are weird.
+    pub fn rotate_left(&mut self, by: usize) {
         let bit_slice = BitSlice::<_, Lsb0>::from_slice_mut(&mut self.0);
         for row in 0..ROWS {
             let row_slice = &mut bit_slice[row * COLS..(row + 1) * COLS];
-            row_slice.rotate_left(1);
+            row_slice.rotate_left(by);
         }
     }
 
@@ -304,8 +304,8 @@ mod tests {
         let mut rng = thread_rng();
         let bits: Bits = rng.gen();
         let mut other = bits;
-        other.rotate_left();
-        other.rotate_right();
+        other.rotate_left(1);
+        other.rotate_right(1);
 
         assert_eq!(bits, other)
     }
