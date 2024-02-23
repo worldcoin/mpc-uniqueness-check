@@ -19,9 +19,14 @@ pub struct MPCDbs {
     pub right_participant_dbs: Vec<Db>,
 }
 impl MPCDbs {
-    pub async fn new(config: MPCDbConfig) -> eyre::Result<Self> {
+    pub async fn new(
+        left_coordinator_db_url: String,
+        left_participant_db_urls: Vec<String>,
+        right_coordinator_db_url: String,
+        right_participant_db_urls: Vec<String>,
+    ) -> eyre::Result<Self> {
         let left_coordinator_db = Db::new(&DbConfig {
-            url: config.left_coordinator_db,
+            url: left_coordinator_db_url,
             migrate: false,
             create: false,
         })
@@ -31,9 +36,9 @@ impl MPCDbs {
 
         let mut left_participant_dbs = vec![];
 
-        for db in config.left_participant_dbs {
+        for url in left_participant_db_urls {
             let db = Db::new(&DbConfig {
-                url: db,
+                url,
                 migrate: false,
                 create: false,
             })
@@ -42,16 +47,16 @@ impl MPCDbs {
         }
 
         let right_coordinator_db = Db::new(&DbConfig {
-            url: config.right_coordinator_db,
+            url: right_coordinator_db_url,
             migrate: false,
             create: false,
         })
         .await?;
 
         let mut right_participant_dbs = vec![];
-        for db in config.right_participant_dbs {
+        for url in right_participant_db_urls {
             let db = Db::new(&DbConfig {
-                url: db,
+                url,
                 migrate: false,
                 create: false,
             })

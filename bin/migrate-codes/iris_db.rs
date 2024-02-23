@@ -22,7 +22,7 @@ pub struct IrisDb {
 }
 
 impl IrisDb {
-    pub async fn new(url: &str) -> eyre::Result<Self> {
+    pub async fn new(url: String) -> eyre::Result<Self> {
         let client_options =
             mongodb::options::ClientOptions::parse(url).await?;
 

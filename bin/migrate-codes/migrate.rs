@@ -16,16 +16,13 @@ use crate::mpc_db::MPCDbs;
 mod iris_db;
 mod mpc_db;
 
-#[derive(Parser)]
+#[derive(Deserialize, Parser)]
 pub struct Args {
-    #[clap(short, long, env)]
-    config: PathBuf,
-}
-
-#[derive(Deserialize)]
-pub struct SeedDbConfig {
     pub iris_code_db: String,
-    pub mpc_db: MPCDbConfig,
+    pub left_coordinator_db: String,
+    pub left_participant_db: Vec<String>,
+    pub right_coordinator_db: String,
+    pub right_participant_db: Vec<String>,
 }
 
 //TODO: update this to be configurable
@@ -36,19 +33,17 @@ async fn main() -> eyre::Result<()> {
     let _shutdown_tracing_provider = StdoutBattery::init();
 
     let args = Args::parse();
-    let settings = Config::builder()
-        .add_source(File::from(args.config).required(true))
-        .build()?;
-    let config = settings.try_deserialize::<SeedDbConfig>()?;
-
-    assert_eq!(
-        config.mpc_db.left_participant_dbs.len(),
-        config.mpc_db.right_participant_dbs.len()
-    );
 
     // Connect to the dbs
-    let mpc_db = MPCDbs::new(config.mpc_db).await?;
-    let iris_db = IrisDb::new(&config.iris_code_db).await?;
+    let mpc_db = MPCDbs::new(
+        args.left_coordinator_db,
+        args.left_participant_db,
+        args.right_coordinator_db,
+        args.right_participant_db,
+    )
+    .await?;
+
+    let iris_db = IrisDb::new(args.iris_code_db).await?;
 
     //TODO: Get the latest serial ids from all mpc db
     let mut latest_serial_id = 0;

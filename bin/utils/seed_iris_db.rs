@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::generate_random_string;
 
 pub const DATABASE_NAME: &str = "iris";
-pub const COLLECTION_NAME: &str = "codes.v2";
+pub const COLLECTION_NAME: &str = "codes.v3";
 
 #[derive(Debug, Clone, Args)]
 pub struct SeedIrisDb {
