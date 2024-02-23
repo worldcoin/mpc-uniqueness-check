@@ -4,28 +4,29 @@ use ::config::{Config, File};
 use clap::Parser;
 use mpc::db;
 use mpc::template::Template;
-use mpc_db::MPCDbConfig;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde::Deserialize;
 use telemetry_batteries::tracing::stdout::StdoutBattery;
 
 use crate::iris_db::{IrisCodeEntry, IrisDb};
-use crate::mpc_db::MPCDbs;
+use crate::mpc_db::MPCDb;
 
 mod iris_db;
 mod mpc_db;
 
 #[derive(Parser)]
 pub struct Args {
-    #[clap(short, long, env)]
-    config: PathBuf,
-}
-
-#[derive(Deserialize)]
-pub struct SeedDbConfig {
+    #[clap(long, env)]
     pub iris_code_db: String,
-    pub mpc_db: MPCDbConfig,
+    #[clap(long, env)]
+    pub left_coordinator_db: String,
+    #[clap(long, env)]
+    pub left_participant_db: Vec<String>,
+    #[clap(long, env)]
+    pub right_coordinator_db: String,
+    #[clap(long, env)]
+    pub right_participant_db: Vec<String>,
 }
 
 //TODO: update this to be configurable
@@ -36,19 +37,22 @@ async fn main() -> eyre::Result<()> {
     let _shutdown_tracing_provider = StdoutBattery::init();
 
     let args = Args::parse();
-    let settings = Config::builder()
-        .add_source(File::from(args.config).required(true))
-        .build()?;
-    let config = settings.try_deserialize::<SeedDbConfig>()?;
 
     assert_eq!(
-        config.mpc_db.left_participant_dbs.len(),
-        config.mpc_db.right_participant_dbs.len()
+        args.left_participant_db.len(),
+        args.right_participant_db.len()
     );
 
     // Connect to the dbs
-    let mpc_db = MPCDbs::new(config.mpc_db).await?;
-    let iris_db = IrisDb::new(&config.iris_code_db).await?;
+    let mpc_db = MPCDb::new(
+        args.left_coordinator_db,
+        args.left_participant_db,
+        args.right_coordinator_db,
+        args.right_participant_db,
+    )
+    .await?;
+
+    let iris_db = IrisDb::new(args.iris_code_db).await?;
 
     //TODO: Get the latest serial ids from all mpc db
     let mut latest_serial_id = 0;
