@@ -27,6 +27,7 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
 
     let mut templates: Vec<Template> = Vec::with_capacity(args.num_templates);
 
+    tracing::info!("Generating templates");
     let pb = ProgressBar::new(args.num_templates as u64)
         .with_message("Generating templates");
 
@@ -60,15 +61,25 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
         );
     }
 
+    tracing::info!("Seeding databases");
     let pb =
         ProgressBar::new(args.num_templates as u64).with_message("Seeding DBs");
 
     for (idx, chunk) in templates.chunks(args.batch_size).enumerate() {
+        tracing::info!(
+            "Seeding chunk {}/{}",
+            idx + 1,
+            (templates.len() / args.batch_size) + 1
+        );
+
         let mut chunk_masks = Vec::with_capacity(chunk.len());
         let mut chunk_shares: Vec<_> = (0..participant_dbs.len())
             .map(|_| Vec::with_capacity(chunk.len()))
             .collect();
 
+        tracing::info!("Encoding shares");
+        let pb = ProgressBar::new(chunk.len() as u64)
+            .with_message("Encoding shares");
         for (offset, template) in chunk.iter().enumerate() {
             let shares =
                 mpc::distance::encode(template).share(participant_dbs.len());
@@ -79,14 +90,19 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
             for (idx, share) in shares.iter().enumerate() {
                 chunk_shares[idx].push((id as u64, *share));
             }
+
+            pb.inc(1);
         }
 
         let mut tasks = vec![];
 
         for (idx, db) in participant_dbs.iter().enumerate() {
+            tracing::info!("Inserting shares into participant DB {idx}");
+
             tasks.push(db.insert_shares(&chunk_shares[idx]));
         }
 
+        tracing::info!("Inserting masks into coordinator DB");
         let (coordinator, participants) = tokio::join!(
             coordinator_db.insert_masks(&chunk_masks),
             futures::future::join_all(tasks),
