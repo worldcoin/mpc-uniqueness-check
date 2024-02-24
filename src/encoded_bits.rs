@@ -232,4 +232,32 @@ mod tests {
 
         assert_eq!(deserialized, encoded_bits);
     }
+
+    use crate::bits::tests::*;
+
+    #[test]
+    fn unpack_from_bits_to_encoded_bits() -> eyre::Result<()> {
+        let bits_u64 = Bits::from(FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES);
+        let bits_u16_unpacked = EncodedBits::from(&bits_u64);
+
+        print_binary_representation_u8(&FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES);
+        print_binary_representation_u64(&bits_u64.0);
+        print_binary_u16_unpacked(&bits_u16_unpacked);
+        assert_eq!(binary_string_u8(&FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES, false), binary_string_unpacked_u16(&bits_u16_unpacked, false));
+        print_binary_u16_unpacked(&bits_u16_unpacked);
+
+        Ok(())
+    }
+
+    fn print_binary_u16_unpacked(bits: &EncodedBits) {
+        println!("{}", binary_string_unpacked_u16(bits, false));
+    }
+
+    fn binary_string_unpacked_u16(bits: &EncodedBits, separated: bool) -> String {
+        bits.0.iter()
+            .map(|byte| if *byte > 0 { String::from("1") } else { String::from("0") })
+            .collect::<Vec<String>>()
+            .join(if separated { " " } else { "" })
+    }
+
 }
