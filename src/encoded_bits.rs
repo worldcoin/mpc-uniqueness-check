@@ -15,7 +15,6 @@ use crate::bits::{Bits, BITS};
 
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-
 pub struct EncodedBits(pub [u16; BITS]);
 
 unsafe impl Zeroable for EncodedBits {}
@@ -231,5 +230,104 @@ mod tests {
             .expect("Failed to deserialize EncodedBits");
 
         assert_eq!(deserialized, encoded_bits);
+    }
+
+    use crate::bits::tests::*;
+
+    #[test]
+    fn encoded_bits_deserialization_known_pattern() -> eyre::Result<()> {
+        let unpacked_bits_u16_first_half_set_pattern =
+            [[1_u16; 32], [0_u16; 32]].concat().repeat(BITS / 64);
+
+        assert_eq!(unpacked_bits_u16_first_half_set_pattern.len(), BITS);
+
+        let base64_code = format!(
+            "\"{}\"",
+            BASE64_STANDARD.encode(u16_slice_to_u8_vec(
+                &unpacked_bits_u16_first_half_set_pattern
+            ))
+        );
+
+        let deserialized = serde_json::from_str::<EncodedBits>(&base64_code)
+            .expect("Failed to deserialize EncodedBits");
+
+        assert_eq!(
+            binary_string_unpacked_u16(&deserialized, false),
+            FIRST_HALF_BITS_SET_PATTERN_U64_STR.repeat(BITS / 64)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn encoded_bits_serialization_known_pattern() -> eyre::Result<()> {
+        let bits: Bits = Bits(FIRST_HALF_BITS_SET_PATTERN_U64_IRIS_CODE);
+        assert_eq!(bits.0.len(), BITS / 64); // BITS = 12800 /64 => 200
+
+        let encoded_bits = EncodedBits::from(&bits);
+        assert_eq!(encoded_bits.0.len(), BITS);
+
+        let serialized = serde_json::to_string(&encoded_bits)?;
+
+        let bits_u16_pattern =
+            [[1_u16; 32], [0_u16; 32]].concat().repeat(BITS / 64);
+
+        assert_eq!(bits_u16_pattern.len(), BITS);
+
+        let base64_code = format!(
+            "\"{}\"",
+            BASE64_STANDARD.encode(u16_slice_to_u8_vec(&bits_u16_pattern))
+        );
+
+        assert_eq!(serialized, base64_code);
+
+        Ok(())
+    }
+
+    #[test]
+    fn unpack_from_bits_to_encoded_bits() -> eyre::Result<()> {
+        let bits_u64 = Bits::from(FIRST_HALF_BITS_SET_PATTERN_IRIS_CODE_BYTES);
+        let bits_u16_unpacked = EncodedBits::from(&bits_u64);
+
+        print_binary_representation_u8(
+            &FIRST_HALF_BITS_SET_PATTERN_IRIS_CODE_BYTES,
+        );
+        print_binary_representation_u64(&bits_u64.0);
+        print_binary_u16_unpacked(&bits_u16_unpacked);
+        assert_eq!(
+            binary_string_u8(
+                &FIRST_HALF_BITS_SET_PATTERN_IRIS_CODE_BYTES,
+                false,
+            ),
+            binary_string_unpacked_u16(&bits_u16_unpacked, false)
+        );
+        print_binary_u16_unpacked(&bits_u16_unpacked);
+
+        Ok(())
+    }
+
+    fn u16_slice_to_u8_vec(s: &[u16]) -> Vec<u8> {
+        s.iter().flat_map(|x| x.to_be_bytes()).collect()
+    }
+
+    fn print_binary_u16_unpacked(bits: &EncodedBits) {
+        println!("{}", binary_string_unpacked_u16(bits, false));
+    }
+
+    fn binary_string_unpacked_u16(
+        bits: &EncodedBits,
+        separated: bool,
+    ) -> String {
+        bits.0
+            .iter()
+            .map(|byte| {
+                if *byte == 1 {
+                    String::from("1")
+                } else {
+                    String::from("0")
+                }
+            })
+            .collect::<Vec<String>>()
+            .join(if separated { " " } else { "" })
     }
 }

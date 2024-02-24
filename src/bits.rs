@@ -77,7 +77,7 @@ impl Index<usize> for Bits {
     fn index(&self, index: usize) -> &Self::Output {
         assert!(index < BITS);
         let (limb, bit) = (index / 64, index % 64);
-        let b = self.0[limb] & (1_u64 << bit) != 0;
+        let b = self.0[limb] & (1_u64 << (63 - bit)) != 0;
         if b {
             &true
         } else {
@@ -273,11 +273,32 @@ impl ops::BitXorAssign<&Bits> for Bits {
 }
 
 #[cfg(test)]
-mod tests {
-    use bytemuck::bytes_of;
+pub mod tests {
     use rand::{thread_rng, Rng};
 
     use super::*;
+
+    // u8 - 10101010
+    pub const ODD_BITS_SET_PATTERN_SINGLE_BYTE_STR: &str = "10101010";
+    pub const ODD_BITS_SET_PATTERN_SINGLE_BYTE: [u8; 1] = [170_u8; 1];
+    pub const ODD_BITS_SET_PATTERN_SINGLE_BYTE_4_BYTES: [u8; 4] = [170_u8; 4];
+    pub const ODD_BITS_SET_PATTERN_IRIS_CODE_BYTES: [u8; LIMBS * 8] =
+        [170_u8; LIMBS * 8];
+
+    // u8 - 11110000
+    pub const FIRST_HALF_BITS_SET_PATTERN_BYTE_STR: &str = "11110000";
+    pub const FIRST_HALF_BITS_SET_PATTERN_BYTE: [u8; 1] = [240_u8; 1];
+    pub const FIRST_HALF_BITS_SET_PATTERN_4_BYTES: [u8; 4] = [240_u8; 4];
+    pub const FIRST_HALF_BITS_SET_PATTERN_IRIS_CODE_BYTES: [u8; LIMBS * 8] =
+        [240_u8; LIMBS * 8];
+
+    // u64 - 1111111111111111111111111111111100000000000000000000000000000000
+    pub const FIRST_HALF_BITS_SET_PATTERN_U64_STR: &str =
+        "1111111111111111111111111111111100000000000000000000000000000000";
+    pub const FIRST_HALF_BITS_SET_PATTERN_U64_SINGLE: [u64; 1] =
+        [18446744069414584320_u64; 1];
+    pub const FIRST_HALF_BITS_SET_PATTERN_U64_IRIS_CODE: [u64; LIMBS] =
+        [18446744069414584320_u64; LIMBS];
 
     #[test]
     fn limbs_exact() {
@@ -285,19 +306,37 @@ mod tests {
     }
 
     #[test]
-    fn test_index() {
+    fn test_index_random_pattern() {
         let mut rng = thread_rng();
         for _ in 0..100 {
             let bits: Bits = rng.gen();
             for location in 0..BITS {
                 let actual = bits[location];
-
                 let (byte, bit) = (location / 8, location % 8);
-                let expected = bytes_of(&bits)[byte] & (1_u8 << bit) != 0;
+                let bytes = u64_slice_to_u8_vec(&bits.0);
+                let expected = (bytes[byte] & (1_u8 << (7 - bit))) != 0;
 
                 assert_eq!(actual, expected);
             }
         }
+    }
+
+    #[test]
+    fn test_index_known_pattern() {
+        let bits = Bits(FIRST_HALF_BITS_SET_PATTERN_U64_IRIS_CODE);
+
+        for location in 0..BITS {
+            let actual = bits[location];
+            let (byte, bit) = (location / 8, location % 8);
+            let bytes = u64_slice_to_u8_vec(&bits.0);
+            let expected = bytes[byte] & (1_u8 << (7 - bit)) != 0;
+
+            assert_eq!(actual, expected);
+        }
+    }
+
+    fn u64_slice_to_u8_vec(s: &[u64]) -> Vec<u8> {
+        s.iter().flat_map(|x| x.to_be_bytes()).collect()
     }
 
     #[test]
@@ -312,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn bits_serialization() -> eyre::Result<()> {
+    fn bits_serialization_random_pattern() -> eyre::Result<()> {
         let mut bits = Bits::default();
 
         // Random changes so that we don't convert all zeros
@@ -330,5 +369,150 @@ mod tests {
         assert_eq!(bits, deserialized);
 
         Ok(())
+    }
+
+    #[test]
+    fn bits_deserialization_known_pattern() -> eyre::Result<()> {
+        let bytes_code =
+            u64_slice_to_u8_vec(&FIRST_HALF_BITS_SET_PATTERN_U64_IRIS_CODE);
+        let base64_code = format!("\"{}\"", BASE64_STANDARD.encode(bytes_code));
+
+        let deserialized: Bits = serde_json::from_str(&base64_code)?;
+
+        assert_eq!(
+            binary_string_u64(&deserialized.0, false),
+            FIRST_HALF_BITS_SET_PATTERN_U64_STR.repeat(LIMBS)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn bits_serialization_known_pattern() -> eyre::Result<()> {
+        let bits: Bits = Bits(FIRST_HALF_BITS_SET_PATTERN_U64_IRIS_CODE);
+
+        let serialized = serde_json::to_string(&bits)?;
+
+        let bytes_code =
+            u64_slice_to_u8_vec(&FIRST_HALF_BITS_SET_PATTERN_U64_IRIS_CODE);
+        let base64_code = format!("\"{}\"", BASE64_STANDARD.encode(bytes_code));
+
+        assert_eq!(serialized, base64_code);
+
+        Ok(())
+    }
+
+    #[test]
+    fn odd_bits_pattern() -> eyre::Result<()> {
+        assert_eq!(
+            binary_string_u8(&ODD_BITS_SET_PATTERN_SINGLE_BYTE, false),
+            ODD_BITS_SET_PATTERN_SINGLE_BYTE_STR
+        );
+        assert_eq!(
+            binary_string_u8(&ODD_BITS_SET_PATTERN_SINGLE_BYTE_4_BYTES, false),
+            ODD_BITS_SET_PATTERN_SINGLE_BYTE_STR.repeat(4)
+        );
+        assert_eq!(
+            binary_string_u8(&ODD_BITS_SET_PATTERN_IRIS_CODE_BYTES, false),
+            ODD_BITS_SET_PATTERN_SINGLE_BYTE_STR.repeat(LIMBS * 8)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn first_half_bits_pattern_u8() -> eyre::Result<()> {
+        assert_eq!(
+            binary_string_u8(&FIRST_HALF_BITS_SET_PATTERN_BYTE, false),
+            FIRST_HALF_BITS_SET_PATTERN_BYTE_STR
+        );
+        assert_eq!(
+            binary_string_u8(&FIRST_HALF_BITS_SET_PATTERN_4_BYTES, false),
+            FIRST_HALF_BITS_SET_PATTERN_BYTE_STR.repeat(4)
+        );
+        assert_eq!(
+            binary_string_u8(
+                &FIRST_HALF_BITS_SET_PATTERN_IRIS_CODE_BYTES,
+                false,
+            ),
+            FIRST_HALF_BITS_SET_PATTERN_BYTE_STR.repeat(LIMBS * 8)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn first_half_bits_pattern_u64() -> eyre::Result<()> {
+        assert_eq!(
+            binary_string_u64(&FIRST_HALF_BITS_SET_PATTERN_U64_SINGLE, true),
+            FIRST_HALF_BITS_SET_PATTERN_U64_STR
+        );
+        assert_eq!(
+            binary_string_u64(
+                &FIRST_HALF_BITS_SET_PATTERN_U64_IRIS_CODE,
+                false,
+            ),
+            FIRST_HALF_BITS_SET_PATTERN_U64_STR.repeat(LIMBS)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn bits_from_u8() -> eyre::Result<()> {
+        let bits_u64 = Bits::from(FIRST_HALF_BITS_SET_PATTERN_IRIS_CODE_BYTES);
+
+        assert_eq!(
+            binary_string_u8(
+                &FIRST_HALF_BITS_SET_PATTERN_IRIS_CODE_BYTES,
+                false,
+            ),
+            binary_string_u64(&bits_u64.0, false)
+        );
+
+        print_binary_representation_u8(
+            &FIRST_HALF_BITS_SET_PATTERN_IRIS_CODE_BYTES,
+        );
+        print_binary_representation_u64(&bits_u64.0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_bytemuck_is_le_and_reverses_bit_pattern() {
+        print_binary_representation_u64(
+            &FIRST_HALF_BITS_SET_PATTERN_U64_SINGLE,
+        );
+        let bytes = bytemuck::bytes_of(&FIRST_HALF_BITS_SET_PATTERN_U64_SINGLE);
+        print_binary_representation_u8(bytes);
+
+        assert_eq!(
+            binary_string_u8(bytes, false),
+            "0000000000000000000000000000000011111111111111111111111111111111"
+        )
+    }
+
+    pub fn binary_string_u8(pattern: &[u8], separated: bool) -> String {
+        pattern
+            .iter()
+            .map(|byte| format!("{:08b}", byte))
+            .collect::<Vec<String>>()
+            .join(if separated { " " } else { "" })
+    }
+
+    pub fn print_binary_representation_u8(pattern: &[u8]) {
+        println!("{}", binary_string_u8(pattern, true));
+    }
+
+    pub fn print_binary_representation_u64(pattern: &[u64]) {
+        println!("{}", binary_string_u64(pattern, true));
+    }
+
+    pub fn binary_string_u64(pattern: &[u64], separated: bool) -> String {
+        pattern
+            .iter()
+            .map(|v| format!("{:064b}", v))
+            .collect::<Vec<String>>()
+            .join(if separated { " " } else { "" })
     }
 }
