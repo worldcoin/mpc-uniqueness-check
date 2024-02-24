@@ -147,12 +147,18 @@ async fn main() -> eyre::Result<()> {
         let uniqueness_check_result =
             serde_json::from_str::<UniquenessCheckResult>(&message_body)?;
 
-        // Check that signup id and serial id match expected values
         assert_eq!(uniqueness_check_result.signup_id, element.signup_id);
         assert_eq!(uniqueness_check_result.serial_id, next_serial_id);
 
-        // If there are matches, check that the distances match the expected values
-        if !uniqueness_check_result.matches.is_empty() {
+        // If there should be matches, check that the distances match the expected values
+        if !element.matched_with.is_empty() {
+            assert_eq!(
+                uniqueness_check_result.matches.len(),
+                element.matched_with.len(),
+                "Wrong number of matches for signup_id: {}",
+                element.signup_id
+            );
+
             for (i, distance) in
                 uniqueness_check_result.matches.iter().enumerate()
             {

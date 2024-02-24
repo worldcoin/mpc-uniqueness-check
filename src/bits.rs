@@ -77,7 +77,7 @@ impl Index<usize> for Bits {
     fn index(&self, index: usize) -> &Self::Output {
         assert!(index < BITS);
         let (limb, bit) = (index / 64, index % 64);
-        let b = self.0[limb] & (1_u64 << bit) != 0;
+        let b = self.0[limb] & (1_u64 << (63 - bit)) != 0;
         if b {
             &true
         } else {
@@ -273,7 +273,7 @@ impl ops::BitXorAssign<&Bits> for Bits {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use bytemuck::bytes_of;
     use rand::{thread_rng, Rng};
 
@@ -285,19 +285,37 @@ mod tests {
     }
 
     #[test]
-    fn test_index() {
+    fn test_index_random_pattern() {
         let mut rng = thread_rng();
         for _ in 0..100 {
             let bits: Bits = rng.gen();
             for location in 0..BITS {
                 let actual = bits[location];
-
                 let (byte, bit) = (location / 8, location % 8);
-                let expected = bytes_of(&bits)[byte] & (1_u8 << bit) != 0;
+                let bytes = u64_slice_to_u8_vec(&bits.0);
+                let expected = (bytes[byte] & (1_u8 << (7 - bit))) != 0;
 
                 assert_eq!(actual, expected);
             }
         }
+    }
+
+    #[test]
+    fn test_index_known_pattern() {
+        let bits = Bits::from(FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES);
+
+        for location in 0..BITS {
+            let actual = bits[location];
+            let (byte, bit) = (location / 8, location % 8);
+            let bytes = u64_slice_to_u8_vec(&bits.0);
+            let expected = bytes[byte] & (1_u8 << (7 - bit)) != 0;
+
+            assert_eq!(actual, expected);
+        }
+    }
+
+    fn u64_slice_to_u8_vec(s: &[u64]) -> Vec<u8> {
+        s.iter().flat_map(|x| x.to_be_bytes()).collect()
     }
 
     #[test]
@@ -330,5 +348,134 @@ mod tests {
         assert_eq!(bits, deserialized);
 
         Ok(())
+    }
+
+    #[test]
+    fn bits_deserialization_known_pattern() -> eyre::Result<()> {
+        let bytes_code = FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES;
+        let base64_code = format!("\"{}\"", BASE64_STANDARD.encode(bytes_code));
+
+        let deserialized: Bits = serde_json::from_str(&base64_code)?;
+
+        assert_eq!(
+            binary_string_u64(&deserialized.0, false),
+            "1111000011110000111100001111000011110000111100001111000011110000"
+                .repeat(LIMBS)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn bits_serialization_known_pattern() -> eyre::Result<()> {
+        let bits: Bits = Bits(FIRST_HALF_SET_PATTERN_U64_IRIS_CODE);
+
+        let serialized = serde_json::to_string(&bits)?;
+
+        let bytes_code = FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES;
+        let base64_code = format!("\"{}\"", BASE64_STANDARD.encode(bytes_code));
+
+        assert_eq!(serialized, base64_code);
+
+        Ok(())
+    }
+
+    // 10101010
+    pub const ODD_SET_PATTERN_BYTE: [u8; 1] = [170_u8; 1];
+    pub const ODD_SET_PATTERN_4_BYTES: [u8; 4] = [170_u8; 4];
+    pub const ODD_SET_PATTERN_IRIS_CODE_BYTES: [u8; LIMBS * 8] =
+        [170_u8; LIMBS * 8];
+
+    // 11110000
+    pub const FIRST_HALF_SET_PATTERN_BYTE: [u8; 1] = [240_u8; 1];
+    pub const FIRST_HALF_SET_ODD_SET_PATTERN_4_BYTES: [u8; 4] = [240_u8; 4];
+    pub const FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES: [u8; LIMBS * 8] =
+        [240_u8; LIMBS * 8];
+
+    pub const FIRST_HALF_SET_PATTERN_U64_SINGLE: [u64; 1] =
+        [17361641481138401520; 1];
+    pub const FIRST_HALF_SET_PATTERN_U64_IRIS_CODE: [u64; LIMBS] =
+        [17361641481138401520_u64; LIMBS];
+
+    #[test]
+    fn odd_bits_pattern() -> eyre::Result<()> {
+        assert_eq!(binary_string_u8(&ODD_SET_PATTERN_BYTE, true), "10101010");
+        assert_eq!(
+            binary_string_u8(&ODD_SET_PATTERN_4_BYTES, true),
+            "10101010 10101010 10101010 10101010"
+        );
+        assert_eq!(
+            binary_string_u8(&ODD_SET_PATTERN_IRIS_CODE_BYTES, false),
+            "10101010".repeat(LIMBS * 8)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn first_half_bits_pattern() -> eyre::Result<()> {
+        assert_eq!(
+            binary_string_u8(&FIRST_HALF_SET_PATTERN_BYTE, true),
+            "11110000"
+        );
+        assert_eq!(
+            binary_string_u8(&FIRST_HALF_SET_ODD_SET_PATTERN_4_BYTES, true),
+            "11110000 11110000 11110000 11110000"
+        );
+        assert_eq!(
+            binary_string_u8(&FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES, false),
+            "11110000".repeat(LIMBS * 8)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn binary_string_u64_works() -> eyre::Result<()> {
+        assert_eq!(
+            binary_string_u64(&FIRST_HALF_SET_PATTERN_U64_SINGLE, true),
+            "1111000011110000111100001111000011110000111100001111000011110000"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn bits_from_u8() -> eyre::Result<()> {
+        let bits_u64 = Bits::from(FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES);
+
+        assert_eq!(
+            binary_string_u8(&FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES, false),
+            binary_string_u64(&bits_u64.0, false)
+        );
+
+        print_binary_representation_u8(&FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES);
+        print_binary_representation_u64(&bits_u64.0);
+
+        Ok(())
+    }
+
+    pub fn binary_string_u8(pattern: &[u8], separated: bool) -> String {
+        pattern
+            .iter()
+            .map(|byte| format!("{:08b}", byte))
+            .collect::<Vec<String>>()
+            .join(if separated { " " } else { "" })
+    }
+
+    pub fn print_binary_representation_u8(pattern: &[u8]) {
+        println!("{}", binary_string_u8(pattern, true));
+    }
+
+    pub fn print_binary_representation_u64(pattern: &[u64]) {
+        println!("{}", binary_string_u64(pattern, true));
+    }
+
+    pub fn binary_string_u64(pattern: &[u64], separated: bool) -> String {
+        pattern
+            .iter()
+            .map(|byte| format!("{:064b}", byte))
+            .collect::<Vec<String>>()
+            .join(if separated { " " } else { "" })
     }
 }
