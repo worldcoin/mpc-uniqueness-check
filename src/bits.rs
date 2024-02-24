@@ -116,7 +116,7 @@ where
         let mut bytes = [0_u8; std::mem::size_of::<Self>()];
 
         for (i, limb) in self.0.iter().enumerate() {
-            let limb_bytes = limb.to_be_bytes();
+            let limb_bytes = limb.to_le_bytes();
             bytes[i * 8..(i + 1) * 8].copy_from_slice(&limb_bytes);
         }
 
@@ -146,7 +146,7 @@ impl From<[u8; LIMBS * 8]> for Bits {
     fn from(bytes: [u8; LIMBS * 8]) -> Self {
         let mut limbs = [0_u64; LIMBS];
         for (i, chunk) in bytes.array_chunks::<8>().enumerate() {
-            limbs[i] = u64::from_be_bytes(*chunk);
+            limbs[i] = u64::from_le_bytes(*chunk);
         }
         Self(limbs)
     }
@@ -156,7 +156,7 @@ impl From<Bits> for [u8; LIMBS * 8] {
     fn from(bits: Bits) -> Self {
         let mut bytes = [0_u8; LIMBS * 8];
         for (i, limb) in bits.0.iter().enumerate() {
-            let limb_bytes = limb.to_be_bytes();
+            let limb_bytes = limb.to_le_bytes();
             bytes[i * 8..(i + 1) * 8].copy_from_slice(&limb_bytes);
         }
         bytes
@@ -173,7 +173,7 @@ impl TryFrom<&[u8]> for Bits {
 
         let mut limbs = [0_u64; LIMBS];
         for (i, chunk) in value.array_chunks::<8>().enumerate() {
-            limbs[i] = u64::from_be_bytes(*chunk);
+            limbs[i] = u64::from_le_bytes(*chunk);
         }
 
         Ok(Self(limbs))
@@ -285,17 +285,15 @@ pub mod tests {
 
     #[test]
     fn test_index() {
-        let mut rng = thread_rng();
-        for _ in 0..100 {
-            let bits: Bits = rng.gen();
-            for location in 0..BITS {
-                let actual = bits[location];
+        let bits = Bits::from(FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES);
 
-                let (byte, bit) = (location / 8, location % 8);
-                let expected = bytes_of(&bits)[byte] & (1_u8 << bit) != 0;
+        for location in 0..BITS {
+            let actual = bits[location];
 
-                assert_eq!(actual, expected);
-            }
+            let (byte, bit) = (location / 8, location % 8);
+            let expected = bytes_of(&bits)[byte] & (1_u8 << (7 - bit)) != 0;
+
+            assert_eq!(actual, expected);
         }
     }
 

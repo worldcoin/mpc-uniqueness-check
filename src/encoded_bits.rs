@@ -184,7 +184,7 @@ impl<'de> Deserialize<'de> for EncodedBits {
 
         let mut limbs = [0_u16; BITS];
         for (i, chunk) in bytes.array_chunks::<2>().enumerate() {
-            limbs[i] = u16::from_be_bytes(*chunk);
+            limbs[i] = u16::from_le_bytes(*chunk);
         }
 
         Ok(Self(limbs))
@@ -199,7 +199,7 @@ impl Serialize for EncodedBits {
         let mut bytes = [0_u8; std::mem::size_of::<Self>()];
 
         for (i, limb) in self.0.iter().enumerate() {
-            let limb_bytes = limb.to_be_bytes();
+            let limb_bytes = limb.to_le_bytes();
             bytes[i * 2..(i + 1) * 2].copy_from_slice(&limb_bytes);
         }
 
