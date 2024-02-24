@@ -81,7 +81,7 @@ impl Index<usize> for Bits {
     fn index(&self, index: usize) -> &Self::Output {
         assert!(index < BITS);
         let (limb, bit) = (index / 64, index % 64);
-        let b = self.0[limb] & (1_u64 << bit) != 0;
+        let b = self.0[limb] & (1_u64 << (7 - (bit % 8))) != 0;
         if b {
             &true
         } else {
