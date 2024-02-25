@@ -184,7 +184,7 @@ impl<'de> Deserialize<'de> for EncodedBits {
 
         let mut limbs = [0_u16; BITS];
         for (i, chunk) in bytes.array_chunks::<2>().enumerate() {
-            limbs[i] = u16::from_le_bytes(*chunk);
+            limbs[i] = u16::from_be_bytes(*chunk);
         }
 
         Ok(Self(limbs))
@@ -199,7 +199,7 @@ impl Serialize for EncodedBits {
         let mut bytes = [0_u8; std::mem::size_of::<Self>()];
 
         for (i, limb) in self.0.iter().enumerate() {
-            let limb_bytes = limb.to_le_bytes();
+            let limb_bytes = limb.to_be_bytes();
             bytes[i * 2..(i + 1) * 2].copy_from_slice(&limb_bytes);
         }
 
@@ -243,7 +243,10 @@ mod tests {
         print_binary_representation_u8(&FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES);
         print_binary_representation_u64(&bits_u64.0);
         print_binary_u16_unpacked(&bits_u16_unpacked);
-        assert_eq!(binary_string_u8(&FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES, false), binary_string_unpacked_u16(&bits_u16_unpacked, false));
+        assert_eq!(
+            binary_string_u8(&FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES, false),
+            binary_string_unpacked_u16(&bits_u16_unpacked, false)
+        );
         print_binary_u16_unpacked(&bits_u16_unpacked);
 
         Ok(())
@@ -253,11 +256,20 @@ mod tests {
         println!("{}", binary_string_unpacked_u16(bits, false));
     }
 
-    fn binary_string_unpacked_u16(bits: &EncodedBits, separated: bool) -> String {
-        bits.0.iter()
-            .map(|byte| if *byte > 0 { String::from("1") } else { String::from("0") })
+    fn binary_string_unpacked_u16(
+        bits: &EncodedBits,
+        separated: bool,
+    ) -> String {
+        bits.0
+            .iter()
+            .map(|byte| {
+                if *byte > 0 {
+                    String::from("1")
+                } else {
+                    String::from("0")
+                }
+            })
             .collect::<Vec<String>>()
             .join(if separated { " " } else { "" })
     }
-
 }

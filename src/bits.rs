@@ -116,7 +116,7 @@ where
         let mut bytes = [0_u8; std::mem::size_of::<Self>()];
 
         for (i, limb) in self.0.iter().enumerate() {
-            let limb_bytes = limb.to_le_bytes();
+            let limb_bytes = limb.to_be_bytes();
             bytes[i * 8..(i + 1) * 8].copy_from_slice(&limb_bytes);
         }
 
@@ -146,7 +146,7 @@ impl From<[u8; LIMBS * 8]> for Bits {
     fn from(bytes: [u8; LIMBS * 8]) -> Self {
         let mut limbs = [0_u64; LIMBS];
         for (i, chunk) in bytes.array_chunks::<8>().enumerate() {
-            limbs[i] = u64::from_le_bytes(*chunk);
+            limbs[i] = u64::from_be_bytes(*chunk);
         }
         Self(limbs)
     }
@@ -156,7 +156,7 @@ impl From<Bits> for [u8; LIMBS * 8] {
     fn from(bits: Bits) -> Self {
         let mut bytes = [0_u8; LIMBS * 8];
         for (i, limb) in bits.0.iter().enumerate() {
-            let limb_bytes = limb.to_le_bytes();
+            let limb_bytes = limb.to_be_bytes();
             bytes[i * 8..(i + 1) * 8].copy_from_slice(&limb_bytes);
         }
         bytes
@@ -173,7 +173,7 @@ impl TryFrom<&[u8]> for Bits {
 
         let mut limbs = [0_u64; LIMBS];
         for (i, chunk) in value.array_chunks::<8>().enumerate() {
-            limbs[i] = u64::from_le_bytes(*chunk);
+            limbs[i] = u64::from_be_bytes(*chunk);
         }
 
         Ok(Self(limbs))
@@ -332,36 +332,56 @@ pub mod tests {
     // 10101010
     pub const ODD_SET_PATTERN_BYTE: [u8; 1] = [170_u8; 1];
     pub const ODD_SET_PATTERN_4_BYTES: [u8; 4] = [170_u8; 4];
-    pub const ODD_SET_PATTERN_IRIS_CODE_BYTES: [u8; LIMBS * 8] = [170_u8; LIMBS * 8];
+    pub const ODD_SET_PATTERN_IRIS_CODE_BYTES: [u8; LIMBS * 8] =
+        [170_u8; LIMBS * 8];
 
     // 11110000
     pub const FIRST_HALF_SET_PATTERN_BYTE: [u8; 1] = [240_u8; 1];
     pub const FIRST_HALF_SET_ODD_SET_PATTERN_4_BYTES: [u8; 4] = [240_u8; 4];
-    pub const FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES: [u8; LIMBS * 8] = [240_u8; LIMBS * 8];
+    pub const FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES: [u8; LIMBS * 8] =
+        [240_u8; LIMBS * 8];
 
     const FIRST_HALF_SET_PATTERN_U64: [u64; 1] = [240_u64; 1];
 
     #[test]
     fn odd_bits_pattern() -> eyre::Result<()> {
         assert_eq!(binary_string_u8(&ODD_SET_PATTERN_BYTE, true), "10101010");
-        assert_eq!(binary_string_u8(&ODD_SET_PATTERN_4_BYTES, true), "10101010 10101010 10101010 10101010");
-        assert_eq!(binary_string_u8(&ODD_SET_PATTERN_IRIS_CODE_BYTES, false), "10101010".repeat(LIMBS * 8));
+        assert_eq!(
+            binary_string_u8(&ODD_SET_PATTERN_4_BYTES, true),
+            "10101010 10101010 10101010 10101010"
+        );
+        assert_eq!(
+            binary_string_u8(&ODD_SET_PATTERN_IRIS_CODE_BYTES, false),
+            "10101010".repeat(LIMBS * 8)
+        );
 
         Ok(())
     }
 
     #[test]
     fn first_half_bits_pattern() -> eyre::Result<()> {
-        assert_eq!(binary_string_u8(&FIRST_HALF_SET_PATTERN_BYTE, true), "11110000");
-        assert_eq!(binary_string_u8(&FIRST_HALF_SET_ODD_SET_PATTERN_4_BYTES, true), "11110000 11110000 11110000 11110000");
-        assert_eq!(binary_string_u8(&FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES, false), "11110000".repeat(LIMBS * 8));
+        assert_eq!(
+            binary_string_u8(&FIRST_HALF_SET_PATTERN_BYTE, true),
+            "11110000"
+        );
+        assert_eq!(
+            binary_string_u8(&FIRST_HALF_SET_ODD_SET_PATTERN_4_BYTES, true),
+            "11110000 11110000 11110000 11110000"
+        );
+        assert_eq!(
+            binary_string_u8(&FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES, false),
+            "11110000".repeat(LIMBS * 8)
+        );
 
         Ok(())
     }
 
     #[test]
     fn binary_string_u64_works() -> eyre::Result<()> {
-        assert_eq!(binary_string_u64(&FIRST_HALF_SET_PATTERN_U64, true), "0000000000000000000000000000000000000000000000000000000011110000");
+        assert_eq!(
+            binary_string_u64(&FIRST_HALF_SET_PATTERN_U64, true),
+            "0000000000000000000000000000000000000000000000000000000011110000"
+        );
 
         Ok(())
     }
@@ -370,7 +390,10 @@ pub mod tests {
     fn bits_from_u8() -> eyre::Result<()> {
         let bits_u64 = Bits::from(FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES);
 
-        assert_eq!(binary_string_u8(&FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES, false), binary_string_u64(&bits_u64.0, false));
+        assert_eq!(
+            binary_string_u8(&FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES, false),
+            binary_string_u64(&bits_u64.0, false)
+        );
 
         print_binary_representation_u8(&FIRST_HALF_SET_PATTERN_IRIS_CODE_BYTES);
         print_binary_representation_u64(&bits_u64.0);
@@ -379,7 +402,8 @@ pub mod tests {
     }
 
     pub fn binary_string_u8(pattern: &[u8], separated: bool) -> String {
-        pattern.iter()
+        pattern
+            .iter()
             .map(|byte| format!("{:08b}", byte))
             .collect::<Vec<String>>()
             .join(if separated { " " } else { "" })
@@ -394,7 +418,8 @@ pub mod tests {
     }
 
     pub fn binary_string_u64(pattern: &[u64], separated: bool) -> String {
-        pattern.iter()
+        pattern
+            .iter()
             .map(|byte| format!("{:064b}", byte))
             .collect::<Vec<String>>()
             .join(if separated { " " } else { "" })
