@@ -13,7 +13,6 @@ pub const ROWS: usize = 4 * 16;
 pub const BITS: usize = ROWS * COLS;
 
 pub const ROTATIONS: RangeInclusive<i32> = -15..=15;
-pub const ROTATION_DISTANCE: usize = 15;
 
 /// Generate a [`EncodedBits`] such that values are $\{-1,0,1\}$, representing
 /// unset, masked and set.

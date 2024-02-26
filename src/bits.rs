@@ -12,7 +12,9 @@ use rand::Rng;
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 
-use crate::distance::ROTATION_DISTANCE;
+use crate::distance::ROTATIONS;
+
+mod all_bit_patterns_test;
 
 pub const COLS: usize = 200;
 pub const STEP_MULTI: usize = 4;
@@ -25,37 +27,31 @@ const LIMBS: usize = BITS / 64;
 pub struct Bits(pub [u64; LIMBS]);
 
 impl Bits {
-    /// Returns an unordered iterator over the 31 possible rotations.
-    /// Rotations are done consecutively because the underlying `rotate_left\right`
-    /// methods are less efficient for larger rotations.
+    /// Returns an unordered iterator over the 31 possible rotations
     pub fn rotations(&self) -> impl Iterator<Item = Self> + '_ {
-        let mut left = *self;
-        let iter_left = (0..ROTATION_DISTANCE).map(move |_| {
-            left.rotate_left(1);
-            left
-        });
-        let mut right = *self;
-        let iter_right = (0..ROTATION_DISTANCE).map(move |_| {
-            right.rotate_right(1);
-            right
-        });
-        std::iter::once(*self).chain(iter_left).chain(iter_right)
+        ROTATIONS.map(|rot| {
+            let mut x = *self;
+
+            if rot < 0 {
+                x.rotate_left(rot.unsigned_abs() as usize * 4)
+            } else {
+                x.rotate_right(rot as usize * 4)
+            }
+
+            x
+        })
     }
 
     pub fn rotate_right(&mut self, by: usize) {
-        BitSlice::<_, Lsb0>::from_slice_mut(&mut self.0)
-            .chunks_exact_mut(COLS)
+        BitSlice::<_, Msb0>::from_slice_mut(&mut self.0)
+            .chunks_exact_mut(COLS * 4)
             .for_each(|chunk| chunk.rotate_right(by));
     }
 
-    /// For some insane reason, chunks_exact_mut benchmarks faster than manually indexing
-    /// for rotate_right but not for rotate_left. Compilers are weird.
     pub fn rotate_left(&mut self, by: usize) {
-        let bit_slice = BitSlice::<_, Lsb0>::from_slice_mut(&mut self.0);
-        for row in 0..ROWS {
-            let row_slice = &mut bit_slice[row * COLS..(row + 1) * COLS];
-            row_slice.rotate_left(by);
-        }
+        BitSlice::<_, Msb0>::from_slice_mut(&mut self.0)
+            .chunks_exact_mut(COLS * 4)
+            .for_each(|chunk| chunk.rotate_left(by));
     }
 
     pub fn count_ones(&self) -> u16 {
@@ -133,12 +129,7 @@ impl<'de> Deserialize<'de> for Bits {
     {
         let s: Cow<'static, str> = Deserialize::deserialize(deserializer)?;
 
-        let bytes = BASE64_STANDARD
-            .decode(s.as_bytes())
-            .map_err(D::Error::custom)?;
-
-        Self::try_from(bytes)
-            .map_err(|()| D::Error::custom("Invalid bits size"))
+        s.parse().map_err(D::Error::custom)
     }
 }
 
@@ -164,11 +155,11 @@ impl From<Bits> for [u8; LIMBS * 8] {
 }
 
 impl TryFrom<&[u8]> for Bits {
-    type Error = ();
+    type Error = base64::DecodeError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         if value.len() != LIMBS * 8 {
-            return Err(());
+            return Err(base64::DecodeError::InvalidLength);
         }
 
         let mut limbs = [0_u64; LIMBS];
@@ -181,10 +172,20 @@ impl TryFrom<&[u8]> for Bits {
 }
 
 impl TryFrom<Vec<u8>> for Bits {
-    type Error = ();
+    type Error = base64::DecodeError;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
         Self::try_from(value.as_slice())
+    }
+}
+
+impl std::str::FromStr for Bits {
+    type Err = base64::DecodeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let bytes = BASE64_STANDARD.decode(s.as_bytes())?;
+
+        Self::try_from(bytes)
     }
 }
 
