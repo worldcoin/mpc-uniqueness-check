@@ -1,7 +1,7 @@
 use std::collections::HashMap;
-use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
+use std::{env, fs};
 
 use aws_sdk_sqs::operation::get_queue_attributes::GetQueueAttributes;
 use aws_sdk_sqs::types::{Message, QueueAttributeName};
@@ -182,6 +182,12 @@ async fn test_e2e() -> eyre::Result<()> {
     let mut e2e_config = settings.try_deserialize::<E2EConfig>()?;
 
     tracing::info!("Initializing resources");
+
+    std::env::set_var("AWS_ACCESS_KEY_ID", "test");
+    std::env::set_var("AWS_SECRET_ACCESS_KEY", "test");
+    std::env::set_var("AWS_DEFAULT_REGION", "us-east-1");
+    std::env::set_var("AWS_REGION", "us-east-1");
+
     let docker = clients::Cli::default();
     let (_containers, sqs_client) =
         initialize_resources(&docker, &mut e2e_config).await?;
@@ -198,6 +204,9 @@ async fn test_e2e() -> eyre::Result<()> {
         tokio::spawn(participant_0.spawn()),
         tokio::spawn(participant_1.spawn()),
     ];
+
+    tracing::info!("Waiting for queues");
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     let signup_sequence = test_signup_sequence(
         serde_json::from_str(&SIGNUP_SEQUENCE)?,
@@ -239,14 +248,38 @@ async fn initialize_resources<'a>(
     aws_sdk_sqs::Client,
 )> {
     tracing::info!("Initializing localstack");
+
     let localstack_container = docker.run(LocalStack::default());
     let localstack_host_port = localstack_container.get_host_port_ipv4(4566);
 
     let sqs_client = sqs_client_from_config(&AwsConfig {
-        endpoint: Some(format!("http://localhost:{:?}", localstack_host_port)),
+        endpoint: Some(format!("http://localhost:{}", localstack_host_port)),
         region: None,
     })
     .await?;
+
+    //update ports on queues
+    e2e_config.coordinator.queues.db_sync_queue_url = format!(
+        "http://localhost:{}/000000000000/coordinator-db-sync-queue",
+        localstack_host_port
+    );
+    e2e_config.coordinator.queues.distances_queue_url = format!(
+        "http://localhost:{}/000000000000/coordinator-results-queue.fifo",
+        localstack_host_port
+    );
+    e2e_config.coordinator.queues.queries_queue_url = format!(
+        "http://localhost:{}/000000000000/coordinator-uniqueness-check.fifo",
+        localstack_host_port
+    );
+
+    for (i, participant) in e2e_config.participant.iter_mut().enumerate() {
+        participant.queues.db_sync_queue_url = format!(
+            "http://localhost:{}/000000000000/participant-{}-db-sync-queue",
+            localstack_host_port, i
+        );
+    }
+
+    dbg!(&localstack_host_port);
 
     // Set up databases
     tracing::info!("Initializing coordinator database");
@@ -319,6 +352,7 @@ async fn create_queue(
         .queue_name(queue_name.to_string())
         .set_attributes(attributes);
     req.send().await?;
+
     tracing::info!("Queue created: {}", queue_name);
 
     Ok(())
