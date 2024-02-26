@@ -36,7 +36,7 @@ impl Bits {
         });
         let mut right = *self;
         let iter_right = (0..ROTATION_DISTANCE).map(move |_| {
-            right.rotate_left(1);
+            right.rotate_right(1);
             right
         });
         std::iter::once(*self).chain(iter_left).chain(iter_right)
