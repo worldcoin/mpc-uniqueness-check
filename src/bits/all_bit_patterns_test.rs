@@ -63,7 +63,7 @@ fn all_bit_patterns() -> eyre::Result<()> {
         .code
         .rotations()
         .map(|bits| BitVec::<_, Msb0>::from_slice(bits.0.as_slice()))
-        .map(|bv| bit_vec_to_str(bv))
+        .map(bit_vec_to_str)
         .enumerate()
         .map(|(i, x)| (i as i32 - 15, x))
         .collect();

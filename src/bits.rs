@@ -33,7 +33,7 @@ impl Bits {
             let mut x = *self;
 
             if rot < 0 {
-                x.rotate_left(rot.abs() as usize * 4)
+                x.rotate_left(rot.unsigned_abs() as usize * 4)
             } else {
                 x.rotate_right(rot as usize * 4)
             }
