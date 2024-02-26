@@ -95,7 +95,7 @@ mod tests {
 
         let d = a.distance(&b);
 
-        assert_eq!(d, 0.35594620103822555); // TODO comparing wrong value!! Should be 0.3352968352968353 with correct rotations, update when rotations are fixed
+        assert_eq!(d, 0.3352968352968353);
     }
 
     #[test]
