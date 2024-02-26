@@ -50,7 +50,6 @@ pub struct Config {
 pub struct CoordinatorConfig {
     pub participants: JsonStrWrapper<Vec<String>>,
     pub hamming_distance_threshold: f64,
-    pub n_closest_distances: usize,
     pub db: DbConfig,
     pub queues: CoordinatorQueuesConfig,
     #[serde(default)]
@@ -152,7 +151,6 @@ mod tests {
                     "127.0.0.1:8002".to_string(),
                 ]),
                 hamming_distance_threshold: 0.375,
-                n_closest_distances: 20,
                 db: DbConfig {
                     url: "postgres://localhost:5432/mpc".to_string(),
                     migrate: true,
