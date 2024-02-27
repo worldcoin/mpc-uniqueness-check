@@ -12,6 +12,7 @@ services:
       - "./init-scripts/ready.d:/etc/localstack/init/ready.d"
       - "localstack-data:/var/lib/localstack"
       - "/var/run/docker.sock:/var/run/docker.sock"
+
   coordinator:
     restart: always
     environment:
@@ -86,6 +87,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+
   coordinator_db:
     hostname: coordinator_db
     image: postgres
@@ -93,6 +95,7 @@ services:
       - 8432:5432
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
+
   participant_0_db:
     hostname: participant_db
     image: postgres
@@ -100,6 +103,7 @@ services:
       - 8433:5432
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
+
   participant_1_db:
     hostname: participant_db
     image: postgres
@@ -107,37 +111,6 @@ services:
       - 8434:5432
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
-  e2e_test:
-    depends_on:
-      - localstack
-      - coordinator
-      - participant_0
-      - participant_1
-      - coordinator_db
-      - participant_0_db
-      - participant_1_db
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        - BIN=e2e
-    command: [ "--signup-sequence", "/signup_sequence.json" ]
-    volumes:
-      - ./bin/e2e/signup_sequence.json:/signup_sequence.json
-    environment:
-      - 'RUST_LOG=info'
-      - 'E2E__AWS__ENDPOINT=http://localstack:4566'
-      - 'E2E__AWS__REGION=us-east-1'
-      - 'E2E__DB_SYNC__COORDINATOR_DB_URL=postgres://postgres:postgres@coordinator_db:5432/db'
-      - 'E2E__DB_SYNC__COORDINATOR_DB_SYNC_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-db-sync-queue'
-      - 'E2E__DB_SYNC__PARTICIPANT_0_DB_SYNC_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/participant-0-db-sync-queue'
-      - 'E2E__DB_SYNC__PARTICIPANT_1_DB_SYNC_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/participant-1-db-sync-queue'
-      - 'E2E__COORDINATOR_QUEUE__QUERY_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-uniqueness-check.fifo'
-      - 'E2E__COORDINATOR_QUEUE__RESULTS_QUEUE=http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-results-queue.fifo'
-      # AWS env vars - they don't matter but are required
-      - 'AWS_ACCESS_KEY_ID=test'
-      - 'AWS_SECRET_ACCESS_KEY=test'
-      - 'AWS_DEFAULT_REGION=us-east-1'
 
 networks:
   default:

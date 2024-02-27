@@ -51,6 +51,11 @@ proptest = "1.4.0"
 similar-asserts = "1.5.0"
 config = "0.13.4"
 test-case = "3.3.1"
+testcontainers = "0.15"
+testcontainers-modules = { version = "0.3", features = [
+    "postgres",
+    "localstack",
+] }
 
 [[bin]]
 name = "mpc-node"
@@ -60,9 +65,6 @@ path = "bin/mpc_node.rs"
 name = "utils"
 path = "bin/utils/utils.rs"
 
-[[bin]]
-name = "e2e"
-path = "bin/e2e/e2e.rs"
 
 [[bench]]
 name = "rotation_comparison"
