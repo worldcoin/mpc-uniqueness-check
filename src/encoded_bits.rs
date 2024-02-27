@@ -42,7 +42,7 @@ impl EncodedBits {
     }
 
     pub fn sum(&self) -> u16 {
-        self.0.iter().copied().fold(0_u16, u16::wrapping_add)
+        self.0.into_iter().fold(0_u16, u16::wrapping_add)
     }
 
     pub fn dot(&self, other: &Self) -> u16 {
