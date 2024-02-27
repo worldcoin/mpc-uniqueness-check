@@ -46,12 +46,7 @@ where
     ) -> sqlx::encode::IsNull {
         let mut bytes: [u8; BYTES_PER_BITS] = [0; BYTES_PER_BITS];
 
-        for (i, v) in self
-            .0
-            .iter()
-            .copied()
-            .flat_map(u64::to_be_bytes)
-            .enumerate()
+        for (i, v) in self.0.into_iter().flat_map(u64::to_be_bytes).enumerate()
         {
             bytes[i] = v;
         }
@@ -103,12 +98,7 @@ where
         let mut bytes: [u8; BYTES_PER_ENCODED_BITS] =
             [0; BYTES_PER_ENCODED_BITS];
 
-        for (i, v) in self
-            .0
-            .iter()
-            .copied()
-            .flat_map(u16::to_be_bytes)
-            .enumerate()
+        for (i, v) in self.0.into_iter().flat_map(u16::to_be_bytes).enumerate()
         {
             bytes[i] = v;
         }
