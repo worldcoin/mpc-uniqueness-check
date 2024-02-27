@@ -36,13 +36,15 @@ async fn main() -> eyre::Result<()> {
             true,
         );
 
-        StatsdBattery::init(
-            &service.metrics_host,
-            service.metrics_port,
-            service.metrics_queue_size,
-            service.metrics_buffer_size,
-            Some(&service.metrics_prefix),
-        )?;
+        if let Some(metrics_config) = &service.metrics {
+            StatsdBattery::init(
+                &metrics_config.host,
+                metrics_config.port,
+                metrics_config.queue_size,
+                metrics_config.buffer_size,
+                Some(&metrics_config.prefix),
+            )?;
+        }
 
         tracing_shutdown_handle
     } else {
