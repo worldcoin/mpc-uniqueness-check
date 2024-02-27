@@ -65,10 +65,6 @@ path = "bin/mpc_node.rs"
 name = "utils"
 path = "bin/utils/utils.rs"
 
-[[bin]]
-name = "e2e"
-path = "bin/e2e/e2e.rs"
-
 [[bench]]
 name = "rotation_comparison"
 harness = false
