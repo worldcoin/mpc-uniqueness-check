@@ -164,8 +164,8 @@ mod tests {
 
     use super::*;
 
-    async fn setup<'a>(
-        docker: &'a testcontainers::clients::Cli,
+    async fn setup(
+        docker: &testcontainers::clients::Cli,
     ) -> eyre::Result<(Db, Container<testcontainers_modules::postgres::Postgres>)>
     {
         let postgres_container = docker.run(
