@@ -64,6 +64,7 @@ services:
     depends_on:
       - participant_0_db
       - localstack
+
   participant_1:
     restart: always
     hostname: participant

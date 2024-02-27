@@ -65,7 +65,6 @@ path = "bin/mpc_node.rs"
 name = "utils"
 path = "bin/utils/utils.rs"
 
-
 [[bench]]
 name = "rotation_comparison"
 harness = false
