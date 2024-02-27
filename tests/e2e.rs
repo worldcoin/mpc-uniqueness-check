@@ -1,19 +1,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
-use std::{env, fs};
 
-use aws_sdk_sqs::operation::get_queue_attributes::GetQueueAttributes;
 use aws_sdk_sqs::types::{Message, QueueAttributeName};
-use config::{Config, FileFormat};
+use config::Config;
 use eyre::ContextCompat;
-use futures::future::{join, join_all, select_all};
+use futures::future::select_all;
 use mpc::bits::Bits;
-use mpc::config::{AwsConfig, CoordinatorConfig, DbConfig, ParticipantConfig};
+use mpc::config::{AwsConfig, CoordinatorConfig, ParticipantConfig};
 use mpc::coordinator::{
     self, Coordinator, UniquenessCheckRequest, UniquenessCheckResult,
 };
-use mpc::db::{self, Db};
 use mpc::distance::EncodedBits;
 use mpc::participant::{self, Participant};
 use mpc::template::Template;
@@ -21,13 +17,10 @@ use mpc::utils::aws::{self, sqs_client_from_config};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use serde::Deserialize;
-use sqlx::types::chrono::Local;
 use telemetry_batteries::tracing::stdout::StdoutBattery;
-use testcontainers::core::WaitFor;
-use testcontainers::{clients, Container, GenericImage, Image, RunnableImage};
-use testcontainers_modules::localstack::{self, LocalStack};
-use testcontainers_modules::postgres::{self, Postgres};
-use url::Url;
+use testcontainers::{clients, Container};
+use testcontainers_modules::localstack::LocalStack;
+use testcontainers_modules::postgres::Postgres;
 
 pub const E2E_CONFIG: &str = r#"
     [coordinator]
@@ -203,7 +196,7 @@ async fn test_e2e() -> eyre::Result<()> {
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
     let signup_sequence = test_signup_sequence(
-        serde_json::from_str(&SIGNUP_SEQUENCE)?,
+        serde_json::from_str(SIGNUP_SEQUENCE)?,
         sqs_client,
         e2e_config,
     );
@@ -223,7 +216,7 @@ async fn test_e2e() -> eyre::Result<()> {
 
         tasks_result = select_all(tasks) => {
             tracing::error!("Task exited early");
-            return tasks_result.0?;
+            let _ = tasks_result.0?;
         }
     }
 
@@ -243,7 +236,7 @@ async fn initialize_resources<'a>(
 )> {
     tracing::info!("Initializing localstack");
 
-    let localstack_container = docker.run(LocalStack::default());
+    let localstack_container = docker.run(LocalStack);
     let localstack_host_port = localstack_container.get_host_port_ipv4(4566);
 
     let aws_config = AwsConfig {
