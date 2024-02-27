@@ -90,42 +90,48 @@ impl Coordinator {
         self: Arc<Self>,
     ) -> Result<(), eyre::Error> {
         loop {
-            let messages = sqs_dequeue(
-                &self.sqs_client,
-                &self.config.queues.queries_queue_url,
-            )
-            .await?;
-
-            for message in messages {
-                let receipt_handle = message
-                    .receipt_handle
-                    .context("Missing receipt handle in message")?;
-
-                if let Some(message_attributes) = &message.message_attributes {
-                    utils::aws::trace_from_message_attributes(
-                        message_attributes,
-                        &receipt_handle,
-                    )?;
-                } else {
-                    tracing::warn!(
-                        ?receipt_handle,
-                        "SQS message missing message attributes"
-                    );
-                }
-
-                let body = message.body.context("Missing message body")?;
-
-                let UniquenessCheckRequest {
-                    plain_code: template,
-                    signup_id,
-                } = serde_json::from_str(&body)
-                    .context("Failed to parse message")?;
-
-                // Process the query
-                self.uniqueness_check(receipt_handle, template, signup_id)
-                    .await?;
-            }
+            self.process_uniqueness_check_queue().await?;
         }
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn process_uniqueness_check_queue(&self) -> eyre::Result<()> {
+        let messages = sqs_dequeue(
+            &self.sqs_client,
+            &self.config.queues.queries_queue_url,
+        )
+        .await?;
+
+        for message in messages {
+            let receipt_handle = message
+                .receipt_handle
+                .context("Missing receipt handle in message")?;
+
+            if let Some(message_attributes) = &message.message_attributes {
+                utils::aws::trace_from_message_attributes(
+                    message_attributes,
+                    &receipt_handle,
+                )?;
+            } else {
+                tracing::warn!(
+                    ?receipt_handle,
+                    "SQS message missing message attributes"
+                );
+            }
+
+            let body = message.body.context("Missing message body")?;
+
+            let UniquenessCheckRequest {
+                plain_code: template,
+                signup_id,
+            } = serde_json::from_str(&body)
+                .context("Failed to parse message")?;
+
+            // Process the query
+            self.uniqueness_check(receipt_handle, template, signup_id)
+                .await?;
+        }
+        Ok(())
     }
 
     #[tracing::instrument(skip(self, template))]

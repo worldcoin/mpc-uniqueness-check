@@ -73,17 +73,24 @@ impl Participant {
 
     async fn handle_uniqueness_check(self: Arc<Self>) -> eyre::Result<()> {
         loop {
-            let mut stream =
-                tokio::io::BufWriter::new(self.listener.accept().await?.0);
-
-            // Process the trace and span ids to correlate traces between services
-            self.handle_traces_payload(&mut stream).await?;
-
-            tracing::info!("Incoming connection accepted");
-
-            // Process the query
-            self.uniqueness_check(stream).await?;
+            self.process_uniqueness_check_stream().await?;
         }
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn process_uniqueness_check_stream(&self) -> eyre::Result<()> {
+        let mut stream =
+            tokio::io::BufWriter::new(self.listener.accept().await?.0);
+
+        // Process the trace and span ids to correlate traces between services
+        self.handle_traces_payload(&mut stream).await?;
+
+        tracing::info!("Incoming connection accepted");
+
+        // Process the query
+        self.uniqueness_check(stream).await?;
+
+        Ok(())
     }
 
     async fn handle_traces_payload(
