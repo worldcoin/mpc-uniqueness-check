@@ -544,6 +544,13 @@ mod some_or_minus_one {
         D: serde::Deserializer<'de>,
     {
         let value = i64::deserialize(deserializer)?;
+
+        if value < -1 {
+            return Err(serde::de::Error::custom(
+                "value must be -1 or greater",
+            ));
+        }
+
         if value == -1 {
             Ok(None)
         } else {
