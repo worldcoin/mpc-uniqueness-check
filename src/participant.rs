@@ -176,7 +176,6 @@ impl Participant {
 
             if messages.is_empty() {
                 tokio::time::sleep(IDLE_SLEEP_TIME).await;
-                return Ok(());
             }
 
             for message in messages {
