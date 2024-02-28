@@ -1,4 +1,7 @@
 use clap::Args;
+use eyre::Error;
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use indicatif::ProgressBar;
 use mpc::config::DbConfig;
 use mpc::db::Db;
@@ -28,18 +31,16 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
     let mut templates: Vec<Template> = Vec::with_capacity(args.num_templates);
 
     tracing::info!("Generating templates");
-    let pb = ProgressBar::new(args.num_templates as u64)
-        .with_message("Generating templates");
-
     let mut rng = thread_rng();
 
     for _ in 0..args.num_templates {
+        tracing::info!(
+            "Generating template {}/{}",
+            templates.len(),
+            args.num_templates
+        );
         templates.push(rng.gen());
-
-        pb.inc(1);
     }
-
-    pb.finish_with_message("done");
 
     let coordinator_db = Db::new(&DbConfig {
         url: args.coordinator_db_url.clone(),
@@ -61,25 +62,17 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
         );
     }
 
-    tracing::info!("Seeding databases");
-    let pb =
-        ProgressBar::new(args.num_templates as u64).with_message("Seeding DBs");
+    let num_chunks = (templates.len() / args.batch_size) + 1;
+
+    //TODO: update logging to num shares rather than chunks
 
     for (idx, chunk) in templates.chunks(args.batch_size).enumerate() {
-        tracing::info!(
-            "Seeding chunk {}/{}",
-            idx + 1,
-            (templates.len() / args.batch_size) + 1
-        );
-
         let mut chunk_masks = Vec::with_capacity(chunk.len());
         let mut chunk_shares: Vec<_> = (0..participant_dbs.len())
             .map(|_| Vec::with_capacity(chunk.len()))
             .collect();
 
-        tracing::info!("Encoding shares");
-        let pb = ProgressBar::new(chunk.len() as u64)
-            .with_message("Encoding shares");
+        tracing::info!("Encoding shares {}/{}", idx + 1, num_chunks);
         for (offset, template) in chunk.iter().enumerate() {
             let shares =
                 mpc::distance::encode(template).share(participant_dbs.len());
@@ -90,31 +83,41 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
             for (idx, share) in shares.iter().enumerate() {
                 chunk_shares[idx].push((id as u64, *share));
             }
-
-            pb.inc(1);
         }
 
-        let mut tasks = vec![];
+        let mut tasks = FuturesUnordered::new();
 
-        for (idx, db) in participant_dbs.iter().enumerate() {
-            tracing::info!("Inserting shares into participant DB {idx}");
+        for (i, db) in participant_dbs.iter().enumerate() {
+            tracing::info!(
+                "Inserting shares chunk {}/{num_chunks} into participant DB {i}",
+                idx + 1
+            );
 
-            tasks.push(db.insert_shares(&chunk_shares[idx]));
+            tasks.push(Box::pin(db.insert_shares(&chunk_shares[idx])));
         }
 
-        tracing::info!("Inserting masks into coordinator DB");
-        let (coordinator, participants) = tokio::join!(
-            coordinator_db.insert_masks(&chunk_masks),
-            futures::future::join_all(tasks),
+        tracing::info!(
+            "Inserting masks chunk {}/{num_chunks} into coordinator DB",
+            idx + 1
         );
 
-        coordinator?;
-        participants.into_iter().collect::<Result<_, _>>()?;
+        let coordinator_task: Result<(), eyre::Report> =
+            coordinator_db.insert_masks(&chunk_masks).await;
 
-        pb.inc(args.batch_size as u64);
+        tasks.push(coordinator_task);
+
+        while let Some(result) = tasks.next().await {
+            println!("Task completed with result: {:?}", result);
+        }
+
+        let (coordinator, participants) = tokio::join!(
+            ,
+            tasks.await.collect::<Result<_, _>>(),
+        );
+
+        // coordinator?;
+        // participants.into_iter().collect::<Result<_, _>>()?;
     }
-
-    pb.finish_with_message("done");
 
     Ok(())
 }
