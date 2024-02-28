@@ -112,7 +112,7 @@ async fn main() -> eyre::Result<()> {
 
         let masks = db.fetch_masks(0).await?;
 
-        (masks.len() as u64).checked_sub(1)
+        masks.len() as u64
     };
 
     let participant_db_sync_queues = vec![
@@ -169,18 +169,14 @@ async fn main() -> eyre::Result<()> {
                 );
             }
         } else {
-            if let Some(id) = next_serial_id.as_mut() {
-                *id += 1;
-            } else {
-                next_serial_id = Some(0);
-            }
+            next_serial_id += 1;
 
             common::seed_db_sync(
                 &sqs_client,
                 &config.db_sync.coordinator_db_sync_queue,
                 &participant_db_sync_queues,
                 template,
-                next_serial_id.context("Could not get next serial id")?,
+                next_serial_id,
             )
             .await?;
 

@@ -424,10 +424,7 @@ impl Coordinator {
             tracing::info!(?matches, "Matches found");
         }
 
-        // Latest serial id is the last id shared across all nodes
-        // so we need to subtract 1 from the counter
-        let latest_serial_id: Option<u64> = (i as u64).checked_sub(1);
-        let distance_results = DistanceResults::new(latest_serial_id, matches);
+        let distance_results = DistanceResults::new(i as u64, matches);
 
         Ok(distance_results)
     }
@@ -458,7 +455,6 @@ impl Coordinator {
 
             if messages.is_empty() {
                 tokio::time::sleep(IDLE_SLEEP_TIME).await;
-                return Ok(());
             }
 
             for message in messages {
@@ -531,47 +527,9 @@ pub struct UniquenessCheckRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UniquenessCheckResult {
-    #[serde(with = "some_or_minus_one")]
-    pub serial_id: Option<u64>,
+    pub serial_id: u64,
     pub matches: Vec<Distance>,
     pub signup_id: String,
-}
-
-mod some_or_minus_one {
-    use serde::Deserialize;
-
-    pub fn serialize<S>(
-        value: &Option<u64>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        if let Some(value) = value {
-            serializer.serialize_u64(*value)
-        } else {
-            serializer.serialize_i64(-1)
-        }
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = i64::deserialize(deserializer)?;
-
-        if value < -1 {
-            return Err(serde::de::Error::custom(
-                "value must be -1 or greater",
-            ));
-        }
-
-        if value == -1 {
-            Ok(None)
-        } else {
-            Ok(Some(value as u64))
-        }
-    }
 }
 
 #[cfg(test)]
@@ -603,7 +561,7 @@ mod tests {
     #[test]
     fn result_serialization() {
         let output = UniquenessCheckResult {
-            serial_id: Some(1),
+            serial_id: 1,
             matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
             signup_id: "signup_id".to_string(),
         };
@@ -636,16 +594,16 @@ mod tests {
     }
 
     #[test]
-    fn result_serialization_no_serial_id() {
+    fn result_serialization_zero_serial_id() {
         let output = UniquenessCheckResult {
-            serial_id: None,
+            serial_id: 0,
             matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
             signup_id: "signup_id".to_string(),
         };
 
         const EXPECTED: &str = indoc::indoc! {r#"
             {
-              "serial_id": -1,
+              "serial_id": 0,
               "matches": [
                 {
                   "distance": 0.5,

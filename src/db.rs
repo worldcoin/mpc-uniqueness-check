@@ -42,7 +42,7 @@ impl Db {
             r#"
             SELECT id, mask
             FROM masks
-            WHERE id >= $1
+            WHERE id > $1
             ORDER BY id ASC
         "#,
         )
@@ -50,7 +50,7 @@ impl Db {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(filter_sequential_items(masks, id as i64))
+        Ok(filter_sequential_items(masks, 1 + id as i64))
     }
 
     #[tracing::instrument(skip(self))]
@@ -90,7 +90,7 @@ impl Db {
             r#"
             SELECT id, share
             FROM shares
-            WHERE id >= $1
+            WHERE id > $1
             ORDER BY id ASC
         "#,
         )
@@ -98,7 +98,7 @@ impl Db {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(filter_sequential_items(shares, id as i64))
+        Ok(filter_sequential_items(shares, 1 + id as i64))
     }
 
     #[tracing::instrument(skip(self))]
@@ -195,7 +195,7 @@ mod tests {
 
         let mut rng = thread_rng();
 
-        let masks = vec![(0, rng.gen::<Bits>()), (1, rng.gen::<Bits>())];
+        let masks = vec![(1, rng.gen::<Bits>()), (2, rng.gen::<Bits>())];
 
         db.insert_masks(&masks).await?;
 
@@ -215,7 +215,7 @@ mod tests {
 
         let mut rng = thread_rng();
 
-        let masks = vec![(0, rng.gen::<Bits>()), (1, rng.gen::<Bits>())];
+        let masks = vec![(1, rng.gen::<Bits>()), (2, rng.gen::<Bits>())];
 
         db.insert_masks(&masks).await?;
 
@@ -244,7 +244,7 @@ mod tests {
         let mut rng = thread_rng();
 
         let shares =
-            vec![(0, rng.gen::<EncodedBits>()), (1, rng.gen::<EncodedBits>())];
+            vec![(1, rng.gen::<EncodedBits>()), (2, rng.gen::<EncodedBits>())];
 
         db.insert_shares(&shares).await?;
 
@@ -265,7 +265,7 @@ mod tests {
         let mut rng = thread_rng();
 
         let shares =
-            vec![(0, rng.gen::<EncodedBits>()), (1, rng.gen::<EncodedBits>())];
+            vec![(1, rng.gen::<EncodedBits>()), (2, rng.gen::<EncodedBits>())];
 
         db.insert_shares(&shares).await?;
 
@@ -283,11 +283,11 @@ mod tests {
         let mut rng = thread_rng();
 
         let shares = vec![
-            (0, rng.gen::<EncodedBits>()),
             (1, rng.gen::<EncodedBits>()),
-            (4, rng.gen::<EncodedBits>()),
+            (2, rng.gen::<EncodedBits>()),
             (5, rng.gen::<EncodedBits>()),
-            (7, rng.gen::<EncodedBits>()),
+            (6, rng.gen::<EncodedBits>()),
+            (8, rng.gen::<EncodedBits>()),
         ];
 
         db.insert_shares(&shares).await?;
@@ -308,11 +308,11 @@ mod tests {
         let mut rng = thread_rng();
 
         let masks = vec![
-            (0, rng.gen::<Bits>()),
             (1, rng.gen::<Bits>()),
             (2, rng.gen::<Bits>()),
             (3, rng.gen::<Bits>()),
-            (5, rng.gen::<Bits>()),
+            (4, rng.gen::<Bits>()),
+            (6, rng.gen::<Bits>()),
         ];
 
         db.insert_masks(&masks).await?;
@@ -335,11 +335,11 @@ mod tests {
         let mut rng = thread_rng();
 
         let masks = vec![
-            (0, rng.gen::<Bits>()),
             (1, rng.gen::<Bits>()),
             (2, rng.gen::<Bits>()),
             (3, rng.gen::<Bits>()),
-            (5, rng.gen::<Bits>()),
+            (4, rng.gen::<Bits>()),
+            (6, rng.gen::<Bits>()),
         ];
 
         db.insert_masks(&masks).await?;
@@ -359,11 +359,11 @@ mod tests {
         let mut rng = thread_rng();
 
         let masks = vec![
-            (1, rng.gen::<Bits>()),
             (2, rng.gen::<Bits>()),
             (3, rng.gen::<Bits>()),
             (4, rng.gen::<Bits>()),
             (5, rng.gen::<Bits>()),
+            (6, rng.gen::<Bits>()),
         ];
 
         db.insert_masks(&masks).await?;
