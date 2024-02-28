@@ -167,6 +167,7 @@ impl Coordinator {
             matches: distance_results.matches,
             signup_id,
         };
+        tracing::info!(?result, "MPC results processed");
 
         sqs_enqueue(
             &self.sqs_client,
