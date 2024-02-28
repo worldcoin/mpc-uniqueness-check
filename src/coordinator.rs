@@ -516,10 +516,47 @@ pub struct UniquenessCheckRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UniquenessCheckResult {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(with = "some_or_minus_one")]
     pub serial_id: Option<u64>,
     pub matches: Vec<Distance>,
     pub signup_id: String,
+}
+
+mod some_or_minus_one {
+    use serde::Deserialize;
+
+    pub fn serialize<S>(
+        value: &Option<u64>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if let Some(value) = value {
+            serializer.serialize_u64(*value)
+        } else {
+            serializer.serialize_i64(-1)
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = i64::deserialize(deserializer)?;
+
+        if value < -1 {
+            return Err(serde::de::Error::custom(
+                "value must be -1 or greater",
+            ));
+        }
+
+        if value == -1 {
+            Ok(None)
+        } else {
+            Ok(Some(value as u64))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -573,9 +610,14 @@ mod tests {
             }
         "#};
 
-        let s = serde_json::to_string_pretty(&output).unwrap();
+        let serialized = serde_json::to_string_pretty(&output).unwrap();
 
-        similar_asserts::assert_eq!(s.trim(), EXPECTED.trim());
+        similar_asserts::assert_eq!(serialized.trim(), EXPECTED.trim());
+
+        let deserialized: UniquenessCheckResult =
+            serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(deserialized, output);
     }
 
     #[test]
@@ -588,6 +630,7 @@ mod tests {
 
         const EXPECTED: &str = indoc::indoc! {r#"
             {
+              "serial_id": -1,
               "matches": [
                 {
                   "distance": 0.5,
@@ -602,8 +645,13 @@ mod tests {
             }
         "#};
 
-        let s = serde_json::to_string_pretty(&output).unwrap();
+        let serialized = serde_json::to_string_pretty(&output).unwrap();
 
-        similar_asserts::assert_eq!(s.trim(), EXPECTED.trim());
+        similar_asserts::assert_eq!(serialized.trim(), EXPECTED.trim());
+
+        let deserialized: UniquenessCheckResult =
+            serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(deserialized, output);
     }
 }
