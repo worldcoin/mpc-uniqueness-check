@@ -165,6 +165,10 @@ pub struct Match {
 async fn test_e2e() -> eyre::Result<()> {
     let _ = StdoutBattery::init();
 
+    std::env::set_var("AWS_ACCESS_KEY_ID", "test");
+    std::env::set_var("AWS_SECRET_ACCESS_KEY", "test");
+    std::env::set_var("AWS_DEFAULT_REGION", "us-east-1");
+
     let settings = Config::builder()
         .add_source(config::File::from_str(
             E2E_CONFIG,
@@ -235,10 +239,6 @@ async fn initialize_resources<'a>(
     aws_sdk_sqs::Client,
 )> {
     tracing::info!("Initializing localstack");
-
-    std::env::set_var("AWS_ACCESS_KEY_ID", "test");
-    std::env::set_var("AWS_SECRET_ACCESS", "test");
-    std::env::set_var("AWS_DEFAULT_REGION", "us-east-1");
 
     let localstack_container = docker.run(LocalStack);
     let localstack_host_port = localstack_container.get_host_port_ipv4(4566);
