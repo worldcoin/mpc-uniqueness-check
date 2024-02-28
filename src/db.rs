@@ -350,4 +350,28 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn fetch_masks_returns_nothing_if_missing_first() -> eyre::Result<()>
+    {
+        let (db, _pg) = setup().await?;
+
+        let mut rng = thread_rng();
+
+        let masks = vec![
+            (1, rng.gen::<Bits>()),
+            (2, rng.gen::<Bits>()),
+            (3, rng.gen::<Bits>()),
+            (4, rng.gen::<Bits>()),
+            (5, rng.gen::<Bits>()),
+        ];
+
+        db.insert_masks(&masks).await?;
+
+        let fetched_masks = db.fetch_masks(0).await?;
+
+        assert!(fetched_masks.is_empty());
+
+        Ok(())
+    }
 }
