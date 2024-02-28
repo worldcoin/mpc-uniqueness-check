@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use aws_sdk_sqs::types::Message;
 use eyre::{Context, ContextCompat};
 use futures::stream::FuturesUnordered;
 use futures::{future, StreamExt};
@@ -11,7 +12,6 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
-use tracing::instrument;
 
 use crate::bits::Bits;
 use crate::config::CoordinatorConfig;
@@ -90,47 +90,52 @@ impl Coordinator {
         self: Arc<Self>,
     ) -> Result<(), eyre::Error> {
         loop {
-            self.process_uniqueness_check_queue().await?;
+            let messages = sqs_dequeue(
+                &self.sqs_client,
+                &self.config.queues.queries_queue_url,
+            )
+            .await?;
+
+            for message in messages {
+                self.handle_uniqueness_check(message).await?;
+            }
         }
     }
 
-    #[tracing::instrument(skip(self))]
-    pub async fn process_uniqueness_check_queue(&self) -> eyre::Result<()> {
-        let messages = sqs_dequeue(
-            &self.sqs_client,
-            &self.config.queues.queries_queue_url,
-        )
-        .await?;
+    #[tracing::instrument(skip(self, message))]
+    pub async fn handle_uniqueness_check(
+        &self,
+        message: Message,
+    ) -> eyre::Result<()> {
+        tracing::debug!(?message, "Handling message");
 
-        for message in messages {
-            let receipt_handle = message
-                .receipt_handle
-                .context("Missing receipt handle in message")?;
+        let receipt_handle = message
+            .receipt_handle
+            .context("Missing receipt handle in message")?;
 
-            if let Some(message_attributes) = &message.message_attributes {
-                utils::aws::trace_from_message_attributes(
-                    message_attributes,
-                    &receipt_handle,
-                )?;
-            } else {
-                tracing::warn!(
-                    ?receipt_handle,
-                    "SQS message missing message attributes"
-                );
-            }
-
-            let body = message.body.context("Missing message body")?;
-
-            let UniquenessCheckRequest {
-                plain_code: template,
-                signup_id,
-            } = serde_json::from_str(&body)
-                .context("Failed to parse message")?;
-
-            // Process the query
-            self.uniqueness_check(receipt_handle, template, signup_id)
-                .await?;
+        if let Some(message_attributes) = &message.message_attributes {
+            utils::aws::trace_from_message_attributes(
+                message_attributes,
+                &receipt_handle,
+            )?;
+        } else {
+            tracing::warn!(
+                ?receipt_handle,
+                "SQS message missing message attributes"
+            );
         }
+
+        let body = message.body.context("Missing message body")?;
+
+        let UniquenessCheckRequest {
+            plain_code: template,
+            signup_id,
+        } = serde_json::from_str(&body).context("Failed to parse message")?;
+
+        // Process the query
+        self.uniqueness_check(receipt_handle, template, signup_id)
+            .await?;
+
         Ok(())
     }
 
@@ -445,58 +450,68 @@ impl Coordinator {
 
     async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
         loop {
-            self.db_sync().await?;
+            let messages = sqs_dequeue(
+                &self.sqs_client,
+                &self.config.queues.db_sync_queue_url,
+            )
+            .await?;
+
+            if messages.is_empty() {
+                tokio::time::sleep(IDLE_SLEEP_TIME).await;
+                return Ok(());
+            }
+
+            for message in messages {
+                self.db_sync(message).await?;
+            }
         }
     }
 
-    #[instrument(skip(self))]
-    async fn db_sync(&self) -> eyre::Result<()> {
-        let messages = sqs_dequeue(
+    #[tracing::instrument(skip(self, message))]
+    async fn db_sync(&self, message: Message) -> eyre::Result<()> {
+        let receipt_handle = message
+            .receipt_handle
+            .context("Missing receipt handle in message")?;
+
+        if let Some(message_attributes) = &message.message_attributes {
+            utils::aws::trace_from_message_attributes(
+                message_attributes,
+                &receipt_handle,
+            )?;
+        } else {
+            tracing::warn!(
+                ?receipt_handle,
+                "SQS message missing message attributes"
+            );
+        }
+
+        let body = message.body.context("Missing message body")?;
+
+        let items = if let Ok(items) =
+            serde_json::from_str::<Vec<DbSyncPayload>>(&body)
+        {
+            items
+        } else {
+            tracing::error!(?receipt_handle, "Failed to parse message body");
+            return Ok(());
+        };
+
+        let masks: Vec<_> =
+            items.into_iter().map(|item| (item.id, item.mask)).collect();
+
+        tracing::info!(
+            num_new_masks = masks.len(),
+            "Inserting masks into database"
+        );
+
+        self.database.insert_masks(&masks).await?;
+
+        sqs_delete_message(
             &self.sqs_client,
             &self.config.queues.db_sync_queue_url,
+            receipt_handle,
         )
         .await?;
-
-        if messages.is_empty() {
-            tokio::time::sleep(IDLE_SLEEP_TIME).await;
-            return Ok(());
-        }
-
-        for message in messages {
-            let body = message.body.context("Missing message body")?;
-            let receipt_handle = message
-                .receipt_handle
-                .context("Missing receipt handle in message")?;
-
-            let items = if let Ok(items) =
-                serde_json::from_str::<Vec<DbSyncPayload>>(&body)
-            {
-                items
-            } else {
-                tracing::error!(
-                    ?receipt_handle,
-                    "Failed to parse message body"
-                );
-                continue;
-            };
-
-            let masks: Vec<_> =
-                items.into_iter().map(|item| (item.id, item.mask)).collect();
-
-            tracing::info!(
-                num_new_masks = masks.len(),
-                "Inserting masks into database"
-            );
-
-            self.database.insert_masks(&masks).await?;
-
-            sqs_delete_message(
-                &self.sqs_client,
-                &self.config.queues.db_sync_queue_url,
-                receipt_handle,
-            )
-            .await?;
-        }
 
         Ok(())
     }
