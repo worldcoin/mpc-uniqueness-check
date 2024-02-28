@@ -501,6 +501,14 @@ impl Coordinator {
             items
         } else {
             tracing::error!(?receipt_handle, "Failed to parse message body");
+
+            sqs_delete_message(
+                &self.sqs_client,
+                &self.config.queues.db_sync_queue_url,
+                receipt_handle,
+            )
+            .await?;
+
             return Ok(());
         };
 
