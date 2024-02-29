@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use aws_sdk_sqs::types::Message;
 use eyre::{Context, ContextCompat};
 use futures::stream::FuturesUnordered;
 use futures::{future, StreamExt};
@@ -11,7 +12,6 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
-use tracing::instrument;
 
 use crate::bits::Bits;
 use crate::config::CoordinatorConfig;
@@ -97,35 +97,46 @@ impl Coordinator {
             .await?;
 
             for message in messages {
-                let receipt_handle = message
-                    .receipt_handle
-                    .context("Missing receipt handle in message")?;
-
-                if let Some(message_attributes) = &message.message_attributes {
-                    utils::aws::trace_from_message_attributes(
-                        message_attributes,
-                        &receipt_handle,
-                    )?;
-                } else {
-                    tracing::warn!(
-                        ?receipt_handle,
-                        "SQS message missing message attributes"
-                    );
-                }
-
-                let body = message.body.context("Missing message body")?;
-
-                let UniquenessCheckRequest {
-                    plain_code: template,
-                    signup_id,
-                } = serde_json::from_str(&body)
-                    .context("Failed to parse message")?;
-
-                // Process the query
-                self.uniqueness_check(receipt_handle, template, signup_id)
-                    .await?;
+                self.handle_uniqueness_check(message).await?;
             }
         }
+    }
+
+    #[tracing::instrument(skip(self, message))]
+    pub async fn handle_uniqueness_check(
+        &self,
+        message: Message,
+    ) -> eyre::Result<()> {
+        tracing::debug!(?message, "Handling message");
+
+        let receipt_handle = message
+            .receipt_handle
+            .context("Missing receipt handle in message")?;
+
+        if let Some(message_attributes) = &message.message_attributes {
+            utils::aws::trace_from_message_attributes(
+                message_attributes,
+                &receipt_handle,
+            )?;
+        } else {
+            tracing::warn!(
+                ?receipt_handle,
+                "SQS message missing message attributes"
+            );
+        }
+
+        let body = message.body.context("Missing message body")?;
+
+        let UniquenessCheckRequest {
+            plain_code: template,
+            signup_id,
+        } = serde_json::from_str(&body).context("Failed to parse message")?;
+
+        // Process the query
+        self.uniqueness_check(receipt_handle, template, signup_id)
+            .await?;
+
+        Ok(())
     }
 
     #[tracing::instrument(skip(self, template))]
@@ -161,6 +172,7 @@ impl Coordinator {
             matches: distance_results.matches,
             signup_id,
         };
+        tracing::info!(?result, "MPC results processed");
 
         sqs_enqueue(
             &self.sqs_client,
@@ -412,10 +424,7 @@ impl Coordinator {
             tracing::info!(?matches, "Matches found");
         }
 
-        // Latest serial id is the last id shared across all nodes
-        // so we need to subtract 1 from the counter
-        let latest_serial_id = i.saturating_sub(1) as u64;
-        let distance_results = DistanceResults::new(latest_serial_id, matches);
+        let distance_results = DistanceResults::new(i as u64, matches);
 
         Ok(distance_results)
     }
@@ -438,58 +447,67 @@ impl Coordinator {
 
     async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
         loop {
-            self.db_sync().await?;
+            let messages = sqs_dequeue(
+                &self.sqs_client,
+                &self.config.queues.db_sync_queue_url,
+            )
+            .await?;
+
+            if messages.is_empty() {
+                tokio::time::sleep(IDLE_SLEEP_TIME).await;
+            }
+
+            for message in messages {
+                self.db_sync(message).await?;
+            }
         }
     }
 
-    #[instrument(skip(self))]
-    async fn db_sync(&self) -> eyre::Result<()> {
-        let messages = sqs_dequeue(
+    #[tracing::instrument(skip(self, message))]
+    async fn db_sync(&self, message: Message) -> eyre::Result<()> {
+        let receipt_handle = message
+            .receipt_handle
+            .context("Missing receipt handle in message")?;
+
+        if let Some(message_attributes) = &message.message_attributes {
+            utils::aws::trace_from_message_attributes(
+                message_attributes,
+                &receipt_handle,
+            )?;
+        } else {
+            tracing::warn!(
+                ?receipt_handle,
+                "SQS message missing message attributes"
+            );
+        }
+
+        let body = message.body.context("Missing message body")?;
+
+        let items = if let Ok(items) =
+            serde_json::from_str::<Vec<DbSyncPayload>>(&body)
+        {
+            items
+        } else {
+            tracing::error!(?receipt_handle, "Failed to parse message body");
+            return Ok(());
+        };
+
+        let masks: Vec<_> =
+            items.into_iter().map(|item| (item.id, item.mask)).collect();
+
+        tracing::info!(
+            num_new_masks = masks.len(),
+            "Inserting masks into database"
+        );
+
+        self.database.insert_masks(&masks).await?;
+
+        sqs_delete_message(
             &self.sqs_client,
             &self.config.queues.db_sync_queue_url,
+            receipt_handle,
         )
         .await?;
-
-        if messages.is_empty() {
-            tokio::time::sleep(IDLE_SLEEP_TIME).await;
-            return Ok(());
-        }
-
-        for message in messages {
-            let body = message.body.context("Missing message body")?;
-            let receipt_handle = message
-                .receipt_handle
-                .context("Missing receipt handle in message")?;
-
-            let items = if let Ok(items) =
-                serde_json::from_str::<Vec<DbSyncPayload>>(&body)
-            {
-                items
-            } else {
-                tracing::error!(
-                    ?receipt_handle,
-                    "Failed to parse message body"
-                );
-                continue;
-            };
-
-            let masks: Vec<_> =
-                items.into_iter().map(|item| (item.id, item.mask)).collect();
-
-            tracing::info!(
-                num_new_masks = masks.len(),
-                "Inserting masks into database"
-            );
-
-            self.database.insert_masks(&masks).await?;
-
-            sqs_delete_message(
-                &self.sqs_client,
-                &self.config.queues.db_sync_queue_url,
-                receipt_handle,
-            )
-            .await?;
-        }
 
         Ok(())
     }
@@ -565,8 +583,48 @@ mod tests {
             }
         "#};
 
-        let s = serde_json::to_string_pretty(&output).unwrap();
+        let serialized = serde_json::to_string_pretty(&output).unwrap();
 
-        similar_asserts::assert_eq!(s.trim(), EXPECTED.trim());
+        similar_asserts::assert_eq!(serialized.trim(), EXPECTED.trim());
+
+        let deserialized: UniquenessCheckResult =
+            serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(deserialized, output);
+    }
+
+    #[test]
+    fn result_serialization_zero_serial_id() {
+        let output = UniquenessCheckResult {
+            serial_id: 0,
+            matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
+            signup_id: "signup_id".to_string(),
+        };
+
+        const EXPECTED: &str = indoc::indoc! {r#"
+            {
+              "serial_id": 0,
+              "matches": [
+                {
+                  "distance": 0.5,
+                  "serial_id": 0
+                },
+                {
+                  "distance": 0.2,
+                  "serial_id": 1
+                }
+              ],
+              "signup_id": "signup_id"
+            }
+        "#};
+
+        let serialized = serde_json::to_string_pretty(&output).unwrap();
+
+        similar_asserts::assert_eq!(serialized.trim(), EXPECTED.trim());
+
+        let deserialized: UniquenessCheckResult =
+            serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(deserialized, output);
     }
 }

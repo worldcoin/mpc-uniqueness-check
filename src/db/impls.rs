@@ -24,7 +24,14 @@ where
     ) -> Result<Self, sqlx::error::BoxDynError> {
         let bytes = <[u8; BYTES_PER_BITS] as sqlx::Decode<DB>>::decode(value)?;
 
-        Ok(bytemuck::pod_read_unaligned(&bytes))
+        let bits: Vec<u64> = bytes
+            .array_chunks::<8>()
+            .map(|x| u64::from_be_bytes(*x))
+            .collect();
+
+        let bits = bits.try_into().expect("Wrong size");
+
+        Ok(Self(bits))
     }
 }
 
@@ -37,9 +44,12 @@ where
         &self,
         buf: &mut <DB as sqlx::database::HasArguments<'q>>::ArgumentBuffer,
     ) -> sqlx::encode::IsNull {
-        // The size of the underlying data makes it unaligned
-        let bytes = bytemuck::bytes_of(self);
-        let bytes: [u8; BYTES_PER_BITS] = bytes.try_into().expect("Wrong size");
+        let mut bytes: [u8; BYTES_PER_BITS] = [0; BYTES_PER_BITS];
+
+        for (i, v) in self.0.into_iter().flat_map(u64::to_be_bytes).enumerate()
+        {
+            bytes[i] = v;
+        }
 
         <[u8; BYTES_PER_BITS] as sqlx::Encode<DB>>::encode(bytes, buf)
     }
@@ -66,7 +76,13 @@ where
         let bytes =
             <[u8; BYTES_PER_ENCODED_BITS] as sqlx::Decode<DB>>::decode(value)?;
 
-        Ok(bytemuck::pod_read_unaligned(&bytes))
+        let bits: Vec<u16> = bytes
+            .array_chunks::<2>()
+            .map(|x| u16::from_be_bytes(*x))
+            .collect();
+        let bits = bits.try_into().expect("Wrong size");
+
+        Ok(Self(bits))
     }
 }
 
@@ -79,10 +95,13 @@ where
         &self,
         buf: &mut <DB as sqlx::database::HasArguments<'q>>::ArgumentBuffer,
     ) -> sqlx::encode::IsNull {
-        // The size of the underlying data makes it unaligned
-        let bytes = bytemuck::bytes_of(self);
-        let bytes: [u8; BYTES_PER_ENCODED_BITS] =
-            bytes.try_into().expect("Wrong size");
+        let mut bytes: [u8; BYTES_PER_ENCODED_BITS] =
+            [0; BYTES_PER_ENCODED_BITS];
+
+        for (i, v) in self.0.into_iter().flat_map(u16::to_be_bytes).enumerate()
+        {
+            bytes[i] = v;
+        }
 
         <[u8; BYTES_PER_ENCODED_BITS] as sqlx::Encode<DB>>::encode(bytes, buf)
     }

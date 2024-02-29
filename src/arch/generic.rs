@@ -41,9 +41,6 @@ pub fn denominators<'a>(
 ) -> impl Iterator<Item = [u16; 31]> + 'a {
     const BATCH: usize = 10_000;
 
-    // Prepare 31 rotations of query in advance
-    let rotations: Box<[_]> = ROTATIONS.map(|r| query.rotated(r)).collect();
-
     // Iterate over a batch of database entries
     db.chunks(BATCH).flat_map(move |chunk| {
         // Parallel computation over batch
@@ -52,7 +49,7 @@ pub fn denominators<'a>(
             .map(|(entry)| {
                 let mut result = [0_u16; 31];
                 // Compute dot product for each rotation
-                for (d, rotation) in result.iter_mut().zip(rotations.iter()) {
+                for (d, rotation) in result.iter_mut().zip(query.rotations()) {
                     *d = rotation.dot(entry);
                 }
                 result

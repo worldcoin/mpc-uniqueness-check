@@ -9,6 +9,7 @@ aws-config = "1.1.4"
 aws-sdk-sqs = "1.12.0"
 axum = "0.7.4"
 base64 = "0.21.7"
+bitvec = "1"
 bytemuck = { version = "1.14.1", features = ["derive"] }
 clap = { version = "4.4.18", features = ["derive", "env"] }
 config = "0.13.4"
@@ -22,6 +23,8 @@ indicatif = "0.17.7"
 indoc = "2.0.4"
 itertools = "0.12.0"
 metrics = "0.21.1"
+# TODO: only include this for migrate-codes bin
+mongodb = "2.8.1"
 ordered-float = "4.2.0"
 rand = "0.8.5"
 rayon = "1.8.1"
@@ -55,14 +58,14 @@ path = "bin/mpc_node.rs"
 
 [[bin]]
 name = "utils"
-path = "bin/utils.rs"
+path = "bin/utils/utils.rs"
 
 [[bin]]
 name = "e2e"
 path = "bin/e2e/e2e.rs"
 
 [[bench]]
-name = "example"
+name = "rotation_comparison"
 harness = false
 
 [profile.release]

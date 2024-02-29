@@ -88,11 +88,8 @@ pub struct DistanceResults {
 }
 
 impl DistanceResults {
-    pub fn new(latest_id: u64, matches: Vec<Distance>) -> Self {
-        Self {
-            serial_id: latest_id,
-            matches,
-        }
+    pub fn new(serial_id: u64, matches: Vec<Distance>) -> Self {
+        Self { serial_id, matches }
     }
 }
 
@@ -102,11 +99,8 @@ pub struct MasksEngine {
 
 impl MasksEngine {
     pub fn new(query: &Bits) -> Self {
-        let rotations = ROTATIONS
-            .map(|r| query.rotated(r))
-            .collect::<Box<[Bits]>>()
-            .try_into()
-            .unwrap();
+        let rotations =
+            query.rotations().collect::<Box<[_]>>().try_into().unwrap();
         Self { rotations }
     }
 
