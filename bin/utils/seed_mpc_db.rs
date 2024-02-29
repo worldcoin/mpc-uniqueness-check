@@ -1,14 +1,13 @@
 use std::mem;
 use std::sync::Arc;
-use std::time::Duration;
 
 use clap::Args;
-use eyre::Error;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use mpc::bits::Bits;
 use mpc::config::DbConfig;
+use mpc::coordinator;
 use mpc::db::Db;
 use mpc::distance::EncodedBits;
 use mpc::template::Template;
@@ -136,8 +135,8 @@ fn generate_shares_and_masks(
         .expect("Could not create progress bar"));
 
     for (idx, chunk) in templates.chunks(args.batch_size).enumerate() {
-        let mut chunk_masks = Vec::with_capacity(chunk.len());
-        let mut chunk_shares: Vec<_> = (0..num_participants)
+        let mut batch_masks = Vec::with_capacity(chunk.len());
+        let mut batch_shares: Vec<_> = (0..num_participants)
             .map(|_| Vec::with_capacity(chunk.len()))
             .collect();
 
@@ -157,15 +156,18 @@ fn generate_shares_and_masks(
         {
             let id = offset + (idx * args.batch_size) + 1;
 
-            chunk_masks.push((id as u64, template.mask));
+            batch_masks.push((id as u64, template.mask));
 
+            // < <share 0, share 1>, <share 0, share 1>  >
             for (idx, share) in shares.iter().enumerate() {
-                chunk_shares[idx].push((id as u64, *share));
+                batch_shares[idx].push((id as u64, *share));
             }
         }
 
-        batched_shares.push(chunk_shares);
-        batched_masks.push(chunk_masks);
+        // vec of batches
+        // < Batch< <share 0, share 1>, <share 0, share 1>  >, Batch< <share 0, share 1>, <share 0, share 1>  > >
+        batched_shares.push(batch_shares);
+        batched_masks.push(batch_masks);
     }
 
     pb.finish_with_message("Created shares and masks");
@@ -184,24 +186,57 @@ async fn insert_masks_and_shares(
     println!("Inserting masks and shares into db...");
 
     // Commit shares and masks to db
-    let mut tasks = FuturesUnordered::new();
+    let mpb = MultiProgress::new();
+    let style = ProgressStyle::default_bar().template("{spinner:.green} {msg} [{elapsed_precise}] [{wide_bar:.green}] {pos:>7}/{len:7} ({eta})")?;
 
-    tasks.push(tokio::spawn(insert_masks(
-        batched_masks,
-        coordinator_db,
-        num_templates,
-        batch_size,
-    )));
+    let participant_progress_bars = participant_dbs
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            mpb.add(ProgressBar::new(num_templates as u64).with_message(
+                format!("Inserting shares for participant {}", i),
+            ))
+        })
+        .collect::<Vec<_>>();
 
-    tasks.push(tokio::spawn(insert_shares(
-        batched_shares,
-        participant_dbs,
-        num_templates,
-        batch_size,
-    )));
+    for pb in participant_progress_bars.iter() {
+        pb.set_style(style.clone());
+    }
 
-    while let Some(result) = tasks.next().await {
-        result??;
+    let coordinator_progress_bar = mpb.add(
+        ProgressBar::new(num_templates as u64)
+            .with_message("Inserting masks for coordinator"),
+    );
+    coordinator_progress_bar.set_style(style.clone());
+
+    for (shares, masks) in
+        batched_shares.into_iter().zip(batched_masks.into_iter())
+    {
+        let mut tasks = FuturesUnordered::new();
+
+        for (idx, db) in participant_dbs.iter().enumerate() {
+            let shares = shares[idx].clone();
+            let db = db.clone();
+            let pb = participant_progress_bars[idx].clone();
+
+            tasks.push(tokio::spawn(async move {
+                db.insert_shares(&shares).await?;
+                pb.inc(batch_size as u64);
+                eyre::Result::<()>::Ok(())
+            }));
+        }
+
+        let coordinator_db = coordinator_db.clone();
+        let coordinator_progress_bar = coordinator_progress_bar.clone();
+        tasks.push(tokio::spawn(async move {
+            coordinator_db.insert_masks(&masks).await?;
+            coordinator_progress_bar.inc(batch_size as u64);
+            eyre::Result::<()>::Ok(())
+        }));
+
+        while let Some(result) = tasks.next().await {
+            result??;
+        }
     }
 
     Ok(())
@@ -210,31 +245,17 @@ async fn insert_masks_and_shares(
 async fn insert_masks(
     batched_masks: BatchedMasks,
     coordinator_db: Arc<Db>,
-    num_templates: usize,
     batch_size: usize,
+    progress_bar: ProgressBar,
 ) -> eyre::Result<()> {
-    let pb = ProgressBar::new(num_templates as u64)
-        .with_message("Inserting masks...");
-
-    pb.set_style(ProgressStyle::default_bar()
-    .template("{spinner:.green} {msg} [{elapsed_precise}] [{wide_bar:.green}] {pos:>7}/{len:7} ({eta})")
-    .expect("Could not create progress bar"));
-
-    pb.inc(0);
-
-    let mut tasks = FuturesUnordered::new();
+    progress_bar.inc(0);
 
     for masks in batched_masks.iter() {
-        tasks.push(coordinator_db.insert_masks(masks));
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        coordinator_db.insert_masks(masks).await?;
+        progress_bar.inc(batch_size as u64);
     }
 
-    while let Some(result) = tasks.next().await {
-        result?;
-        pb.inc(batch_size as u64);
-    }
-
-    pb.finish_with_message("Inserted masks");
+    progress_bar.finish_with_message("Inserted masks");
 
     Ok(())
 }
@@ -253,23 +274,13 @@ async fn insert_shares(
         .expect("Could not create progress bar"));
     pb.inc(0);
 
-    let mut tasks = FuturesUnordered::new();
-
     for mut shares in batched_shares.into_iter() {
         for (idx, db) in participant_dbs.iter().enumerate() {
             let participant_shares = mem::take(&mut shares[idx]);
             let db = db.clone();
 
-            tasks.push(tokio::spawn(async move {
-                db.insert_shares(&participant_shares).await?;
-                tokio::time::sleep(Duration::from_millis(10)).await;
-                Ok::<_, Error>(idx)
-            }));
+            db.insert_shares(&participant_shares).await?;
         }
-    }
-
-    while let Some(result) = tasks.next().await {
-        result??;
         pb.inc(batch_size as u64);
     }
 
