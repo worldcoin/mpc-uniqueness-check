@@ -39,19 +39,22 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
         return Err(eyre::eyre!("No participant DBs provided"));
     }
 
-    let mut templates: Vec<Template> = Vec::with_capacity(args.num_templates);
+    let template_counter = AtomicU64::new(0);
+    let templates = (0..args.num_templates)
+        .into_par_iter()
+        .map(|_| {
+            let mut rng = thread_rng();
 
-    println!("Generating templates");
-    let mut rng = thread_rng();
-
-    for _ in 0..args.num_templates {
-        println!(
-            "Generating template {}/{}",
-            templates.len(),
-            args.num_templates
-        );
-        templates.push(rng.gen());
-    }
+            println!(
+                "Generating template {}/{}",
+                template_counter.load(Ordering::Relaxed),
+                args.num_templates
+            );
+            let template = rng.gen();
+            template_counter.fetch_add(1, Ordering::Relaxed);
+            template
+        })
+        .collect::<Vec<Template>>();
 
     let coordinator_db = Arc::new(
         Db::new(&DbConfig {
@@ -75,7 +78,6 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
         ));
     }
 
-    //TODO: would be nice to make this parallel
     let mut batched_shares = vec![];
     let mut batched_masks = vec![];
 
@@ -124,9 +126,6 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
 
     let mut i = 0;
 
-    //Insert into dbs
-
-    //TODO: insert in chunks and wait in chunks
     for (masks, mut shares) in
         batched_masks.into_iter().zip(batched_shares.into_iter())
     {
