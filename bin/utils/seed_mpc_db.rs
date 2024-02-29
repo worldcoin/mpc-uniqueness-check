@@ -61,12 +61,6 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
     Ok(())
 }
 
-//Insertion type to keep track of progress for each db
-pub enum Insertion {
-    Shares(usize),
-    Masks,
-}
-
 async fn initialize_dbs(
     args: &SeedMPCDb,
 ) -> eyre::Result<(Arc<Db>, Vec<Arc<Db>>)> {
@@ -185,45 +179,75 @@ async fn insert_masks_and_shares(
     num_templates: usize,
 ) -> eyre::Result<()> {
     // Commit shares and masks to db
-    let mut i = 0;
-    for (masks, mut shares) in
-        batched_masks.into_iter().zip(batched_shares.into_iter())
-    {
-        let mut tasks = FuturesUnordered::new();
 
+    let mut tasks = FuturesUnordered::new();
+
+    tasks.push(tokio::spawn(insert_masks(
+        batched_masks,
+        coordinator_db,
+        batch_size,
+        num_templates,
+    )));
+
+    tasks.push(tokio::spawn(insert_shares(
+        batched_shares,
+        participant_dbs,
+        batch_size,
+        num_templates,
+    )));
+
+    while let Some(result) = tasks.next().await {
+        result??;
+    }
+
+    Ok(())
+}
+
+async fn insert_masks(
+    batched_masks: BatchedMasks,
+    coordinator_db: Arc<Db>,
+    batch_size: usize,
+    num_templates: usize,
+) -> eyre::Result<()> {
+    for (i, masks) in batched_masks.iter().enumerate() {
+        coordinator_db.insert_masks(&masks).await?;
+
+        println!(
+            "Inserted masks {}/{} into coordinator db",
+            (i + 1) * batch_size,
+            num_templates
+        );
+    }
+    Ok(())
+}
+
+async fn insert_shares(
+    batched_shares: BatchedShares,
+    participant_dbs: Vec<Arc<Db>>,
+    batch_size: usize,
+    num_templates: usize,
+) -> eyre::Result<()> {
+    let mut tasks = FuturesUnordered::new();
+
+    for (i, mut shares) in batched_shares.into_iter().enumerate() {
         for (idx, db) in participant_dbs.iter().enumerate() {
             let participant_shares = mem::take(&mut shares[idx]);
             let db = db.clone();
 
             tasks.push(tokio::spawn(async move {
                 db.insert_shares(&participant_shares).await?;
-                Ok::<_, Error>(Insertion::Shares(idx))
+                Ok::<_, Error>(idx)
             }));
         }
 
-        let coordinator_db = coordinator_db.clone();
-        tasks.push(tokio::spawn(async move {
-            coordinator_db.insert_masks(&masks).await?;
-            Ok::<_, Error>(Insertion::Masks)
-        }));
-
-        i += batch_size;
-
         while let Some(result) = tasks.next().await {
-            match result?? {
-                Insertion::Shares(idx) => {
-                    println!(
-                        "Inserted shares {}/{} into participant {} db",
-                        i, num_templates, idx,
-                    );
-                }
-                Insertion::Masks => {
-                    println!(
-                        "Inserted masks {}/{} into coordinator db",
-                        i, num_templates
-                    );
-                }
-            }
+            let idx = result??;
+            println!(
+                "Inserted shares {}/{} into participant {} db",
+                (i + 1) * batch_size,
+                num_templates,
+                idx,
+            );
         }
     }
     Ok(())
