@@ -1,3 +1,4 @@
+use core::num;
 use std::mem;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -8,11 +9,12 @@ use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
 use indicatif::ProgressBar;
 use metrics::atomics::AtomicU64;
+use mpc::bits::Bits;
 use mpc::config::DbConfig;
-use mpc::coordinator;
 use mpc::db::Db;
 use mpc::distance::EncodedBits;
 use mpc::template::Template;
+use mpc::{coordinator, template};
 use rand::{thread_rng, Rng};
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, ParallelIterator,
@@ -39,23 +41,35 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
         return Err(eyre::eyre!("No participant DBs provided"));
     }
 
-    let template_counter = AtomicU64::new(0);
-    let templates = (0..args.num_templates)
-        .into_par_iter()
-        .map(|_| {
-            let mut rng = thread_rng();
+    let (coordinator_db, participant_dbs) = initialize_dbs(args).await?;
 
-            println!(
-                "Generating template {}/{}",
-                template_counter.load(Ordering::Relaxed),
-                args.num_templates
-            );
-            let template = rng.gen();
-            template_counter.fetch_add(1, Ordering::Relaxed);
-            template
-        })
-        .collect::<Vec<Template>>();
+    let templates = generate_templates(args);
 
+    let (batched_masks, batched_shares) =
+        generate_shares_and_masks(args, templates);
+
+    insert_masks_and_shares(
+        batched_masks,
+        batched_shares,
+        coordinator_db,
+        participant_dbs,
+        args.batch_size,
+        args.num_templates,
+    )
+    .await?;
+
+    Ok(())
+}
+
+//Insertion type to keep track of progress for each db
+pub enum Insertion {
+    Shares(usize),
+    Masks,
+}
+
+async fn initialize_dbs(
+    args: &SeedMPCDb,
+) -> eyre::Result<(Arc<Db>, Vec<Arc<Db>>)> {
     let coordinator_db = Arc::new(
         Db::new(&DbConfig {
             url: args.coordinator_db_url.clone(),
@@ -78,12 +92,47 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
         ));
     }
 
+    Ok((coordinator_db, participant_dbs))
+}
+
+fn generate_templates(args: &SeedMPCDb) -> Vec<Template> {
+    // Generate templates
+    let template_counter = AtomicU64::new(0);
+    let templates = (0..args.num_templates)
+        .into_par_iter()
+        .map(|_| {
+            let mut rng = thread_rng();
+
+            println!(
+                "Generating template {}/{}",
+                template_counter.load(Ordering::Relaxed),
+                args.num_templates
+            );
+            let template = rng.gen();
+            template_counter.fetch_add(1, Ordering::Relaxed);
+            template
+        })
+        .collect::<Vec<Template>>();
+
+    templates
+}
+
+pub type BatchedShares = Vec<Vec<Vec<(u64, EncodedBits)>>>;
+pub type BatchedMasks = Vec<Vec<(u64, Bits)>>;
+
+fn generate_shares_and_masks(
+    args: &SeedMPCDb,
+    templates: Vec<Template>,
+) -> (BatchedMasks, BatchedShares) {
+    // Generate shares and masks
     let mut batched_shares = vec![];
     let mut batched_masks = vec![];
 
+    let num_participants = args.participant_db_url.len();
+
     for (idx, chunk) in templates.chunks(args.batch_size).enumerate() {
         let mut chunk_masks = Vec::with_capacity(chunk.len());
-        let mut chunk_shares: Vec<_> = (0..participant_dbs.len())
+        let mut chunk_shares: Vec<_> = (0..num_participants)
             .map(|_| Vec::with_capacity(chunk.len()))
             .collect();
 
@@ -99,8 +148,8 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
                     encoded_shares_counter.load(Ordering::Relaxed),
                     args.num_templates
                 );
-                let shares = mpc::distance::encode(template)
-                    .share(participant_dbs.len());
+                let shares =
+                    mpc::distance::encode(template).share(num_participants);
 
                 encoded_shares_counter.fetch_add(1, Ordering::Relaxed);
 
@@ -124,8 +173,19 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
         batched_masks.push(chunk_masks);
     }
 
-    let mut i = 0;
+    (batched_masks, batched_shares)
+}
 
+async fn insert_masks_and_shares(
+    batched_masks: BatchedMasks,
+    batched_shares: BatchedShares,
+    coordinator_db: Arc<Db>,
+    participant_dbs: Vec<Arc<Db>>,
+    batch_size: usize,
+    num_templates: usize,
+) -> eyre::Result<()> {
+    // Commit shares and masks to db
+    let mut i = 0;
     for (masks, mut shares) in
         batched_masks.into_iter().zip(batched_shares.into_iter())
     {
@@ -147,34 +207,24 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
             Ok::<_, Error>(Insertion::Masks)
         }));
 
-        i += args.batch_size;
+        i += batch_size;
 
         while let Some(result) = tasks.next().await {
             match result?? {
                 Insertion::Shares(idx) => {
                     println!(
                         "Inserted shares {}/{} into participant {} db",
-                        i,
-                        templates.len(),
-                        idx,
+                        i, num_templates, idx,
                     );
                 }
                 Insertion::Masks => {
                     println!(
                         "Inserted masks {}/{} into coordinator db",
-                        i,
-                        templates.len()
+                        i, num_templates
                     );
                 }
             }
         }
     }
-
     Ok(())
-}
-
-//Insertion type to keep track of progress for each db
-pub enum Insertion {
-    Shares(usize),
-    Masks,
 }
