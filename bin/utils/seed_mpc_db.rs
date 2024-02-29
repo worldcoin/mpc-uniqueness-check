@@ -6,20 +6,17 @@ use std::sync::Arc;
 use clap::Args;
 use eyre::Error;
 use futures::stream::FuturesUnordered;
-use futures::{FutureExt, StreamExt};
-use indicatif::ProgressBar;
+use futures::StreamExt;
 use metrics::atomics::AtomicU64;
 use mpc::bits::Bits;
 use mpc::config::DbConfig;
 use mpc::db::Db;
 use mpc::distance::EncodedBits;
 use mpc::template::Template;
-use mpc::{coordinator, template};
 use rand::{thread_rng, Rng};
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, ParallelIterator,
 };
-use sqlx::Encode;
 
 #[derive(Debug, Clone, Args)]
 pub struct SeedMPCDb {
@@ -50,6 +47,7 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
     let (batched_masks, batched_shares) =
         generate_shares_and_masks(args, templates);
 
+    println!("Inserting masks and shares into db");
     insert_masks_and_shares(
         batched_masks,
         batched_shares,
@@ -213,15 +211,25 @@ async fn insert_masks(
     batch_size: usize,
     num_templates: usize,
 ) -> eyre::Result<()> {
-    for (i, masks) in batched_masks.iter().enumerate() {
-        coordinator_db.insert_masks(&masks).await?;
+    let mut tasks = FuturesUnordered::new();
+    let mut i = 0;
+
+    for masks in batched_masks.iter() {
+        tasks.push(coordinator_db.insert_masks(&masks));
+    }
+
+    while let Some(result) = tasks.next().await {
+        result?;
 
         println!(
             "Inserted masks {}/{} into coordinator db",
             (i + 1) * batch_size,
             num_templates
         );
+
+        i += 1;
     }
+
     Ok(())
 }
 
@@ -232,8 +240,9 @@ async fn insert_shares(
     num_templates: usize,
 ) -> eyre::Result<()> {
     let mut tasks = FuturesUnordered::new();
+    let mut i = 0;
 
-    for (i, mut shares) in batched_shares.into_iter().enumerate() {
+    for mut shares in batched_shares.into_iter() {
         for (idx, db) in participant_dbs.iter().enumerate() {
             let participant_shares = mem::take(&mut shares[idx]);
             let db = db.clone();
@@ -243,16 +252,18 @@ async fn insert_shares(
                 Ok::<_, Error>(idx)
             }));
         }
+    }
 
-        while let Some(result) = tasks.next().await {
-            let idx = result??;
-            println!(
-                "Inserted shares {}/{} into participant {} db",
-                (i + 1) * batch_size,
-                num_templates,
-                idx,
-            );
-        }
+    while let Some(result) = tasks.next().await {
+        let idx = result??;
+        println!(
+            "Inserted shares {}/{} into participant {} db",
+            (i + 1) * batch_size,
+            num_templates,
+            idx,
+        );
+
+        i += 1;
     }
     Ok(())
 }
