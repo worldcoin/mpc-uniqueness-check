@@ -31,8 +31,6 @@ pub struct SeedMPCDb {
 }
 
 pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
-    let now = std::time::Instant::now();
-
     if args.participant_db_url.is_empty() {
         return Err(eyre::eyre!("No participant DBs provided"));
     }
