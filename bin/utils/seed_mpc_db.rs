@@ -232,10 +232,11 @@ async fn insert_masks(
     while let Some(result) = tasks.next().await {
         result?;
 
+        let num_inserted = std::cmp::min((i + 1) * batch_size, num_templates);
+
         println!(
             "Inserted masks {}/{} into coordinator db",
-            (i + 1) * batch_size,
-            num_templates
+            num_inserted, num_templates
         );
 
         i += 1;
@@ -273,13 +274,14 @@ async fn insert_shares(
         let idx = result??;
 
         let counter = counters.get_mut(&idx).expect("Could not get counter");
+
+        let num_inserted =
+            std::cmp::min((*counter + 1) * batch_size, num_templates);
+
         println!(
             "Inserted shares {}/{} into participant {} db",
-            (*counter + 1) * batch_size,
-            num_templates,
-            idx,
+            num_inserted, num_templates, idx,
         );
-
         *counter += 1;
     }
     Ok(())
