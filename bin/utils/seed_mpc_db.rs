@@ -53,6 +53,7 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
         batched_shares,
         coordinator_db,
         participant_dbs,
+        args.num_templates,
         args.batch_size,
     )
     .await?;
@@ -179,6 +180,7 @@ async fn insert_masks_and_shares(
     batched_shares: BatchedShares,
     coordinator_db: Arc<Db>,
     participant_dbs: Vec<Arc<Db>>,
+    num_templates: usize,
     batch_size: usize,
 ) -> eyre::Result<()> {
     println!("Inserting masks and shares into db...");
@@ -189,20 +191,20 @@ async fn insert_masks_and_shares(
     tasks.push(tokio::spawn(insert_masks(
         batched_masks,
         coordinator_db,
+        num_templates,
         batch_size,
     )));
 
     tasks.push(tokio::spawn(insert_shares(
         batched_shares,
         participant_dbs,
+        num_templates,
         batch_size,
     )));
 
     while let Some(result) = tasks.next().await {
         result??;
     }
-
-    println!("Time elapsed {:?}", now.elapsed());
 
     Ok(())
 }
@@ -211,6 +213,7 @@ async fn insert_masks(
     batched_masks: BatchedMasks,
     coordinator_db: Arc<Db>,
     num_templates: usize,
+    batch_size: usize,
 ) -> eyre::Result<()> {
     let pb = ProgressBar::new(num_templates as u64)
         .with_message("Inserting masks...");
@@ -230,6 +233,7 @@ async fn insert_masks(
 
     while let Some(result) = tasks.next().await {
         result?;
+        pb.inc(batch_size as u64);
     }
 
     pb.finish_with_message("Inserted masks");
@@ -241,6 +245,7 @@ async fn insert_shares(
     batched_shares: BatchedShares,
     participant_dbs: Vec<Arc<Db>>,
     num_templates: usize,
+    batch_size: usize,
 ) -> eyre::Result<()> {
     let pb = ProgressBar::new(num_templates as u64)
         .with_message("Inserting shares...");
@@ -267,6 +272,7 @@ async fn insert_shares(
 
     while let Some(result) = tasks.next().await {
         result??;
+        pb.inc(batch_size as u64);
     }
 
     pb.finish_with_message("Inserted shares");
