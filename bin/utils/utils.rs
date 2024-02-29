@@ -7,7 +7,6 @@ use seed_mpc_db::{seed_mpc_db, SeedMPCDb};
 use sqs_query::{sqs_query, SQSQuery};
 use sqs_receive::{sqs_receive, SQSReceive};
 
-
 mod generate_mock_templates;
 mod seed_iris_db;
 mod seed_mpc_db;
