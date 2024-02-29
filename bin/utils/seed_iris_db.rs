@@ -1,7 +1,8 @@
 use clap::Args;
 use mpc::bits::Bits;
+use mpc::rng_source::RngSource;
 use mpc::template::Template;
-use rand::{thread_rng, Rng};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::generate_random_string;
@@ -19,6 +20,9 @@ pub struct SeedIrisDb {
 
     #[clap(short, long, default_value = "10000")]
     pub batch_size: usize,
+
+    #[clap(short, long, env, default_value = "thread")]
+    pub rng: RngSource,
 }
 
 pub async fn seed_iris_db(args: &SeedIrisDb) -> eyre::Result<()> {
@@ -30,7 +34,7 @@ pub async fn seed_iris_db(args: &SeedIrisDb) -> eyre::Result<()> {
 
     let iris_db = client.database(DATABASE_NAME);
 
-    let mut rng = thread_rng();
+    let mut rng = args.rng.to_rng();
 
     tracing::info!("Generating codes");
     let left_templates = (0..args.num_templates)
