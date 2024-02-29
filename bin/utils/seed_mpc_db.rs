@@ -1,13 +1,15 @@
 use core::num;
 use std::collections::HashMap;
 use std::mem;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::thread::available_parallelism;
+use std::time::Duration;
 
 use clap::Args;
 use eyre::Error;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
+use indicatif::{ProgressBar, ProgressStyle};
 use metrics::atomics::AtomicU64;
 use mpc::bits::Bits;
 use mpc::config::DbConfig;
@@ -18,6 +20,7 @@ use rand::{thread_rng, Rng};
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, ParallelIterator,
 };
+use rayon::{current_num_threads, ThreadPoolBuilder};
 
 #[derive(Debug, Clone, Args)]
 pub struct SeedMPCDb {
@@ -27,36 +30,39 @@ pub struct SeedMPCDb {
     #[clap(short, long)]
     pub participant_db_url: Vec<String>,
 
-    #[clap(short, long, default_value = "3000000")]
+    #[clap(short, long, default_value = "1000000")]
     pub num_templates: usize,
 
-    #[clap(short, long, default_value = "3000")]
+    #[clap(short, long, default_value = "5000")]
     pub batch_size: usize,
 }
 
 pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
-    let now = std::time::Instant::now();
-
     if args.participant_db_url.is_empty() {
         return Err(eyre::eyre!("No participant DBs provided"));
     }
 
     let (coordinator_db, participant_dbs) = initialize_dbs(args).await?;
 
+    // Configure rayon global thread pool
+    let mut pool_builder = ThreadPoolBuilder::new();
+    pool_builder = pool_builder.num_threads(available_parallelism()?.into());
+    pool_builder.build_global()?;
+
+    eprintln!(
+        "Using {} compute threads on {} cores.",
+        current_num_threads(),
+        available_parallelism()?
+    );
+
+    let now = std::time::Instant::now();
+
     let templates = generate_templates(args);
+    println!("Templates generated in {:?}", now.elapsed());
 
     let (batched_masks, batched_shares) =
         generate_shares_and_masks(args, templates);
-
-    println!("Inserting masks and shares into db");
-
-    // Print a message while waiting for insertions to complete
-    let print_handle = tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(4)).await;
-            println!("Waiting for db seed to complete...")
-        }
-    });
+    println!("Shares and masks generated in {:?}", now.elapsed());
 
     insert_masks_and_shares(
         batched_masks,
@@ -64,11 +70,8 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
         coordinator_db,
         participant_dbs,
         args.batch_size,
-        args.num_templates,
     )
     .await?;
-
-    print_handle.abort();
 
     println!("Time elapsed: {:?}", now.elapsed());
 
@@ -104,23 +107,27 @@ async fn initialize_dbs(
 }
 
 fn generate_templates(args: &SeedMPCDb) -> Vec<Template> {
+    let pb = ProgressBar::new(args.num_templates as u64)
+        .with_message("Generating templates...");
+
+    pb.set_style(ProgressStyle::default_bar()
+        .template("{spinner:.green} {msg} [{elapsed_precise}] [{wide_bar:.green}] {pos:>7}/{len:7} ({eta})")
+        .expect("Could not create progress bar"));
+
     // Generate templates
-    let template_counter = AtomicU64::new(0);
     let templates = (0..args.num_templates)
         .into_par_iter()
         .map(|_| {
             let mut rng = thread_rng();
 
-            println!(
-                "Generating template {}/{}",
-                template_counter.load(Ordering::Relaxed),
-                args.num_templates
-            );
             let template = rng.gen();
-            template_counter.fetch_add(1, Ordering::Relaxed);
+
+            pb.inc(1);
             template
         })
         .collect::<Vec<Template>>();
+
+    pb.finish_with_message("Created templates");
 
     templates
 }
@@ -138,28 +145,26 @@ fn generate_shares_and_masks(
 
     let num_participants = args.participant_db_url.len();
 
+    let pb = ProgressBar::new(args.num_templates as u64)
+        .with_message("Generating shares and masks...");
+
+    pb.set_style(ProgressStyle::default_bar()
+        .template("{spinner:.green} {msg} [{elapsed_precise}] [{wide_bar:.green}] {pos:>7}/{len:7} ({eta})")
+        .expect("Could not create progress bar"));
+
     for (idx, chunk) in templates.chunks(args.batch_size).enumerate() {
         let mut chunk_masks = Vec::with_capacity(chunk.len());
         let mut chunk_shares: Vec<_> = (0..num_participants)
             .map(|_| Vec::with_capacity(chunk.len()))
             .collect();
 
-        let encoded_shares_counter =
-            AtomicU64::new((idx * args.batch_size) as u64);
-
         let shares_chunk = chunk
             .into_par_iter()
             .map(|template| {
-                println!(
-                    "Encoding template {}/{}",
-                    encoded_shares_counter.load(Ordering::Relaxed),
-                    args.num_templates
-                );
                 let shares =
                     mpc::distance::encode(template).share(num_participants);
 
-                encoded_shares_counter.fetch_add(1, Ordering::Relaxed);
-
+                pb.inc(1);
                 shares
             })
             .collect::<Vec<Box<[EncodedBits]>>>();
@@ -180,6 +185,8 @@ fn generate_shares_and_masks(
         batched_masks.push(chunk_masks);
     }
 
+    pb.finish_with_message("Created shares and masks");
+
     (batched_masks, batched_shares)
 }
 
@@ -189,24 +196,22 @@ async fn insert_masks_and_shares(
     coordinator_db: Arc<Db>,
     participant_dbs: Vec<Arc<Db>>,
     batch_size: usize,
-    num_templates: usize,
 ) -> eyre::Result<()> {
-    // Commit shares and masks to db
+    println!("Inserting masks and shares into db...");
 
+    // Commit shares and masks to db
     let mut tasks = FuturesUnordered::new();
 
     tasks.push(tokio::spawn(insert_masks(
         batched_masks,
         coordinator_db,
         batch_size,
-        num_templates,
     )));
 
     tasks.push(tokio::spawn(insert_shares(
         batched_shares,
         participant_dbs,
         batch_size,
-        num_templates,
     )));
 
     while let Some(result) = tasks.next().await {
@@ -219,28 +224,29 @@ async fn insert_masks_and_shares(
 async fn insert_masks(
     batched_masks: BatchedMasks,
     coordinator_db: Arc<Db>,
-    batch_size: usize,
     num_templates: usize,
 ) -> eyre::Result<()> {
+    let pb = ProgressBar::new(num_templates as u64)
+        .with_message("Inserting masks...");
+
+    pb.set_style(ProgressStyle::default_bar()
+    .template("{spinner:.green} {msg} [{elapsed_precise}] [{wide_bar:.green}] {pos:>7}/{len:7} ({eta})")
+    .expect("Could not create progress bar"));
+
+    pb.inc(0);
+
     let mut tasks = FuturesUnordered::new();
-    let mut i = 0;
 
     for masks in batched_masks.iter() {
         tasks.push(coordinator_db.insert_masks(&masks));
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
     while let Some(result) = tasks.next().await {
         result?;
-
-        let num_inserted = std::cmp::min((i + 1) * batch_size, num_templates);
-
-        println!(
-            "Inserted masks {}/{} into coordinator db",
-            num_inserted, num_templates
-        );
-
-        i += 1;
     }
+
+    pb.finish_with_message("Inserted masks");
 
     Ok(())
 }
@@ -248,15 +254,17 @@ async fn insert_masks(
 async fn insert_shares(
     batched_shares: BatchedShares,
     participant_dbs: Vec<Arc<Db>>,
-    batch_size: usize,
     num_templates: usize,
 ) -> eyre::Result<()> {
-    let mut tasks = FuturesUnordered::new();
-    let mut counters = HashMap::new();
+    let pb = ProgressBar::new(num_templates as u64)
+        .with_message("Inserting shares...");
 
-    for (i, _) in participant_dbs.iter().enumerate() {
-        counters.insert(i, 0_usize);
-    }
+    pb.set_style(ProgressStyle::default_bar()
+        .template("{spinner:.green} {msg} [{elapsed_precise}] [{wide_bar:.green}] {pos:>7}/{len:7} ({eta})")
+        .expect("Could not create progress bar"));
+    pb.inc(0);
+
+    let mut tasks = FuturesUnordered::new();
 
     for mut shares in batched_shares.into_iter() {
         for (idx, db) in participant_dbs.iter().enumerate() {
@@ -265,24 +273,17 @@ async fn insert_shares(
 
             tasks.push(tokio::spawn(async move {
                 db.insert_shares(&participant_shares).await?;
+                tokio::time::sleep(Duration::from_millis(10)).await;
                 Ok::<_, Error>(idx)
             }));
         }
     }
 
     while let Some(result) = tasks.next().await {
-        let idx = result??;
-
-        let counter = counters.get_mut(&idx).expect("Could not get counter");
-
-        let num_inserted =
-            std::cmp::min((*counter + 1) * batch_size, num_templates);
-
-        println!(
-            "Inserted shares {}/{} into participant {} db",
-            num_inserted, num_templates, idx,
-        );
-        *counter += 1;
+        result??;
     }
+
+    pb.finish_with_message("Inserted shares");
+
     Ok(())
 }
