@@ -1,4 +1,5 @@
 use std::mem;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use clap::Args;
@@ -6,11 +7,17 @@ use eyre::Error;
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
 use indicatif::ProgressBar;
+use metrics::atomics::AtomicU64;
 use mpc::config::DbConfig;
 use mpc::coordinator;
 use mpc::db::Db;
+use mpc::distance::EncodedBits;
 use mpc::template::Template;
 use rand::{thread_rng, Rng};
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelIterator, ParallelIterator,
+};
+use sqlx::Encode;
 
 #[derive(Debug, Clone, Args)]
 pub struct SeedMPCDb {
@@ -78,18 +85,34 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
             .map(|_| Vec::with_capacity(chunk.len()))
             .collect();
 
-        for (offset, template) in chunk.iter().enumerate() {
-            println!(
-                "Encoding shares {}/{}",
-                idx * args.batch_size + offset,
-                templates.len()
-            );
-            let shares =
-                mpc::distance::encode(template).share(participant_dbs.len());
+        let encoded_shares_counter =
+            AtomicU64::new((idx * args.batch_size) as u64);
 
+        let shares_chunk = chunk
+            .into_par_iter()
+            .enumerate()
+            .map(|(i, template)| {
+                println!(
+                    "Encoding template {}/{}",
+                    encoded_shares_counter.load(Ordering::Relaxed),
+                    args.num_templates
+                );
+                let shares = mpc::distance::encode(template)
+                    .share(participant_dbs.len());
+
+                encoded_shares_counter.fetch_add(1, Ordering::Relaxed);
+
+                shares
+            })
+            .collect::<Vec<Box<[EncodedBits]>>>();
+
+        for (offset, (shares, template)) in
+            shares_chunk.iter().zip(chunk).enumerate()
+        {
             let id = offset + (idx * args.batch_size);
 
             chunk_masks.push((id as u64, template.mask));
+
             for (idx, share) in shares.iter().enumerate() {
                 chunk_shares[idx].push((id as u64, *share));
             }
@@ -99,36 +122,25 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
         batched_masks.push(chunk_masks);
     }
 
-    let mut tasks = FuturesUnordered::new();
-
     let mut i = 0;
 
     //Insert into dbs
+
+    //TODO: insert in chunks and wait in chunks
     for (masks, mut shares) in
         batched_masks.into_iter().zip(batched_shares.into_iter())
     {
+        let mut tasks = FuturesUnordered::new();
+
         for (idx, db) in participant_dbs.iter().enumerate() {
             let participant_shares = mem::take(&mut shares[idx]);
             let db = db.clone();
-
-            println!(
-                "Inserting shares {} to {} into participant {} db",
-                i,
-                i + args.batch_size,
-                idx,
-            );
 
             tasks.push(tokio::spawn(async move {
                 db.insert_shares(&participant_shares).await?;
                 Ok::<_, Error>(Insertion::Shares(idx))
             }));
         }
-
-        println!(
-            "Inserting shares {} to {} into coordinator db",
-            i,
-            i + args.batch_size,
-        );
 
         let coordinator_db = coordinator_db.clone();
         tasks.push(tokio::spawn(async move {
@@ -137,33 +149,24 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
         }));
 
         i += args.batch_size;
-    }
 
-    //wait for tasks
-
-    let mut participant_counters = vec![0_usize; participant_dbs.len()];
-    let mut coordinator_counter = 0;
-
-    while let Some(result) = tasks.next().await {
-        match result?? {
-            Insertion::Shares(idx) => {
-                let counter = participant_counters[idx] + args.batch_size;
-                participant_counters[idx] = counter;
-
-                println!(
-                    "Successfully inserted shares {}/{} into participant {} db",
-                    counter,
-                    templates.len(),
-                    idx,
-                );
-            }
-            Insertion::Masks => {
-                coordinator_counter += args.batch_size;
-                println!(
-                    "Successfully inserted masks {}/{} into coordinator db",
-                    coordinator_counter,
-                    templates.len()
-                );
+        while let Some(result) = tasks.next().await {
+            match result?? {
+                Insertion::Shares(idx) => {
+                    println!(
+                        "Inserted shares {}/{} into participant {} db",
+                        i,
+                        templates.len(),
+                        idx,
+                    );
+                }
+                Insertion::Masks => {
+                    println!(
+                        "Inserted masks {}/{} into coordinator db",
+                        i,
+                        templates.len()
+                    );
+                }
             }
         }
     }
