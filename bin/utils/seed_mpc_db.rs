@@ -1,9 +1,13 @@
+use std::mem;
+use std::sync::Arc;
+
 use clap::Args;
 use eyre::Error;
 use futures::stream::FuturesUnordered;
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use indicatif::ProgressBar;
 use mpc::config::DbConfig;
+use mpc::coordinator;
 use mpc::db::Db;
 use mpc::template::Template;
 use rand::{thread_rng, Rng};
@@ -19,7 +23,7 @@ pub struct SeedMPCDb {
     #[clap(short, long, default_value = "3000000")]
     pub num_templates: usize,
 
-    #[clap(short, long, default_value = "10000")]
+    #[clap(short, long, default_value = "3000")]
     pub batch_size: usize,
 }
 
@@ -30,11 +34,11 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
 
     let mut templates: Vec<Template> = Vec::with_capacity(args.num_templates);
 
-    tracing::info!("Generating templates");
+    println!("Generating templates");
     let mut rng = thread_rng();
 
     for _ in 0..args.num_templates {
-        tracing::info!(
+        println!(
             "Generating template {}/{}",
             templates.len(),
             args.num_templates
@@ -42,29 +46,31 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
         templates.push(rng.gen());
     }
 
-    let coordinator_db = Db::new(&DbConfig {
-        url: args.coordinator_db_url.clone(),
-        migrate: true,
-        create: true,
-    })
-    .await?;
+    let coordinator_db = Arc::new(
+        Db::new(&DbConfig {
+            url: args.coordinator_db_url.clone(),
+            migrate: true,
+            create: true,
+        })
+        .await?,
+    );
 
     let mut participant_dbs = vec![];
 
     for db_config in args.participant_db_url.iter() {
-        participant_dbs.push(
+        participant_dbs.push(Arc::new(
             Db::new(&DbConfig {
                 url: db_config.clone(),
                 migrate: true,
                 create: true,
             })
             .await?,
-        );
+        ));
     }
 
-    let num_chunks = (templates.len() / args.batch_size) + 1;
-
-    //TODO: update logging to num shares rather than chunks
+    //TODO: would be nice to make this parallel
+    let mut batched_shares = vec![];
+    let mut batched_masks = vec![];
 
     for (idx, chunk) in templates.chunks(args.batch_size).enumerate() {
         let mut chunk_masks = Vec::with_capacity(chunk.len());
@@ -72,8 +78,12 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
             .map(|_| Vec::with_capacity(chunk.len()))
             .collect();
 
-        tracing::info!("Encoding shares {}/{}", idx + 1, num_chunks);
         for (offset, template) in chunk.iter().enumerate() {
+            println!(
+                "Encoding shares {}/{}",
+                idx * args.batch_size + offset,
+                templates.len()
+            );
             let shares =
                 mpc::distance::encode(template).share(participant_dbs.len());
 
@@ -85,39 +95,84 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
             }
         }
 
-        let mut tasks = FuturesUnordered::new();
+        batched_shares.push(chunk_shares);
+        batched_masks.push(chunk_masks);
+    }
 
-        for (i, db) in participant_dbs.iter().enumerate() {
-            tracing::info!(
-                "Inserting shares chunk {}/{num_chunks} into participant DB {i}",
-                idx + 1
+    let mut tasks = FuturesUnordered::new();
+
+    let mut i = 0;
+
+    //Insert into dbs
+    for (masks, mut shares) in
+        batched_masks.into_iter().zip(batched_shares.into_iter())
+    {
+        for (idx, db) in participant_dbs.iter().enumerate() {
+            let participant_shares = mem::take(&mut shares[idx]);
+            let db = db.clone();
+
+            println!(
+                "Inserting shares {} to {} into participant {} db",
+                i,
+                i + args.batch_size,
+                idx,
             );
 
-            tasks.push(Box::pin(db.insert_shares(&chunk_shares[idx])));
+            tasks.push(tokio::spawn(async move {
+                db.insert_shares(&participant_shares).await?;
+                Ok::<_, Error>(Insertion::Shares(idx))
+            }));
         }
 
-        tracing::info!(
-            "Inserting masks chunk {}/{num_chunks} into coordinator DB",
-            idx + 1
+        println!(
+            "Inserting shares {} to {} into coordinator db",
+            i,
+            i + args.batch_size,
         );
 
-        let coordinator_task: Result<(), eyre::Report> =
-            coordinator_db.insert_masks(&chunk_masks).await;
+        let coordinator_db = coordinator_db.clone();
+        tasks.push(tokio::spawn(async move {
+            coordinator_db.insert_masks(&masks).await?;
+            Ok::<_, Error>(Insertion::Masks)
+        }));
 
-        tasks.push(coordinator_task);
+        i += args.batch_size;
+    }
 
-        while let Some(result) = tasks.next().await {
-            println!("Task completed with result: {:?}", result);
+    //wait for tasks
+
+    let mut participant_counters = vec![0_usize; participant_dbs.len()];
+    let mut coordinator_counter = 0;
+
+    while let Some(result) = tasks.next().await {
+        match result?? {
+            Insertion::Shares(idx) => {
+                let counter = participant_counters[idx] + args.batch_size;
+                participant_counters[idx] = counter;
+
+                println!(
+                    "Successfully inserted shares {}/{} into participant {} db",
+                    counter,
+                    templates.len(),
+                    idx,
+                );
+            }
+            Insertion::Masks => {
+                coordinator_counter += args.batch_size;
+                println!(
+                    "Successfully inserted masks {}/{} into coordinator db",
+                    coordinator_counter,
+                    templates.len()
+                );
+            }
         }
-
-        let (coordinator, participants) = tokio::join!(
-            ,
-            tasks.await.collect::<Result<_, _>>(),
-        );
-
-        // coordinator?;
-        // participants.into_iter().collect::<Result<_, _>>()?;
     }
 
     Ok(())
+}
+
+//Insertion type to keep track of progress for each db
+pub enum Insertion {
+    Shares(usize),
+    Masks,
 }

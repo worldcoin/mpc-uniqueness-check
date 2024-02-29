@@ -27,8 +27,6 @@ enum Opt {
 async fn main() -> eyre::Result<()> {
     dotenv::dotenv().ok();
 
-    let _shutdown_tracing_provider = StdoutBattery::init();
-
     let args = Opt::parse();
 
     match args {
