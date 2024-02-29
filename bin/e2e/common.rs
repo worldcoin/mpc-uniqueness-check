@@ -124,10 +124,11 @@ pub async fn seed_db_sync(
     participant_db_sync_queues: &[&str],
     template: Template,
     serial_id: u64,
+    rng: &mut impl Rng,
 ) -> eyre::Result<()> {
     tracing::info!("Encoding shares");
     let shares: Box<[EncodedBits]> = mpc::distance::encode(&template)
-        .share(participant_db_sync_queues.len());
+        .share(participant_db_sync_queues.len(), rng);
 
     let coordinator_payload =
         serde_json::to_string(&vec![coordinator::DbSyncPayload {
@@ -209,9 +210,8 @@ async fn wait_for_empty_queue(
     }
 }
 
-pub fn generate_random_string(len: usize) -> String {
-    rand::thread_rng()
-        .sample_iter(&Alphanumeric)
+pub fn generate_random_string(len: usize, rng: &mut impl Rng) -> String {
+    rng.sample_iter(&Alphanumeric)
         .take(len)
         .map(char::from)
         .collect()

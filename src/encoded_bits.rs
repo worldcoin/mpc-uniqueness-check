@@ -7,7 +7,7 @@ use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
 use bytemuck::{cast_slice_mut, Pod, Zeroable};
 use rand::distributions::{Distribution, Standard};
-use rand::{thread_rng, Rng};
+use rand::Rng;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -23,11 +23,10 @@ unsafe impl Pod for EncodedBits {}
 
 impl EncodedBits {
     /// Generate secret shares from this bitvector.
-    pub fn share(&self, n: usize) -> Box<[EncodedBits]> {
+    pub fn share(&self, n: usize, rng: &mut impl Rng) -> Box<[EncodedBits]> {
         assert!(n > 0);
 
         // Create `n - 1` random shares.
-        let mut rng = thread_rng();
         let mut result: Box<[EncodedBits]> =
             iter::repeat_with(|| rng.gen::<EncodedBits>())
                 .take(n - 1)
@@ -210,6 +209,8 @@ impl Serialize for EncodedBits {
 
 #[cfg(test)]
 mod tests {
+    use rand::thread_rng;
+
     use super::*;
 
     #[test]

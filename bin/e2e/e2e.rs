@@ -7,6 +7,7 @@ use eyre::ContextCompat;
 use mpc::config::{load_config, AwsConfig, DbConfig};
 use mpc::coordinator::UniquenessCheckResult;
 use mpc::db::Db;
+use mpc::rng_source::RngSource;
 use mpc::template::{Bits, Template};
 use mpc::utils::aws::{self, sqs_client_from_config};
 use serde::Deserialize;
@@ -44,6 +45,9 @@ struct Args {
     /// The path to the signup sequence file to use
     #[clap(short, long, default_value = "bin/e2e/signup_sequence.json")]
     signup_sequence: String,
+
+    #[clap(short, long, env, default_value = "thread")]
+    rng: RngSource,
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,6 +77,8 @@ async fn main() -> eyre::Result<()> {
     if std::env::var("AWS_DEFAULT_REGION").is_err() {
         tracing::warn!("AWS_DEFAULT_REGION not set");
     }
+
+    let mut rng = args.rng.to_rng();
 
     let _shutdown_tracing_provider = StdoutBattery::init();
 
@@ -132,7 +138,7 @@ async fn main() -> eyre::Result<()> {
             &sqs_client,
             &config.coordinator_queue.query_queue,
             &element.signup_id,
-            &common::generate_random_string(4),
+            &common::generate_random_string(4, &mut rng),
         )
         .await?;
 
@@ -177,6 +183,7 @@ async fn main() -> eyre::Result<()> {
                 &participant_db_sync_queues,
                 template,
                 next_serial_id,
+                &mut rng,
             )
             .await?;
 
