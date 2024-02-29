@@ -1,4 +1,5 @@
 use core::num;
+use std::collections::HashMap;
 use std::mem;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -48,6 +49,15 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
         generate_shares_and_masks(args, templates);
 
     println!("Inserting masks and shares into db");
+
+    // Print a message while waiting for insertions to complete
+    let print_handle = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(4)).await;
+            println!("Waiting for db seed to complete...")
+        }
+    });
+
     insert_masks_and_shares(
         batched_masks,
         batched_shares,
@@ -57,6 +67,8 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
         args.num_templates,
     )
     .await?;
+
+    print_handle.abort();
 
     println!("Time elapsed: {:?}", now.elapsed());
 
@@ -137,8 +149,7 @@ fn generate_shares_and_masks(
 
         let shares_chunk = chunk
             .into_par_iter()
-            .enumerate()
-            .map(|(i, template)| {
+            .map(|template| {
                 println!(
                     "Encoding template {}/{}",
                     encoded_shares_counter.load(Ordering::Relaxed),
@@ -240,7 +251,11 @@ async fn insert_shares(
     num_templates: usize,
 ) -> eyre::Result<()> {
     let mut tasks = FuturesUnordered::new();
-    let mut i = 0;
+    let mut counters = HashMap::new();
+
+    for (i, _) in participant_dbs.iter().enumerate() {
+        counters.insert(i, 0_usize);
+    }
 
     for mut shares in batched_shares.into_iter() {
         for (idx, db) in participant_dbs.iter().enumerate() {
@@ -256,14 +271,16 @@ async fn insert_shares(
 
     while let Some(result) = tasks.next().await {
         let idx = result??;
+
+        let counter = counters.get_mut(&idx).expect("Could not get counter");
         println!(
             "Inserted shares {}/{} into participant {} db",
-            (i + 1) * batch_size,
+            (*counter + 1) * batch_size,
             num_templates,
             idx,
         );
 
-        i += 1;
+        *counter += 1;
     }
     Ok(())
 }
