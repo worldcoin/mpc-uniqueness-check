@@ -1,6 +1,5 @@
 use std::mem;
 use std::sync::Arc;
-use std::thread::available_parallelism;
 use std::time::Duration;
 
 use clap::Args;
@@ -15,7 +14,6 @@ use mpc::distance::EncodedBits;
 use mpc::template::Template;
 use rand::{thread_rng, Rng};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use rayon::{current_num_threads, ThreadPoolBuilder};
 
 #[derive(Debug, Clone, Args)]
 pub struct SeedMPCDb {
