@@ -155,7 +155,7 @@ fn generate_shares_and_masks(
         for (offset, (shares, template)) in
             shares_chunk.iter().zip(chunk).enumerate()
         {
-            let id = offset + (idx * args.batch_size);
+            let id = offset + (idx * args.batch_size) + 1;
 
             chunk_masks.push((id as u64, template.mask));
 
