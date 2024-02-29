@@ -1,5 +1,3 @@
-use core::num;
-use std::collections::HashMap;
 use std::mem;
 use std::sync::Arc;
 use std::thread::available_parallelism;
@@ -10,16 +8,13 @@ use eyre::Error;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
-use metrics::atomics::AtomicU64;
 use mpc::bits::Bits;
 use mpc::config::DbConfig;
 use mpc::db::Db;
 use mpc::distance::EncodedBits;
 use mpc::template::Template;
 use rand::{thread_rng, Rng};
-use rayon::iter::{
-    IndexedParallelIterator, IntoParallelIterator, ParallelIterator,
-};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use rayon::{current_num_threads, ThreadPoolBuilder};
 
 #[derive(Debug, Clone, Args)]
@@ -43,17 +38,6 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
     }
 
     let (coordinator_db, participant_dbs) = initialize_dbs(args).await?;
-
-    // Configure rayon global thread pool
-    let mut pool_builder = ThreadPoolBuilder::new();
-    pool_builder = pool_builder.num_threads(available_parallelism()?.into());
-    pool_builder.build_global()?;
-
-    eprintln!(
-        "Using {} compute threads on {} cores.",
-        current_num_threads(),
-        available_parallelism()?
-    );
 
     let now = std::time::Instant::now();
 
@@ -238,7 +222,7 @@ async fn insert_masks(
     let mut tasks = FuturesUnordered::new();
 
     for masks in batched_masks.iter() {
-        tasks.push(coordinator_db.insert_masks(&masks));
+        tasks.push(coordinator_db.insert_masks(masks));
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
