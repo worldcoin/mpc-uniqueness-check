@@ -6,10 +6,10 @@ use distance::Template;
 use eyre::ContextCompat;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use serde::{Deserialize, Serialize};
-use telemetry_batteries::opentelemetry::trace::{
+use opentelemetry::trace::{
     SpanContext, SpanId, TraceFlags, TraceId, TraceState,
 };
+use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex};
