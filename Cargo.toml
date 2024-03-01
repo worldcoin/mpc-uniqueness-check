@@ -22,7 +22,7 @@ hex = { version = "0.4.3", features = ["serde"] }
 indicatif = "0.17.7"
 indoc = "2.0.4"
 itertools = "0.12.0"
-metrics = "0.21.1"
+metrics = "0.22.1"
 # TODO: only include this for migrate-codes bin
 mongodb = "2.8.1"
 ordered-float = "4.2.0"

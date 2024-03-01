@@ -2019,17 +2019,6 @@ checksum = "523dc4f511e55ab87b694dc30d0f820d60906ef06413f93d4d7a1385599cc149"
 
 [[package]]
 name = "metrics"
-version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fde3af1a009ed76a778cb84fdef9e7dbbdf5775ae3e4cc1f434a6a307f6f76c5"
-dependencies = [
- "ahash 0.8.7",
- "metrics-macros",
- "portable-atomic",
-]
-
-[[package]]
-name = "metrics"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd71d9db2e4287c3407fa04378b8c2ee570aebe0854431562cdd89ca091854f4"
@@ -2049,7 +2038,7 @@ dependencies = [
  "hyper-tls",
  "indexmap",
  "ipnet",
- "metrics 0.22.1",
+ "metrics",
  "metrics-util",
  "quanta",
  "thiserror",
@@ -2064,19 +2053,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "82bd7bb16e431f15d56a61b18ee34881cd9d427da7b4450d1a588c911c1d9ac3"
 dependencies = [
  "cadence",
- "metrics 0.22.1",
+ "metrics",
  "thiserror",
-]
-
-[[package]]
-name = "metrics-macros"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38b4faf00617defe497754acde3024865bc143d44a86799b24e191ecff91354f"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.48",
 ]
 
 [[package]]
@@ -2088,7 +2066,7 @@ dependencies = [
  "crossbeam-epoch",
  "crossbeam-utils",
  "hashbrown 0.14.3",
- "metrics 0.22.1",
+ "metrics",
  "num_cpus",
  "quanta",
  "sketches-ddsketch",
@@ -2196,7 +2174,7 @@ dependencies = [
  "indicatif",
  "indoc",
  "itertools 0.12.0",
- "metrics 0.21.1",
+ "metrics",
  "mongodb",
  "opentelemetry",
  "ordered-float",
@@ -3780,7 +3758,7 @@ dependencies = [
  "chrono",
  "dirs",
  "http 0.2.11",
- "metrics 0.22.1",
+ "metrics",
  "metrics-exporter-prometheus",
  "metrics-exporter-statsd",
  "opentelemetry",
