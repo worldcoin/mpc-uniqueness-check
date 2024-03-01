@@ -1,4 +1,5 @@
 use clap::Args;
+use indicatif::{ProgressBar, ProgressStyle};
 use mpc::bits::Bits;
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +16,7 @@ pub struct SeedIrisDb {
     #[clap(short, long)]
     pub num_templates: usize,
 
-    #[clap(short, long, default_value = "1000")]
+    #[clap(short, long, default_value = "100")]
     pub batch_size: usize,
 }
 
@@ -53,14 +54,20 @@ pub async fn seed_iris_db(args: &SeedIrisDb) -> eyre::Result<()> {
         })
         .collect::<Vec<IrisCodeEntry>>();
 
-    for (i, chunk) in documents.chunks(args.batch_size).enumerate() {
-        tracing::info!(
-            "Seeding iris codes, chunk {}/{}",
-            i + 1,
-            (documents.len() / args.batch_size) + 1
-        );
+    let pb = ProgressBar::new(documents.len() as u64)
+        .with_message("Seeding iris codes");
+
+    pb.set_style(ProgressStyle::default_bar()
+        .template("{spinner:.green} {msg} [{elapsed_precise}] [{wide_bar:.green}] {pos:>7}/{len:7} ({eta})")
+        .expect("Could not create progress bar"));
+
+    for chunk in documents.chunks(args.batch_size) {
         collection.insert_many(chunk, None).await?;
+
+        pb.inc(chunk.len() as u64);
     }
+
+    pb.finish_with_message("Seeded iris codes");
 
     Ok(())
 }
