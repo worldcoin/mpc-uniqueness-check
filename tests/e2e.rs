@@ -431,7 +431,7 @@ async fn test_signup_sequence(
             next_serial_id += 1;
 
             // Sleep a little to give the nodes time to sync dbs
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
         }
 
         // Delete message from queue
