@@ -20,10 +20,10 @@ pub struct SeedMPCDb {
     #[clap(short, long)]
     pub participant_db_url: Vec<String>,
 
-    #[clap(short, long, default_value = "1000000")]
+    #[clap(short, long, default_value = "100000")]
     pub num_templates: usize,
 
-    #[clap(short, long, default_value = "5000")]
+    #[clap(short, long, default_value = "100")]
     pub batch_size: usize,
 }
 
@@ -164,14 +164,11 @@ fn generate_shares_and_masks(
 
             batch_masks.push((id as u64, template.mask));
 
-            // < <share 0, share 1>, <share 0, share 1>  >
             for (idx, share) in shares.iter().enumerate() {
                 batch_shares[idx].push((id as u64, *share));
             }
         }
 
-        // vec of batches
-        // < Batch< <share 0, share 1>, <share 0, share 1>  >, Batch< <share 0, share 1>, <share 0, share 1>  > >
         batched_shares.push(batch_shares);
         batched_masks.push(batch_masks);
     }
@@ -259,7 +256,10 @@ async fn get_latest_serial_id(
         let participant_id = db.fetch_latest_share_id().await?;
 
         println!("Participant {} ids: {}", i, participant_id);
-        assert_eq!(coordinator_serial_id, participant_id);
+        assert_eq!(
+            coordinator_serial_id, participant_id,
+            "Databases are not in sync"
+        );
     }
 
     Ok(coordinator_serial_id)
