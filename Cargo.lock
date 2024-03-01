@@ -2182,6 +2182,7 @@ dependencies = [
  "aws-sdk-sqs",
  "axum",
  "base64 0.21.7",
+ "bitvec",
  "bytemuck",
  "clap",
  "config",
@@ -2197,6 +2198,7 @@ dependencies = [
  "itertools 0.12.0",
  "metrics 0.21.1",
  "mongodb",
+ "opentelemetry",
  "ordered-float",
  "proptest",
  "rand",
@@ -3773,7 +3775,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 [[package]]
 name = "telemetry-batteries"
 version = "0.1.0"
-source = "git+https://github.com/worldcoin/telemetry-batteries.git?rev=c7d89a66bfb33423637d147e59de4758d3456c89#c7d89a66bfb33423637d147e59de4758d3456c89"
+source = "git+https://github.com/worldcoin/telemetry-batteries.git?rev=e0891328b29d9f85df037633feccca2f74a291a6#e0891328b29d9f85df037633feccca2f74a291a6"
 dependencies = [
  "chrono",
  "dirs",
@@ -3785,6 +3787,7 @@ dependencies = [
  "opentelemetry-datadog",
  "opentelemetry-http",
  "opentelemetry_sdk",
+ "reqwest",
  "serde",
  "serde_json",
  "thiserror",

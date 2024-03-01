@@ -24,8 +24,6 @@ pub struct Args {
     pub right_participant_db: Vec<String>,
     #[clap(long, env, default_value = "10000")]
     pub batch_size: usize,
-    #[clap(long, env, default_value = "28800")]
-    pub wait_time_seconds: usize,
 }
 
 #[tokio::main]
@@ -49,17 +47,14 @@ async fn main() -> eyre::Result<()> {
 
     let iris_db = IrisDb::new(args.iris_code_db).await?;
 
-    loop {
-        let iris_code_entries = iris_db.get_iris_code_snapshot().await?;
-        let mut next_serial_id = mpc_db.fetch_latest_serial_id().await? + 1;
+    let iris_code_entries = iris_db.get_iris_code_snapshot().await?;
+    let mut next_serial_id = mpc_db.fetch_latest_serial_id().await? + 1;
 
-        for entries in
-            iris_code_entries[next_serial_id as usize..].chunks(args.batch_size)
-        {
-            let (left_templates, right_templates): (
-                Vec<Template>,
-                Vec<Template>,
-            ) = entries
+    for entries in
+        iris_code_entries[next_serial_id as usize..].chunks(args.batch_size)
+    {
+        let (left_templates, right_templates): (Vec<Template>, Vec<Template>) =
+            entries
                 .iter()
                 .map(|entry| {
                     (
@@ -75,18 +70,17 @@ async fn main() -> eyre::Result<()> {
                 })
                 .unzip();
 
-            mpc_db
-                .insert_shares_and_masks(
-                    next_serial_id,
-                    &left_templates,
-                    &right_templates,
-                )
-                .await?;
+        mpc_db
+            .insert_shares_and_masks(
+                next_serial_id,
+                &left_templates,
+                &right_templates,
+            )
+            .await?;
 
-            next_serial_id += 1;
-        }
-
-        tokio::time::sleep(Duration::from_secs(args.wait_time_seconds as u64))
-            .await;
+        next_serial_id += 1;
     }
+
+    tokio::time::sleep(Duration::from_secs(args.wait_time_seconds as u64))
+        .await;
 }

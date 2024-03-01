@@ -4,10 +4,10 @@ use std::fmt::Debug;
 use aws_config::Region;
 use aws_sdk_sqs::types::{Message, MessageAttributeValue};
 use eyre::Context;
-use serde::Serialize;
-use telemetry_batteries::opentelemetry::trace::{
+use opentelemetry::trace::{
     SpanContext, SpanId, TraceFlags, TraceId, TraceState,
 };
+use serde::Serialize;
 
 use crate::config::AwsConfig;
 
@@ -63,17 +63,17 @@ pub async fn sqs_dequeue(
     Ok(messages)
 }
 
-#[tracing::instrument(skip(client, message))]
+#[tracing::instrument(skip(client, payload))]
 pub async fn sqs_enqueue<T>(
     client: &aws_sdk_sqs::Client,
     queue_url: &str,
     message_group_id: &str,
-    message: T,
+    payload: T,
 ) -> eyre::Result<()>
 where
     T: Serialize + Debug,
 {
-    let body = serde_json::to_string(&message)
+    let body = serde_json::to_string(&payload)
         .wrap_err("Failed to serialize message")?;
 
     let message_attributes = construct_message_attributes()?;
@@ -87,7 +87,7 @@ where
         .send()
         .await?;
 
-    tracing::info!(?send_message_output, ?message, "Enqueued message");
+    tracing::info!(?send_message_output, ?payload, "Enqueued message");
 
     Ok(())
 }

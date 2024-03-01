@@ -1,14 +1,15 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use aws_sdk_sqs::types::Message;
 use distance::Template;
 use eyre::ContextCompat;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use serde::{Deserialize, Serialize};
-use telemetry_batteries::opentelemetry::trace::{
+use opentelemetry::trace::{
     SpanContext, SpanId, TraceFlags, TraceId, TraceState,
 };
+use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex};
@@ -17,6 +18,7 @@ use tracing::instrument;
 use crate::config::ParticipantConfig;
 use crate::db::Db;
 use crate::distance::{self, encode, DistanceEngine, EncodedBits};
+use crate::utils;
 use crate::utils::aws::{
     sqs_client_from_config, sqs_delete_message, sqs_dequeue,
 };
@@ -61,7 +63,7 @@ impl Participant {
 
         let mut tasks = FuturesUnordered::new();
 
-        tasks.push(tokio::spawn(self.clone().handle_uniqueness_check()));
+        tasks.push(tokio::spawn(self.clone().handle_uniqueness_checks()));
         tasks.push(tokio::spawn(self.clone().handle_db_sync()));
 
         while let Some(result) = tasks.next().await {
@@ -71,19 +73,29 @@ impl Participant {
         Ok(())
     }
 
-    async fn handle_uniqueness_check(self: Arc<Self>) -> eyre::Result<()> {
+    async fn handle_uniqueness_checks(self: Arc<Self>) -> eyre::Result<()> {
         loop {
-            let mut stream =
-                tokio::io::BufWriter::new(self.listener.accept().await?.0);
-
-            // Process the trace and span ids to correlate traces between services
-            self.handle_traces_payload(&mut stream).await?;
-
-            tracing::info!("Incoming connection accepted");
-
-            // Process the query
-            self.uniqueness_check(stream).await?;
+            let stream = self.listener.accept().await?.0;
+            self.handle_uniqueness_check(stream).await?;
         }
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn handle_uniqueness_check(
+        &self,
+        stream: TcpStream,
+    ) -> eyre::Result<()> {
+        let mut stream = tokio::io::BufWriter::new(stream);
+
+        // Process the trace and span ids to correlate traces between services
+        self.handle_traces_payload(&mut stream).await?;
+
+        tracing::info!("Incoming connection accepted");
+
+        // Process the query
+        self.uniqueness_check(stream).await?;
+
+        Ok(())
     }
 
     async fn handle_traces_payload(
@@ -156,51 +168,48 @@ impl Participant {
 
     async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
         loop {
-            self.db_sync().await?;
+            let messages = sqs_dequeue(
+                &self.sqs_client,
+                &self.config.queues.db_sync_queue_url,
+            )
+            .await?;
+
+            if messages.is_empty() {
+                tokio::time::sleep(IDLE_SLEEP_TIME).await;
+            }
+
+            for message in messages {
+                self.db_sync(message).await?;
+            }
         }
     }
 
-    #[tracing::instrument(skip(self))]
-    async fn db_sync(&self) -> eyre::Result<()> {
-        let messages = sqs_dequeue(
-            &self.sqs_client,
-            &self.config.queues.db_sync_queue_url,
-        )
-        .await?;
+    #[tracing::instrument(skip(self, message))]
+    async fn db_sync(&self, message: Message) -> eyre::Result<()> {
+        let receipt_handle = message
+            .receipt_handle
+            .context("Missing receipt handle in message")?;
 
-        if messages.is_empty() {
-            tokio::time::sleep(IDLE_SLEEP_TIME).await;
-            return Ok(());
+        if let Some(message_attributes) = &message.message_attributes {
+            utils::aws::trace_from_message_attributes(
+                message_attributes,
+                &receipt_handle,
+            )?;
+        } else {
+            tracing::warn!(
+                ?receipt_handle,
+                "SQS message missing message attributes"
+            );
         }
 
-        for message in messages {
-            let body = message.body.context("Missing message body")?;
-            let receipt_handle = message
-                .receipt_handle
-                .context("Missing receipt handle in message")?;
+        let body = message.body.context("Missing message body")?;
 
-            let items = if let Ok(items) =
-                serde_json::from_str::<Vec<DbSyncPayload>>(&body)
-            {
-                items
-            } else {
-                tracing::error!(
-                    ?receipt_handle,
-                    "Failed to parse message body"
-                );
-                continue;
-            };
-
-            let shares: Vec<_> = items
-                .into_iter()
-                .map(|item| (item.id, item.share))
-                .collect();
-
-            tracing::info!(
-                num_new_shares = shares.len(),
-                "Inserting shares into database"
-            );
-            self.database.insert_shares(&shares).await?;
+        let items = if let Ok(items) =
+            serde_json::from_str::<Vec<DbSyncPayload>>(&body)
+        {
+            items
+        } else {
+            tracing::error!(?receipt_handle, "Failed to parse message body");
 
             sqs_delete_message(
                 &self.sqs_client,
@@ -208,7 +217,27 @@ impl Participant {
                 receipt_handle,
             )
             .await?;
-        }
+
+            return Ok(());
+        };
+
+        let shares: Vec<_> = items
+            .into_iter()
+            .map(|item| (item.id, item.share))
+            .collect();
+
+        tracing::info!(
+            num_new_shares = shares.len(),
+            "Inserting shares into database"
+        );
+        self.database.insert_shares(&shares).await?;
+
+        sqs_delete_message(
+            &self.sqs_client,
+            &self.config.queues.db_sync_queue_url,
+            receipt_handle,
+        )
+        .await?;
 
         Ok(())
     }
