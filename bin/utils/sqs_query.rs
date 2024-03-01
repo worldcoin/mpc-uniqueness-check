@@ -5,7 +5,7 @@ use mpc::template::Template;
 use mpc::utils::aws::sqs_client_from_config;
 use rand::{thread_rng, Rng};
 
-use crate::generate_random_string;
+use crate::common::generate_random_string;
 
 #[derive(Debug, Clone, Args)]
 pub struct SQSQuery {

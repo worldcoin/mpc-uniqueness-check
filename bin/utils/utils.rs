@@ -8,6 +8,7 @@ use sqs_query::{sqs_query, SQSQuery};
 use sqs_receive::{sqs_receive, SQSReceive};
 use telemetry_batteries::tracing::stdout::StdoutBattery;
 
+mod common;
 mod generate_mock_templates;
 mod seed_iris_db;
 mod seed_mpc_db;
@@ -50,12 +51,4 @@ async fn main() -> eyre::Result<()> {
     }
 
     Ok(())
-}
-
-pub fn generate_random_string(len: usize) -> String {
-    rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(len)
-        .map(char::from)
-        .collect()
 }

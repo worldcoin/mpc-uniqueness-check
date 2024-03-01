@@ -1,11 +1,8 @@
 use clap::Args;
 use mpc::bits::Bits;
-use mpc::rng_source::RngSource;
-use mpc::template::Template;
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-use crate::generate_random_string;
+use crate::common::{generate_random_string, generate_templates};
 
 pub const DATABASE_NAME: &str = "iris";
 pub const COLLECTION_NAME: &str = "codes.v2";
@@ -18,11 +15,8 @@ pub struct SeedIrisDb {
     #[clap(short, long)]
     pub num_templates: usize,
 
-    #[clap(short, long, default_value = "10000")]
+    #[clap(short, long, default_value = "1000")]
     pub batch_size: usize,
-
-    #[clap(short, long, env, default_value = "thread")]
-    pub rng: RngSource,
 }
 
 pub async fn seed_iris_db(args: &SeedIrisDb) -> eyre::Result<()> {
@@ -34,16 +28,10 @@ pub async fn seed_iris_db(args: &SeedIrisDb) -> eyre::Result<()> {
 
     let iris_db = client.database(DATABASE_NAME);
 
-    let mut rng = args.rng.to_rng();
-
-    tracing::info!("Generating codes");
-    let left_templates = (0..args.num_templates)
-        .map(|_| rng.gen())
-        .collect::<Vec<Template>>();
-
-    let right_templates = (0..args.num_templates)
-        .map(|_| rng.gen())
-        .collect::<Vec<Template>>();
+    tracing::info!("Generating left templates...");
+    let left_templates = generate_templates(args.num_templates);
+    tracing::info!("Generating right templates...");
+    let right_templates = generate_templates(args.num_templates);
 
     let collection = iris_db.collection::<IrisCodeEntry>(COLLECTION_NAME);
 
