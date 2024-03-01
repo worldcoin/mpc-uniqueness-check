@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use clap::Args;
 use futures::stream::FuturesUnordered;
@@ -8,6 +8,7 @@ use mpc::bits::Bits;
 use mpc::config::DbConfig;
 use mpc::db::Db;
 use mpc::distance::EncodedBits;
+use mpc::rng_source::RngSource;
 use mpc::template::Template;
 use rand::{thread_rng, Rng};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -25,6 +26,9 @@ pub struct SeedMPCDb {
 
     #[clap(short, long, default_value = "100")]
     pub batch_size: usize,
+
+    #[clap(short, long, env, default_value = "thread")]
+    pub rng: RngSource,
 }
 
 pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
@@ -149,8 +153,10 @@ fn generate_shares_and_masks(
         let shares_chunk = chunk
             .into_par_iter()
             .map(|template| {
-                let shares =
-                    mpc::distance::encode(template).share(num_participants);
+                let mut rng = thread_rng();
+
+                let shares = mpc::distance::encode(template)
+                    .share(num_participants, &mut rng);
 
                 pb.inc(1);
                 shares
