@@ -59,9 +59,9 @@ async fn main() -> eyre::Result<()> {
     let mut tasks: Vec<JoinHandle<eyre::Result<()>>> = vec![];
 
     if let Some(coordinator) = config.coordinator {
-        tasks.push(tokio::spawn(async move {
-            let coordinator = Arc::new(Coordinator::new(coordinator).await?);
+        let coordinator = Arc::new(Coordinator::new(coordinator).await?);
 
+        tasks.push(tokio::spawn(async move {
             coordinator.spawn().await?;
 
             Ok(())
@@ -69,9 +69,9 @@ async fn main() -> eyre::Result<()> {
     }
 
     if let Some(participant) = config.participant {
-        tasks.push(tokio::spawn(async move {
-            let participant = Arc::new(Participant::new(participant).await?);
+        let participant = Arc::new(Participant::new(participant).await?);
 
+        tasks.push(tokio::spawn(async move {
             participant.spawn().await?;
 
             Ok(())
