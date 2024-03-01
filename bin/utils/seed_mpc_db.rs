@@ -1,4 +1,3 @@
-use std::mem;
 use std::sync::Arc;
 
 use clap::Args;
@@ -7,7 +6,6 @@ use futures::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use mpc::bits::Bits;
 use mpc::config::DbConfig;
-use mpc::coordinator;
 use mpc::db::Db;
 use mpc::distance::EncodedBits;
 use mpc::template::Template;
@@ -38,11 +36,18 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
 
     let now = std::time::Instant::now();
 
+    let latest_serial_id =
+        get_latest_serial_id(coordinator_db.clone(), participant_dbs.clone())
+            .await?;
+
     let templates = generate_templates(args);
     println!("Templates generated in {:?}", now.elapsed());
 
-    let (batched_masks, batched_shares) =
-        generate_shares_and_masks(args, templates);
+    let (batched_masks, batched_shares) = generate_shares_and_masks(
+        args,
+        templates,
+        (latest_serial_id + 1) as usize,
+    );
     println!("Shares and masks generated in {:?}", now.elapsed());
 
     insert_masks_and_shares(
@@ -120,6 +125,7 @@ pub type BatchedMasks = Vec<Vec<(u64, Bits)>>;
 fn generate_shares_and_masks(
     args: &SeedMPCDb,
     templates: Vec<Template>,
+    next_serial_id: usize,
 ) -> (BatchedMasks, BatchedShares) {
     // Generate shares and masks
     let mut batched_shares = vec![];
@@ -154,7 +160,7 @@ fn generate_shares_and_masks(
         for (offset, (shares, template)) in
             shares_chunk.iter().zip(chunk).enumerate()
         {
-            let id = offset + (idx * args.batch_size) + 1;
+            let id = offset + (idx * args.batch_size) + next_serial_id;
 
             batch_masks.push((id as u64, template.mask));
 
@@ -242,49 +248,19 @@ async fn insert_masks_and_shares(
     Ok(())
 }
 
-async fn insert_masks(
-    batched_masks: BatchedMasks,
+async fn get_latest_serial_id(
     coordinator_db: Arc<Db>,
-    batch_size: usize,
-    progress_bar: ProgressBar,
-) -> eyre::Result<()> {
-    progress_bar.inc(0);
-
-    for masks in batched_masks.iter() {
-        coordinator_db.insert_masks(masks).await?;
-        progress_bar.inc(batch_size as u64);
-    }
-
-    progress_bar.finish_with_message("Inserted masks");
-
-    Ok(())
-}
-
-async fn insert_shares(
-    batched_shares: BatchedShares,
     participant_dbs: Vec<Arc<Db>>,
-    num_templates: usize,
-    batch_size: usize,
-) -> eyre::Result<()> {
-    let pb = ProgressBar::new(num_templates as u64)
-        .with_message("Inserting shares...");
+) -> eyre::Result<u64> {
+    let coordinator_serial_id = coordinator_db.fetch_latest_mask_id().await?;
+    println!("Coordinator serial id: {}", coordinator_serial_id);
 
-    pb.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.green} {msg} [{elapsed_precise}] [{wide_bar:.green}] {pos:>7}/{len:7} ({eta})")
-        .expect("Could not create progress bar"));
-    pb.inc(0);
+    for (i, db) in participant_dbs.iter().enumerate() {
+        let participant_id = db.fetch_latest_share_id().await?;
 
-    for mut shares in batched_shares.into_iter() {
-        for (idx, db) in participant_dbs.iter().enumerate() {
-            let participant_shares = mem::take(&mut shares[idx]);
-            let db = db.clone();
-
-            db.insert_shares(&participant_shares).await?;
-        }
-        pb.inc(batch_size as u64);
+        println!("Participant {} ids: {}", i, participant_id);
+        assert_eq!(coordinator_serial_id, participant_id);
     }
 
-    pb.finish_with_message("Inserted shares");
-
-    Ok(())
+    Ok(coordinator_serial_id)
 }
