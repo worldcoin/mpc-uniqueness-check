@@ -65,6 +65,12 @@ path = "bin/utils/utils.rs"
 name = "e2e"
 path = "bin/e2e/e2e.rs"
 
+
+[[bin]]
+name = "migrate-codes"
+path = "bin/migrate-codes/migrate.rs"
+
+
 [[bench]]
 name = "rotation_comparison"
 harness = false

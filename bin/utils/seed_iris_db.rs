@@ -39,6 +39,8 @@ pub async fn seed_iris_db(args: &SeedIrisDb) -> eyre::Result<()> {
     // Next serial id with 1 based indexing
     let next_serial_id = collection.count_documents(None, None).await? + 1;
 
+    tracing::info!(?next_serial_id);
+
     let documents = left_templates
         .iter()
         .zip(right_templates.iter())

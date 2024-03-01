@@ -10,7 +10,7 @@ pub const COLLECTION_NAME: &str = "codes.v2";
 #[derive(Serialize, Deserialize)]
 pub struct IrisCodeEntry {
     pub signup_id: String,
-    pub serial_id: u64,
+    pub mpc_serial_id: u64,
     pub iris_code_left: Bits,
     pub mask_code_left: Bits,
     pub iris_code_right: Bits,
@@ -59,7 +59,7 @@ impl IrisDb {
                 let iris_code_element =
                     mongodb::bson::from_document::<IrisCodeEntry>(document)?;
 
-                last_serial_id += iris_code_element.serial_id as i64;
+                last_serial_id += iris_code_element.mpc_serial_id as i64;
 
                 items.push(iris_code_element);
 
@@ -71,7 +71,7 @@ impl IrisDb {
             }
         }
 
-        items.sort_by(|a, b| a.serial_id.cmp(&b.serial_id));
+        items.sort_by(|a, b| a.mpc_serial_id.cmp(&b.mpc_serial_id));
 
         Ok(items)
     }

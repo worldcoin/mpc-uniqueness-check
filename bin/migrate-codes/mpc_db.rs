@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use mpc::bits::Bits;
 use mpc::config::DbConfig;
 use mpc::db::Db;
 use mpc::distance::EncodedBits;
@@ -67,69 +68,35 @@ impl MPCDb {
         })
     }
 
-    #[tracing::instrument(skip(
-        self,
-        serial_id,
-        left_templates,
-        right_templates
-    ))]
+    #[tracing::instrument(skip(self))]
     pub async fn insert_shares_and_masks(
         &self,
-        mut serial_id: u64,
-        left_templates: &[Template],
-        right_templates: &[Template],
+        left_masks: Vec<(u64, Bits)>,
+        left_shares: Vec<Vec<(u64, EncodedBits)>>,
+        right_masks: Vec<(u64, Bits)>,
+        right_shares: Vec<Vec<(u64, EncodedBits)>>,
     ) -> eyre::Result<()> {
-        let participants = self.left_participant_dbs.len();
+        //TODO: logging for progress
 
-        let mut left_participant_shares: Vec<Vec<(u64, EncodedBits)>> =
-            Vec::with_capacity(participants);
-        let mut right_participant_shares: Vec<Vec<(u64, EncodedBits)>> =
-            Vec::with_capacity(participants);
+        let coordinator_tasks = vec![
+            self.left_coordinator_db.insert_masks(&left_masks),
+            self.right_coordinator_db.insert_masks(&right_masks),
+        ];
 
-        let mut left_masks = vec![];
-        let mut right_masks = vec![];
+        let participant_tasks = self
+            .left_participant_dbs
+            .iter()
+            .zip(left_shares.iter())
+            .chain(self.right_participant_dbs.iter().zip(right_shares.iter()))
+            .map(|(db, shares)| db.insert_shares(shares));
 
-        // Collect the shares and masks with the corresponding serial id
-        for (left, right) in left_templates.iter().zip(right_templates) {
-            let left_shares = mpc::distance::encode(left)
-                .share(participants)
-                .iter()
-                .map(|share| (serial_id, *share))
-                .collect::<Vec<(u64, EncodedBits)>>();
-
-            for (i, share) in left_shares.into_iter().enumerate() {
-                left_participant_shares[i].push(share);
-            }
-
-            left_masks.push((serial_id, left.mask));
-
-            let right_shares = mpc::distance::encode(right)
-                .share(participants)
-                .iter()
-                .map(|share| (serial_id, *share))
-                .collect::<Vec<(u64, EncodedBits)>>();
-
-            for (i, share) in right_shares.into_iter().enumerate() {
-                right_participant_shares[i].push(share);
-            }
-
-            right_masks.push((serial_id, right.mask));
-
-            serial_id += 1;
+        for task in coordinator_tasks {
+            task.await?;
         }
 
-        // Insert left shares and masks
-        for (i, db) in self.left_participant_dbs.iter().enumerate() {
-            db.insert_shares(&left_participant_shares[i]).await?;
+        for task in participant_tasks {
+            task.await?;
         }
-        self.left_coordinator_db.insert_masks(&left_masks).await?;
-
-        // Insert right shares and masks
-        for (i, db) in self.right_participant_dbs.iter().enumerate() {
-            db.insert_shares(&right_participant_shares[i]).await?;
-        }
-        self.right_coordinator_db.insert_masks(&right_masks).await?;
-
         Ok(())
     }
 
