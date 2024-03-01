@@ -127,14 +127,26 @@ impl Coordinator {
 
         let body = message.body.context("Missing message body")?;
 
-        let UniquenessCheckRequest {
-            plain_code: template,
+        if let Ok(UniquenessCheckRequest {
+            plain_code,
             signup_id,
-        } = serde_json::from_str(&body).context("Failed to parse message")?;
+        }) = serde_json::from_str::<UniquenessCheckRequest>(&body)
+        {
+            self.uniqueness_check(receipt_handle, plain_code, signup_id)
+                .await?;
+        } else {
+            tracing::error!(
+                ?receipt_handle,
+                "Failed to parse template from message"
+            );
 
-        // Process the query
-        self.uniqueness_check(receipt_handle, template, signup_id)
+            sqs_delete_message(
+                &self.sqs_client,
+                &self.config.queues.queries_queue_url,
+                receipt_handle,
+            )
             .await?;
+        }
 
         Ok(())
     }
@@ -409,7 +421,7 @@ impl Coordinator {
             let distances = worker.await?;
 
             for (j, distance) in distances.into_iter().enumerate() {
-                let id = j + i;
+                let id = j + i + 1;
 
                 if distance < self.hamming_distance_threshold {
                     matches.push(Distance::new(id as u64, distance));
@@ -489,6 +501,14 @@ impl Coordinator {
             items
         } else {
             tracing::error!(?receipt_handle, "Failed to parse message body");
+
+            sqs_delete_message(
+                &self.sqs_client,
+                &self.config.queues.db_sync_queue_url,
+                receipt_handle,
+            )
+            .await?;
+
             return Ok(());
         };
 

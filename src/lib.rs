@@ -10,5 +10,6 @@ pub mod distance;
 pub mod encoded_bits;
 pub mod health_check;
 pub mod participant;
+pub mod rng_source;
 pub mod template;
 pub mod utils;

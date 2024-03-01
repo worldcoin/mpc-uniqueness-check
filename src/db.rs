@@ -374,7 +374,9 @@ mod tests {
     #[tokio::test]
     async fn fetch_masks_returns_nothing_if_missing_first() -> eyre::Result<()>
     {
-        let (db, _pg) = setup().await?;
+        let docker = clients::Cli::default();
+
+        let (db, _pg) = setup(&docker).await?;
 
         let mut rng = thread_rng();
 
