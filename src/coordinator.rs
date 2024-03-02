@@ -421,7 +421,7 @@ impl Coordinator {
             let distances = worker.await?;
 
             for (j, distance) in distances.into_iter().enumerate() {
-                let id = j + i;
+                let id = j + i + 1;
 
                 if distance < self.hamming_distance_threshold {
                     matches.push(Distance::new(id as u64, distance));
