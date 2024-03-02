@@ -54,6 +54,46 @@ impl Db {
     }
 
     #[tracing::instrument(skip(self))]
+    pub async fn fetch_latest_mask_id(&self) -> eyre::Result<u64> {
+        let mask_id = sqlx::query_as::<_, (i64,)>(
+            r#"
+            SELECT id
+            FROM masks
+            ORDER BY id DESC
+            LIMIT 1
+        "#,
+        )
+        .fetch_one(&self.pool)
+        .await;
+
+        match mask_id {
+            Ok(mask_id) => Ok(mask_id.0 as u64),
+            Err(sqlx::Error::RowNotFound) => Ok(0),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn fetch_latest_share_id(&self) -> eyre::Result<u64> {
+        let share_id = sqlx::query_as::<_, (i64,)>(
+            r#"
+            SELECT id
+            FROM shares
+            ORDER BY id DESC
+            LIMIT 1
+        "#,
+        )
+        .fetch_one(&self.pool)
+        .await;
+
+        match share_id {
+            Ok(share_id) => Ok(share_id.0 as u64),
+            Err(sqlx::Error::RowNotFound) => Ok(0),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    #[tracing::instrument(skip(self))]
     pub async fn insert_masks(
         &self,
         masks: &[(u64, Bits)],
