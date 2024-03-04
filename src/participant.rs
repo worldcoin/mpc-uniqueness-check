@@ -5,7 +5,6 @@ use aws_sdk_sqs::types::Message;
 use distance::Template;
 use eyre::ContextCompat;
 use futures::stream::FuturesUnordered;
-use futures::StreamExt;
 use opentelemetry::trace::{
     SpanContext, SpanId, TraceFlags, TraceId, TraceState,
 };
@@ -22,6 +21,7 @@ use crate::utils;
 use crate::utils::aws::{
     sqs_client_from_config, sqs_delete_message, sqs_dequeue,
 };
+use crate::utils::tasks::finalize_futures_unordered;
 
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
 
@@ -61,22 +61,36 @@ impl Participant {
     pub async fn spawn(self: Arc<Self>) -> eyre::Result<()> {
         tracing::info!("Spawning participant");
 
-        let mut tasks = FuturesUnordered::new();
+        let tasks = FuturesUnordered::new();
 
         tasks.push(tokio::spawn(self.clone().handle_uniqueness_checks()));
         tasks.push(tokio::spawn(self.clone().handle_db_sync()));
 
-        while let Some(result) = tasks.next().await {
-            result??;
-        }
+        finalize_futures_unordered(tasks).await?;
 
         Ok(())
     }
 
     async fn handle_uniqueness_checks(self: Arc<Self>) -> eyre::Result<()> {
         loop {
-            let stream = self.listener.accept().await?.0;
-            self.handle_uniqueness_check(stream).await?;
+            let stream = match self.listener.accept().await {
+                Ok((stream, addr)) => {
+                    tracing::debug!(?addr, "Accepting connection");
+
+                    stream
+                }
+                Err(error) => {
+                    tracing::error!(
+                        ?error,
+                        "Failed to accept incoming connection"
+                    );
+                    continue;
+                }
+            };
+
+            if let Err(error) = self.handle_uniqueness_check(stream).await {
+                tracing::error!(?error, "Uniqueness check failed");
+            }
         }
     }
 
@@ -168,18 +182,30 @@ impl Participant {
 
     async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
         loop {
-            let messages = sqs_dequeue(
+            let messages = match sqs_dequeue(
                 &self.sqs_client,
                 &self.config.queues.db_sync_queue_url,
             )
-            .await?;
+            .await
+            {
+                Ok(messages) => messages,
+                Err(error) => {
+                    tracing::error!(
+                        ?error,
+                        "Failed to dequeue db-sync messages"
+                    );
+                    continue;
+                }
+            };
 
             if messages.is_empty() {
                 tokio::time::sleep(IDLE_SLEEP_TIME).await;
             }
 
             for message in messages {
-                self.db_sync(message).await?;
+                if let Err(error) = self.db_sync(message).await {
+                    tracing::error!(?error, "Failed to handle db-sync message");
+                }
             }
         }
     }
