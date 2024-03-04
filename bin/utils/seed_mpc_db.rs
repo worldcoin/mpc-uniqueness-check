@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use clap::Args;
 use futures::stream::FuturesUnordered;
-use futures::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use mpc::bits::Bits;
 use mpc::config::DbConfig;
@@ -10,6 +9,7 @@ use mpc::db::Db;
 use mpc::distance::EncodedBits;
 use mpc::rng_source::RngSource;
 use mpc::template::Template;
+use mpc::utils::tasks::finalize_futures_unordered;
 use rand::{thread_rng, Rng};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -221,7 +221,7 @@ async fn insert_masks_and_shares(
     for (shares, masks) in
         batched_shares.into_iter().zip(batched_masks.into_iter())
     {
-        let mut tasks = FuturesUnordered::new();
+        let tasks = FuturesUnordered::new();
 
         for (idx, db) in participant_dbs.iter().enumerate() {
             let shares = shares[idx].clone();
@@ -243,9 +243,7 @@ async fn insert_masks_and_shares(
             eyre::Result::<()>::Ok(())
         }));
 
-        while let Some(result) = tasks.next().await {
-            result??;
-        }
+        finalize_futures_unordered(tasks).await?;
     }
 
     Ok(())

@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use aws_sdk_sqs::types::Message;
 use eyre::{Context, ContextCompat};
+use futures::future;
 use futures::stream::FuturesUnordered;
-use futures::{future, StreamExt};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
@@ -12,6 +12,7 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
+use tracing::{debug_span, Instrument};
 
 use crate::bits::Bits;
 use crate::config::CoordinatorConfig;
@@ -22,6 +23,7 @@ use crate::utils;
 use crate::utils::aws::{
     sqs_client_from_config, sqs_delete_message, sqs_dequeue, sqs_enqueue,
 };
+use crate::utils::tasks::finalize_futures_unordered;
 use crate::utils::templating::resolve_template;
 
 const BATCH_SIZE: usize = 20_000;
@@ -70,7 +72,7 @@ impl Coordinator {
 
     pub async fn spawn(self: Arc<Self>) -> eyre::Result<()> {
         tracing::info!("Spawning coordinator");
-        let mut tasks = FuturesUnordered::new();
+        let tasks = FuturesUnordered::new();
 
         // TODO: Error handling
         tracing::info!("Spawning uniqueness check");
@@ -79,9 +81,7 @@ impl Coordinator {
         tracing::info!("Spawning db sync");
         tasks.push(tokio::spawn(self.clone().handle_db_sync()));
 
-        while let Some(result) = tasks.next().await {
-            result??;
-        }
+        finalize_futures_unordered(tasks).await?;
 
         Ok(())
     }
@@ -90,14 +90,24 @@ impl Coordinator {
         self: Arc<Self>,
     ) -> Result<(), eyre::Error> {
         loop {
-            let messages = sqs_dequeue(
+            let messages = match sqs_dequeue(
                 &self.sqs_client,
                 &self.config.queues.queries_queue_url,
             )
-            .await?;
+            .await
+            {
+                Ok(messages) => messages,
+                Err(error) => {
+                    tracing::error!(?error, "Failed to dequeue messages");
+                    continue;
+                }
+            };
 
             for message in messages {
-                self.handle_uniqueness_check(message).await?;
+                if let Err(error) = self.handle_uniqueness_check(message).await
+                {
+                    tracing::error!(?error, "Uniqueness check failed");
+                }
             }
         }
     }
@@ -163,7 +173,7 @@ impl Coordinator {
 
         tracing::info!("Sending query to participants");
         let streams = self.send_query_to_participants(&template).await?;
-        let mut tasks = FuturesUnordered::new();
+        let tasks = FuturesUnordered::new();
 
         tracing::info!("Computing denominators");
         let (denominator_rx, denominator_handle) =
@@ -184,7 +194,16 @@ impl Coordinator {
             matches: distance_results.matches,
             signup_id,
         };
+
         tracing::info!(?result, "MPC results processed");
+
+        // Let's wait for all tasks to complete without error
+        // before enqueueing the result and deleting the message
+        finalize_futures_unordered(tasks)
+            .instrument(debug_span!(
+                "finalize_coordinator_uniqueness_check_tasks"
+            ))
+            .await?;
 
         sqs_enqueue(
             &self.sqs_client,
@@ -200,10 +219,6 @@ impl Coordinator {
             receipt_handle,
         )
         .await?;
-
-        while let Some(result) = tasks.next().await {
-            result??;
-        }
 
         Ok(())
     }
@@ -459,18 +474,30 @@ impl Coordinator {
 
     async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
         loop {
-            let messages = sqs_dequeue(
+            let messages = match sqs_dequeue(
                 &self.sqs_client,
                 &self.config.queues.db_sync_queue_url,
             )
-            .await?;
+            .await
+            {
+                Ok(messages) => messages,
+                Err(error) => {
+                    tracing::error!(
+                        ?error,
+                        "Failed to dequeue db-sync messages"
+                    );
+                    continue;
+                }
+            };
 
             if messages.is_empty() {
                 tokio::time::sleep(IDLE_SLEEP_TIME).await;
             }
 
             for message in messages {
-                self.db_sync(message).await?;
+                if let Err(error) = self.db_sync(message).await {
+                    tracing::error!(?error, "Failed to handle db-sync message");
+                }
             }
         }
     }

@@ -11,6 +11,7 @@ use serde::Serialize;
 
 use crate::config::AwsConfig;
 
+const DEQUEUE_WAIT_TIME_SECONDS: i32 = 1;
 const TRACE_ID_MESSAGE_ATTRIBUTE_NAME: &str = "TraceID";
 const SPAN_ID_MESSAGE_ATTRIBUTE_NAME: &str = "SpanID";
 
@@ -43,7 +44,7 @@ pub async fn sqs_dequeue(
     let sqs_message = client
         .receive_message()
         .queue_url(queue_url)
-        .wait_time_seconds(1)
+        .wait_time_seconds(DEQUEUE_WAIT_TIME_SECONDS)
         .send()
         .await?;
 
