@@ -71,12 +71,36 @@ impl MPCDb {
     #[tracing::instrument(skip(self))]
     pub async fn insert_shares_and_masks(
         &self,
-        left_masks: Vec<(u64, Bits)>,
-        left_shares: Vec<Vec<(u64, EncodedBits)>>,
-        right_masks: Vec<(u64, Bits)>,
-        right_shares: Vec<Vec<(u64, EncodedBits)>>,
+        left_data: Vec<(u64, Bits, Box<[EncodedBits]>)>,
+        right_data: Vec<(u64, Bits, Box<[EncodedBits]>)>,
     ) -> eyre::Result<()> {
         //TODO: logging for progress
+
+        let (left_masks, left_shares): (
+            Vec<(u64, Bits)>,
+            Vec<Vec<(u64, EncodedBits)>>,
+        ) = left_data
+            .into_iter()
+            .map(|(id, mask, shares)| {
+                let shares: Vec<(u64, EncodedBits)> =
+                    shares.into_iter().map(|share| (id, *share)).collect();
+
+                ((id, mask), shares)
+            })
+            .unzip();
+
+        let (right_masks, right_shares): (
+            Vec<(u64, Bits)>,
+            Vec<Vec<(u64, EncodedBits)>>,
+        ) = right_data
+            .into_iter()
+            .map(|(id, mask, shares)| {
+                let shares: Vec<(u64, EncodedBits)> =
+                    shares.into_iter().map(|share| (id, *share)).collect();
+
+                ((id, mask), shares)
+            })
+            .unzip();
 
         let coordinator_tasks = vec![
             self.left_coordinator_db.insert_masks(&left_masks),

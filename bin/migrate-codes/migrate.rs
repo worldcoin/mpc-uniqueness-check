@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use clap::Parser;
 use iris_db::IrisCodeEntry;
+use itertools::Itertools;
 use mpc::bits::Bits;
 use mpc::distance::EncodedBits;
 use mpc::template::Template;
@@ -60,30 +61,10 @@ async fn main() -> eyre::Result<()> {
 
     let mut next_serial_id = mpc_db.fetch_latest_serial_id().await? + 1;
 
-    let (left_iris_data, right_iris_data) = encode_shares(
-        left_templates,
-        right_templates,
-        num_participants as usize,
-    )?;
+    let left_data = encode_shares(left_templates, num_participants as usize)?;
+    let right_data = encode_shares(right_templates, num_participants as usize)?;
 
-    for (left_masks, left_shares, right_mask, right_shares) in left_iris_data
-        .masks
-        .into_iter()
-        .zip(left_iris_data.shares.into_iter())
-        .zip(right_iris_data.masks.into_iter())
-        .zip(right_iris_data.shares.into_iter())
-    {
-
-        //Insert in to dbs in chunks
-        // mpc_db
-        //     .insert_shares_and_masks(
-        //         left_masks,
-        //         left_shares,
-        //         right_mask,
-        //         right_shares,
-        //     )
-        //     .await?;
-    }
+    //TODO: insert in chunks
 
     Ok(())
 }
@@ -94,11 +75,10 @@ pub struct MPCIrisData {
 }
 
 pub fn encode_shares(
-    left_templates: Vec<(usize, Template)>,
-    right_templates: Vec<(usize, Template)>,
+    template_data: Vec<(usize, Template)>,
     num_participants: usize,
-) -> eyre::Result<(MPCIrisData, MPCIrisData)> {
-    let (left_masks, left_shares) = left_templates
+) -> eyre::Result<(Vec<(usize, Bits, Box<[EncodedBits]>)>)> {
+    let iris_data = template_data
         .into_par_iter()
         .map(|(serial_id, template)| {
             let mut rng = thread_rng();
@@ -106,53 +86,29 @@ pub fn encode_shares(
             let shares = mpc::distance::encode(&template)
                 .share(num_participants, &mut rng);
 
-            ((serial_id, template.mask), (serial_id, shares))
+            (serial_id, template.mask, shares)
         })
-        .collect::<Vec<((usize, Bits), (usize, Box<[EncodedBits]>))>>()
-        .unzip();
+        .collect();
 
-    let left_data = MPCIrisData {
-        masks: left_masks,
-        shares: left_shares,
-    };
-
-    let (right_masks, right_shares) = right_templates
-        .into_par_iter()
-        .map(|(serial_id, template)| {
-            let mut rng = thread_rng();
-
-            let shares = mpc::distance::encode(&template)
-                .share(num_participants, &mut rng);
-
-            ((serial_id, template.mask), (serial_id, shares))
-        })
-        .collect::<Vec<((usize, Bits), (usize, Box<[EncodedBits]>))>>()
-        .unzip();
-
-    let right_data = MPCIrisData {
-        masks: left_masks,
-        shares: left_shares,
-    };
-
-    Ok((left_data, right_data))
+    Ok(iris_data)
 }
 
 pub fn extract_templates(
     iris_code_snapshot: Vec<IrisCodeEntry>,
 ) -> (Vec<(usize, Template)>, Vec<(usize, Template)>) {
     let (left_templates, right_templates) = iris_code_snapshot
-        .iter()
+        .into_iter()
         .map(|entry| {
             (
                 (
-                    entry.mpc_serial_id,
+                    entry.mpc_serial_id as usize,
                     Template {
                         code: entry.iris_code_left,
                         mask: entry.mask_code_left,
                     },
                 ),
                 (
-                    entry.mpc_serial_id,
+                    entry.mpc_serial_id as usize,
                     Template {
                         code: entry.iris_code_right,
                         mask: entry.mask_code_right,
