@@ -1,7 +1,5 @@
 use clap::Parser;
 use generate_mock_templates::{generate_mock_templates, GenerateMockTemplates};
-use rand::distributions::Alphanumeric;
-use rand::Rng;
 use seed_iris_db::{seed_iris_db, SeedIrisDb};
 use seed_mpc_db::{seed_mpc_db, SeedMPCDb};
 use sqs_query::{sqs_query, SQSQuery};

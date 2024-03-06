@@ -1,8 +1,6 @@
 use eyre::ContextCompat;
-use mpc::bits::Bits;
 use mpc::config::DbConfig;
 use mpc::db::Db;
-use mpc::distance::EncodedBits;
 
 pub struct MPCDb {
     pub left_coordinator_db: Db,
@@ -72,62 +70,6 @@ impl MPCDb {
         })
     }
 
-    #[tracing::instrument(skip(self))]
-    pub async fn insert_shares_and_masks(
-        &self,
-        left_data: Vec<(u64, Bits, Box<[EncodedBits]>)>,
-        right_data: Vec<(u64, Bits, Box<[EncodedBits]>)>,
-    ) -> eyre::Result<()> {
-        //TODO: logging for progress
-
-        let (left_masks, left_shares): (
-            Vec<(u64, Bits)>,
-            Vec<Vec<(u64, EncodedBits)>>,
-        ) = left_data
-            .into_iter()
-            .map(|(id, mask, shares)| {
-                let shares: Vec<(u64, EncodedBits)> =
-                    shares.into_iter().map(|share| (id, *share)).collect();
-
-                ((id, mask), shares)
-            })
-            .unzip();
-
-        let (right_masks, right_shares): (
-            Vec<(u64, Bits)>,
-            Vec<Vec<(u64, EncodedBits)>>,
-        ) = right_data
-            .into_iter()
-            .map(|(id, mask, shares)| {
-                let shares: Vec<(u64, EncodedBits)> =
-                    shares.into_iter().map(|share| (id, *share)).collect();
-
-                ((id, mask), shares)
-            })
-            .unzip();
-
-        let coordinator_tasks = vec![
-            self.left_coordinator_db.insert_masks(&left_masks),
-            self.right_coordinator_db.insert_masks(&right_masks),
-        ];
-
-        let participant_tasks = self
-            .left_participant_dbs
-            .iter()
-            .zip(left_shares.iter())
-            .chain(self.right_participant_dbs.iter().zip(right_shares.iter()))
-            .map(|(db, shares)| db.insert_shares(shares));
-
-        for task in coordinator_tasks {
-            task.await?;
-        }
-
-        for task in participant_tasks {
-            task.await?;
-        }
-        Ok(())
-    }
-
     #[tracing::instrument(skip(self,))]
     pub async fn fetch_latest_serial_id(&self) -> eyre::Result<u64> {
         let mut ids = Vec::new();
@@ -143,6 +85,6 @@ impl MPCDb {
             ids.push(db.fetch_latest_share_id().await?);
         }
 
-        Ok(ids.into_iter().min().context("No serial ids found")?)
+        ids.into_iter().min().context("No serial ids found")
     }
 }

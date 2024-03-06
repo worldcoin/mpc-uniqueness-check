@@ -113,9 +113,9 @@ mod tests {
 
         let collection = db.collection(COLLECTION_NAME);
 
-        let mut cursor = collection.find(doc! {}, find_options).await?;
+        let cursor = collection.find(doc! {}, find_options).await?;
 
-        let mut codes_stream = cursor.and_then(|document| async move {
+        let codes_stream = cursor.and_then(|document| async move {
             let iris_code_element =
                 mongodb::bson::from_document::<IrisCodeEntry>(document)?;
 

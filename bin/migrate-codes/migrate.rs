@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)]
+
 use clap::Parser;
 use futures::{pin_mut, Stream, StreamExt, TryStreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -219,7 +221,7 @@ async fn insert_masks_and_shares(
     // Insert masks
     let left_masks: Vec<_> = data
         .iter()
-        .map(|(serial_id, mask, _)| (*serial_id as u64, mask.clone()))
+        .map(|(serial_id, mask, _)| (*serial_id as u64, *mask))
         .collect();
 
     coordinator_db.insert_masks(&left_masks).await?;
