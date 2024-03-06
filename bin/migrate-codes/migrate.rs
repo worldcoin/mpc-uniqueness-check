@@ -1,4 +1,5 @@
 use clap::Parser;
+use futures::{pin_mut, Stream, StreamExt, TryStreamExt};
 use iris_db::IrisCodeEntry;
 use mpc::bits::Bits;
 use mpc::db::Db;
@@ -32,8 +33,9 @@ pub struct Args {
     #[clap(alias = "rp", long, env)]
     pub right_participant_db: Vec<String>,
 
-    #[clap(long, env, default_value = "10000")]
-    pub batch_size: usize,
+    /// Batch size for encoding shares
+    #[clap(short, long, default_value = "100")]
+    batch_size: usize,
 }
 
 #[tokio::main]
@@ -61,26 +63,18 @@ async fn main() -> eyre::Result<()> {
 
     let iris_db = IrisDb::new(args.iris_code_db).await?;
 
-    let iris_code_entries = iris_db.get_iris_code_snapshot().await?;
-    let (left_templates, right_templates) =
-        extract_templates(iris_code_entries);
+    let iris_code_entries = iris_db.stream_iris_codes().await?;
 
-    let mut next_serial_id = mpc_db.fetch_latest_serial_id().await? + 1;
+    let iris_code_chunks = iris_code_entries.chunks(args.batch_size);
 
-    let left_data = encode_shares(left_templates, num_participants as usize)?;
-    let right_data = encode_shares(right_templates, num_participants as usize)?;
+    let iris_code_template_chunks = iris_code_chunks
+        .then(|x| async move { x.into_iter().collect::<Result<Vec<_>, _>>() })
+        .and_then(|x| async move { Ok(extract_templates(x)) });
 
-    insert_masks_and_shares(
-        &left_data,
-        &mpc_db.left_coordinator_db,
-        &mpc_db.left_participant_dbs,
-    )
-    .await?;
-
-    insert_masks_and_shares(
-        &right_data,
-        &mpc_db.right_coordinator_db,
-        &mpc_db.right_participant_dbs,
+    handle_templates_stream(
+        iris_code_template_chunks,
+        &mpc_db,
+        num_participants as usize,
     )
     .await?;
 
@@ -95,7 +89,7 @@ pub struct MPCIrisData {
 pub fn encode_shares(
     template_data: Vec<(usize, Template)>,
     num_participants: usize,
-) -> eyre::Result<(Vec<(usize, Bits, Box<[EncodedBits]>)>)> {
+) -> eyre::Result<Vec<(usize, Bits, Box<[EncodedBits]>)>> {
     let iris_data = template_data
         .into_par_iter()
         .map(|(serial_id, template)| {
@@ -112,9 +106,9 @@ pub fn encode_shares(
 }
 
 pub fn extract_templates(
-    iris_code_snapshot: Vec<IrisCodeEntry>,
+    iris_code_entries: Vec<IrisCodeEntry>,
 ) -> (Vec<(usize, Template)>, Vec<(usize, Template)>) {
-    let (left_templates, right_templates) = iris_code_snapshot
+    let (left_templates, right_templates) = iris_code_entries
         .into_iter()
         .map(|entry| {
             (
@@ -137,6 +131,56 @@ pub fn extract_templates(
         .unzip();
 
     (left_templates, right_templates)
+}
+
+async fn handle_templates_stream(
+    template_chunks: impl Stream<
+        Item = mongodb::error::Result<(
+            Vec<(usize, Template)>,
+            Vec<(usize, Template)>,
+        )>,
+    >,
+    mpc_db: &MPCDb,
+    num_participants: usize,
+) -> eyre::Result<()> {
+    pin_mut!(template_chunks);
+
+    // Consume the stream
+    while let Some(template_chunk) = template_chunks.next().await {
+        let (left_templates, right_templates) = template_chunk?;
+
+        let left = handle_side_data_chunk(
+            left_templates,
+            num_participants,
+            &mpc_db.left_coordinator_db,
+            &mpc_db.left_participant_dbs,
+        );
+
+        let right = handle_side_data_chunk(
+            right_templates,
+            num_participants,
+            &mpc_db.right_coordinator_db,
+            &mpc_db.right_participant_dbs,
+        );
+
+        futures::try_join!(left, right)?;
+    }
+
+    Ok(())
+}
+
+async fn handle_side_data_chunk(
+    templates: Vec<(usize, Template)>,
+    num_participants: usize,
+    coordinator_db: &Db,
+    participant_dbs: &[Db],
+) -> eyre::Result<()> {
+    let left_data = encode_shares(templates, num_participants)?;
+
+    insert_masks_and_shares(&left_data, coordinator_db, participant_dbs)
+        .await?;
+
+    Ok(())
 }
 
 async fn insert_masks_and_shares(
