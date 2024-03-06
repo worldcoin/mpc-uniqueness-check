@@ -139,6 +139,15 @@ services:
       - 'AWS_SECRET_ACCESS_KEY=test'
       - 'AWS_DEFAULT_REGION=us-east-1'
 
+  iris_db:
+    hostname: iris_db
+    image: mongo
+    ports:
+      - 27017:27017
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password
+
 networks:
   default:
     driver: bridge
