@@ -43,6 +43,7 @@ pub async fn sqs_dequeue(
 ) -> eyre::Result<Vec<Message>> {
     let sqs_message = client
         .receive_message()
+        .message_attribute_names("All")
         .queue_url(queue_url)
         .wait_time_seconds(DEQUEUE_WAIT_TIME_SECONDS)
         .send()
