@@ -48,7 +48,6 @@ pub struct Args {
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     dotenv::dotenv().ok();
-    // tracing_subscriber::fmt::init();
 
     let _shutdown_tracing_provider = StdoutBattery::init();
 
