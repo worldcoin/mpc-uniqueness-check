@@ -1,5 +1,6 @@
 use clap::Parser;
 use futures::{pin_mut, Stream, StreamExt, TryStreamExt};
+use indicatif::{ProgressBar, ProgressStyle};
 use iris_db::IrisCodeEntry;
 use mpc::bits::Bits;
 use mpc::db::Db;
@@ -36,10 +37,17 @@ pub struct Args {
     /// Batch size for encoding shares
     #[clap(short, long, default_value = "100")]
     batch_size: usize,
+
+    /// If set to true, no migration or creation of the database will occur on the Postgres side
+    #[clap(long)]
+    no_migrate_or_create: bool,
 }
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
+    dotenv::dotenv().ok();
+    // tracing_subscriber::fmt::init();
+
     let _shutdown_tracing_provider = StdoutBattery::init();
 
     let args = Args::parse();
@@ -58,15 +66,27 @@ async fn main() -> eyre::Result<()> {
         args.left_participant_db,
         args.right_coordinator_db,
         args.right_participant_db,
+        args.no_migrate_or_create,
     )
     .await?;
 
+    let latest_serial_id = mpc_db.fetch_latest_serial_id().await?;
+    tracing::info!("Latest serial id {latest_serial_id}");
+
     let iris_db = IrisDb::new(args.iris_code_db).await?;
 
-    let iris_code_entries = iris_db.stream_iris_codes().await?;
+    let num_iris_codes = iris_db.count_iris_codes(latest_serial_id).await?;
+    tracing::info!("Processing {} iris codes", num_iris_codes);
 
+    let pb =
+        ProgressBar::new(num_iris_codes).with_message("Migrating iris codes");
+    let pb_style = ProgressStyle::default_bar()
+        .template("{spinner:.green} {msg} [{elapsed_precise}] [{wide_bar:.green}] {pos:>7}/{len:7} ({eta})")
+        .expect("Could not create progress bar");
+    pb.set_style(pb_style);
+
+    let iris_code_entries = iris_db.stream_iris_codes(latest_serial_id).await?;
     let iris_code_chunks = iris_code_entries.chunks(args.batch_size);
-
     let iris_code_template_chunks = iris_code_chunks
         .then(|x| async move { x.into_iter().collect::<Result<Vec<_>, _>>() })
         .and_then(|x| async move { Ok(extract_templates(x)) });
@@ -75,8 +95,11 @@ async fn main() -> eyre::Result<()> {
         iris_code_template_chunks,
         &mpc_db,
         num_participants as usize,
+        &pb,
     )
     .await?;
+
+    pb.finish();
 
     Ok(())
 }
@@ -142,12 +165,15 @@ async fn handle_templates_stream(
     >,
     mpc_db: &MPCDb,
     num_participants: usize,
+    pb: &ProgressBar,
 ) -> eyre::Result<()> {
     pin_mut!(template_chunks);
 
     // Consume the stream
     while let Some(template_chunk) = template_chunks.next().await {
         let (left_templates, right_templates) = template_chunk?;
+
+        let count = left_templates.len() as u64;
 
         let left = handle_side_data_chunk(
             left_templates,
@@ -164,6 +190,8 @@ async fn handle_templates_stream(
         );
 
         futures::try_join!(left, right)?;
+
+        pb.inc(count);
     }
 
     Ok(())

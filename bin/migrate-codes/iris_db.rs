@@ -1,5 +1,6 @@
 use futures::{Stream, TryStreamExt};
-use mongodb::bson::doc;
+use mongodb::bson::{doc, Document};
+use mongodb::Collection;
 use mpc::bits::Bits;
 use serde::{Deserialize, Serialize};
 
@@ -35,61 +36,44 @@ impl IrisDb {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_iris_code_snapshot(
+    pub async fn count_iris_codes(
         &self,
-    ) -> eyre::Result<Vec<IrisCodeEntry>> {
-        let mut items = vec![];
+        last_serial_id: u64,
+    ) -> eyre::Result<u64> {
+        let collection: Collection<Document> =
+            self.db.collection(COLLECTION_NAME);
 
-        let mut last_serial_id = 0_i64;
+        let count = collection
+            .count_documents(
+                doc! {"mpc_serial_id": {"$gt": last_serial_id as i64}},
+                None,
+            )
+            .await?;
 
-        let collection = self.db.collection(COLLECTION_NAME);
-
-        loop {
-            let find_options = mongodb::options::FindOptions::builder()
-                .batch_size(IRIS_CODE_BATCH_SIZE)
-                .sort(doc! {"serial_id": 1})
-                .build();
-
-            let mut cursor = collection
-                .find(doc! {"serial_id": {"$gt": last_serial_id}}, find_options)
-                .await?;
-
-            let mut items_added = 0;
-            while let Some(document) = cursor.try_next().await? {
-                let iris_code_element =
-                    mongodb::bson::from_document::<IrisCodeEntry>(document)?;
-
-                last_serial_id += iris_code_element.mpc_serial_id as i64;
-
-                items.push(iris_code_element);
-
-                items_added += 1;
-            }
-
-            if items_added == 0 {
-                break;
-            }
-        }
-
-        items.sort_by(|a, b| a.mpc_serial_id.cmp(&b.mpc_serial_id));
-
-        Ok(items)
+        Ok(count)
     }
 
     #[tracing::instrument(skip(self))]
     pub async fn stream_iris_codes(
         &self,
+        last_serial_id: u64,
     ) -> eyre::Result<
         impl Stream<Item = Result<IrisCodeEntry, mongodb::error::Error>>,
     > {
         let find_options = mongodb::options::FindOptions::builder()
             .batch_size(IRIS_CODE_BATCH_SIZE)
-            .sort(doc! {"serial_id": 1})
+            .sort(doc! {"mpc_serial_id": 1})
             .build();
 
         let collection = self.db.collection(COLLECTION_NAME);
 
-        let cursor = collection.find(doc! {}, find_options).await?;
+        let cursor = collection
+            .find(
+                doc! {"mpc_serial_id": {"$gt": last_serial_id as i64}},
+                find_options,
+            )
+            .await?;
+
         let codes_stream = cursor.and_then(|document| async move {
             let iris_code_element =
                 mongodb::bson::from_document::<IrisCodeEntry>(document)?;
@@ -124,7 +108,7 @@ mod tests {
 
         let find_options = mongodb::options::FindOptions::builder()
             .batch_size(IRIS_CODE_BATCH_SIZE)
-            .sort(doc! {"serial_id": 1})
+            .sort(doc! {"mpc_serial_id": 1})
             .build();
 
         let collection = db.collection(COLLECTION_NAME);
