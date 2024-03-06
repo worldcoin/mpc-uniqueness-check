@@ -1,7 +1,7 @@
 #![allow(clippy::type_complexity)]
 
 use clap::Parser;
-use futures::{pin_mut, Stream, StreamExt, TryStreamExt};
+use futures::{pin_mut, Stream, StreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
 use iris_db::IrisCodeEntry;
 use mpc::bits::Bits;
@@ -90,8 +90,8 @@ async fn main() -> eyre::Result<()> {
     let iris_code_entries = iris_db.stream_iris_codes(latest_serial_id).await?;
     let iris_code_chunks = iris_code_entries.chunks(args.batch_size);
     let iris_code_template_chunks = iris_code_chunks
-        .then(|x| async move { x.into_iter().collect::<Result<Vec<_>, _>>() })
-        .and_then(|x| async move { Ok(extract_templates(x)) });
+        .map(|x| x.into_iter().collect::<Result<Vec<_>, _>>())
+        .map(|x| Ok(extract_templates(x?)));
 
     handle_templates_stream(
         iris_code_template_chunks,
