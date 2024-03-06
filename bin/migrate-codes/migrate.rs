@@ -90,8 +90,8 @@ async fn main() -> eyre::Result<()> {
     let iris_code_entries = iris_db.stream_iris_codes(latest_serial_id).await?;
     let iris_code_chunks = iris_code_entries.chunks(args.batch_size);
     let iris_code_template_chunks = iris_code_chunks
-        .map(|x| x.into_iter().collect::<Result<Vec<_>, _>>())
-        .map(|x| Ok(extract_templates(x?)));
+        .map(|chunk| chunk.into_iter().collect::<Result<Vec<_>, _>>())
+        .map(|chunk| Ok(extract_templates(chunk?)));
 
     handle_templates_stream(
         iris_code_template_chunks,
