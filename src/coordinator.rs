@@ -112,18 +112,18 @@ impl Coordinator {
         }
     }
 
-    #[tracing::instrument(skip(self, message))]
+    #[tracing::instrument(skip(self, payload))]
     pub async fn handle_uniqueness_check(
         &self,
-        message: Message,
+        payload: Message,
     ) -> eyre::Result<()> {
-        tracing::debug!(?message, "Handling message");
+        tracing::debug!(?payload, "Handling message");
 
-        let receipt_handle = message
+        let receipt_handle = payload
             .receipt_handle
             .context("Missing receipt handle in message")?;
 
-        if let Some(message_attributes) = &message.message_attributes {
+        if let Some(message_attributes) = &payload.message_attributes {
             utils::aws::trace_from_message_attributes(
                 message_attributes,
                 &receipt_handle,
@@ -135,7 +135,7 @@ impl Coordinator {
             );
         }
 
-        let body = message.body.context("Missing message body")?;
+        let body = payload.body.context("Missing message body")?;
 
         if let Ok(UniquenessCheckRequest {
             plain_code,
