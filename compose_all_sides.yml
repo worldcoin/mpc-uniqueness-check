@@ -1,0 +1,46 @@
+version: "3"
+services:
+  coordinator_left_db:
+    image: postgres
+    ports:
+      - 8432:5432
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust
+  participant_left_0_db:
+    image: postgres
+    ports:
+      - 8433:5432
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust
+  participant_left_1_db:
+    image: postgres
+    ports:
+      - 8534:5432
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust
+  coordinator_right_db:
+    image: postgres
+    ports:
+      - 8532:5432
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust
+  participant_right_0_db:
+    image: postgres
+    ports:
+      - 8533:5432
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust
+  participant_right_1_db:
+    image: postgres
+    ports:
+      - 8434:5432
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust
+  iris_db:
+    hostname: iris_db
+    image: mongo
+    ports:
+      - 27017:27017
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password
