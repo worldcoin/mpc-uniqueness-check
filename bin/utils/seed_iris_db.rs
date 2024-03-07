@@ -1,11 +1,10 @@
 use clap::Args;
-use mpc::bits::Bits;
+use indicatif::{ProgressBar, ProgressStyle};
+use mpc::iris_db::IrisCodeEntry;
 use mpc::rng_source::RngSource;
-use mpc::template::Template;
 use rand::Rng;
-use serde::{Deserialize, Serialize};
 
-use crate::generate_random_string;
+use crate::common::{generate_random_string, generate_templates};
 
 pub const DATABASE_NAME: &str = "iris";
 pub const COLLECTION_NAME: &str = "codes.v2";
@@ -18,10 +17,10 @@ pub struct SeedIrisDb {
     #[clap(short, long)]
     pub num_templates: usize,
 
-    #[clap(short, long, default_value = "10000")]
+    #[clap(short, long, default_value = "100")]
     pub batch_size: usize,
 
-    #[clap(short, long, env, default_value = "thread")]
+    #[clap(long, default_value = "thread")]
     pub rng: RngSource,
 }
 
@@ -34,52 +33,49 @@ pub async fn seed_iris_db(args: &SeedIrisDb) -> eyre::Result<()> {
 
     let iris_db = client.database(DATABASE_NAME);
 
-    let mut rng = args.rng.to_rng();
-
-    tracing::info!("Generating codes");
-    let left_templates = (0..args.num_templates)
-        .map(|_| rng.gen())
-        .collect::<Vec<Template>>();
-
-    let right_templates = (0..args.num_templates)
-        .map(|_| rng.gen())
-        .collect::<Vec<Template>>();
+    tracing::info!("Generating left templates...");
+    let left_templates = generate_templates(args.num_templates);
+    tracing::info!("Generating right templates...");
+    let right_templates = generate_templates(args.num_templates);
 
     let collection = iris_db.collection::<IrisCodeEntry>(COLLECTION_NAME);
-    let next_serial_id = collection.count_documents(None, None).await?;
+
+    // Next serial id with 1 based indexing
+    let next_serial_id = collection.count_documents(None, None).await? + 1;
+
+    tracing::info!(?next_serial_id);
+
+    let mut rng = args.rng.to_rng();
 
     let documents = left_templates
         .iter()
         .zip(right_templates.iter())
         .enumerate()
         .map(|(serial_id, (left, right))| IrisCodeEntry {
-            signup_id: generate_random_string(10),
+            signup_id: generate_random_string(&mut rng, 10),
             serial_id: next_serial_id + serial_id as u64,
             iris_code_left: left.code,
             mask_code_left: left.mask,
             iris_code_right: right.code,
             mask_code_right: right.mask,
+            whitelisted: rng.gen_bool(0.8),
         })
         .collect::<Vec<IrisCodeEntry>>();
 
-    for (i, chunk) in documents.chunks(args.batch_size).enumerate() {
-        tracing::info!(
-            "Seeding iris codes, chunk {}/{}",
-            i + 1,
-            (documents.len() / args.batch_size) + 1
-        );
+    let pb = ProgressBar::new(documents.len() as u64)
+        .with_message("Seeding iris codes");
+
+    pb.set_style(ProgressStyle::default_bar()
+        .template("{spinner:.green} {msg} [{elapsed_precise}] [{wide_bar:.green}] {pos:>7}/{len:7} ({eta})")
+        .expect("Could not create progress bar"));
+
+    for chunk in documents.chunks(args.batch_size) {
         collection.insert_many(chunk, None).await?;
+
+        pb.inc(chunk.len() as u64);
     }
 
-    Ok(())
-}
+    pb.finish_with_message("Seeded iris codes");
 
-#[derive(Serialize, Deserialize)]
-pub struct IrisCodeEntry {
-    pub signup_id: String,
-    pub serial_id: u64,
-    pub iris_code_left: Bits,
-    pub mask_code_left: Bits,
-    pub iris_code_right: Bits,
-    pub mask_code_right: Bits,
+    Ok(())
 }

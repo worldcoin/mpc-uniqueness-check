@@ -1,6 +1,6 @@
 use clap::Args;
-use mpc::template::Template;
-use rand::{thread_rng, Rng};
+
+use crate::common::generate_templates;
 
 #[derive(Debug, Clone, Args)]
 pub struct GenerateMockTemplates {
@@ -14,11 +14,7 @@ pub struct GenerateMockTemplates {
 pub async fn generate_mock_templates(
     args: &GenerateMockTemplates,
 ) -> eyre::Result<()> {
-    let mut rng = thread_rng();
-
-    let templates: Vec<Template> =
-        (0..args.num_templates).map(|_| rng.gen()).collect();
-
+    let templates = generate_templates(args.num_templates);
     let json = serde_json::to_string(&templates)?;
 
     //write to file

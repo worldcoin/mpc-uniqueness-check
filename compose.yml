@@ -113,6 +113,15 @@ services:
     environment:
       - POSTGRES_HOST_AUTH_METHOD=trust
 
+  iris_db:
+    hostname: iris_db
+    image: mongo
+    ports:
+      - 27017:27017
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password
+
 networks:
   default:
     driver: bridge

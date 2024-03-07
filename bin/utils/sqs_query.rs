@@ -1,11 +1,12 @@
 use clap::Args;
 use mpc::config::AwsConfig;
 use mpc::coordinator::UniquenessCheckRequest;
+use mpc::rng_source::RngSource;
 use mpc::template::Template;
 use mpc::utils::aws::sqs_client_from_config;
-use rand::{thread_rng, Rng};
+use rand::Rng;
 
-use crate::generate_random_string;
+use crate::common::generate_random_string;
 
 #[derive(Debug, Clone, Args)]
 pub struct SQSQuery {
@@ -22,6 +23,9 @@ pub struct SQSQuery {
     /// The URL of the SQS queue
     #[clap(short, long)]
     pub queue_url: String,
+
+    #[clap(long, default_value = "thread")]
+    pub rng: RngSource,
 }
 
 pub async fn sqs_query(args: &SQSQuery) -> eyre::Result<()> {
@@ -31,11 +35,11 @@ pub async fn sqs_query(args: &SQSQuery) -> eyre::Result<()> {
     })
     .await?;
 
-    let mut rng = thread_rng();
+    let mut rng = args.rng.to_rng();
     let plain_code: Template = rng.gen();
 
-    let signup_id = generate_random_string(10);
-    let group_id = generate_random_string(10);
+    let signup_id = generate_random_string(&mut rng, 10);
+    let group_id = generate_random_string(&mut rng, 10);
 
     tracing::info!(?signup_id, ?group_id, "Sending message");
 
