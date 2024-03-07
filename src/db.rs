@@ -167,6 +167,32 @@ impl Db {
 
         Ok(())
     }
+
+    /// Removes masks and shares with serial IDs larger than `serial_id`.
+    #[tracing::instrument(skip(self))]
+    pub async fn prune_items(&self, serial_id: u64) -> eyre::Result<()> {
+        sqlx::query(
+            r#"
+            DELETE FROM masks
+            WHERE id > $1
+        "#,
+        )
+        .bind(serial_id as i64)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM shares
+            WHERE id > $1
+        "#,
+        )
+        .bind(serial_id as i64)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
 }
 
 fn filter_sequential_items<T>(
@@ -317,14 +343,46 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_latest_mask_id() -> eyre::Result<()> {
-        todo!();
+        let (db, _pg) = setup().await?;
+
+        let mut rng = thread_rng();
+
+        let masks = vec![
+            (1, rng.gen::<Bits>()),
+            (2, rng.gen::<Bits>()),
+            (5, rng.gen::<Bits>()),
+            (6, rng.gen::<Bits>()),
+            (8, rng.gen::<Bits>()),
+        ];
+
+        db.insert_masks(&masks).await?;
+
+        let latest_mask_id = db.fetch_latest_mask_id().await?;
+
+        assert_eq!(latest_mask_id, 8);
 
         Ok(())
     }
 
     #[tokio::test]
     async fn fetch_latest_share_id() -> eyre::Result<()> {
-        todo!();
+        let (db, _pg) = setup().await?;
+
+        let mut rng = thread_rng();
+
+        let shares = vec![
+            (1, rng.gen::<EncodedBits>()),
+            (2, rng.gen::<EncodedBits>()),
+            (5, rng.gen::<EncodedBits>()),
+            (6, rng.gen::<EncodedBits>()),
+            (8, rng.gen::<EncodedBits>()),
+        ];
+
+        db.insert_shares(&shares).await?;
+
+        let latest_share_id = db.fetch_latest_share_id().await?;
+
+        assert_eq!(latest_share_id, 8);
 
         Ok(())
     }
@@ -424,6 +482,43 @@ mod tests {
         let fetched_masks = db.fetch_masks(0).await?;
 
         assert!(fetched_masks.is_empty());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prune_items() -> eyre::Result<()> {
+        let (db, _pg) = setup().await?;
+
+        let mut rng = thread_rng();
+
+        let masks = vec![
+            (1, rng.gen::<Bits>()),
+            (2, rng.gen::<Bits>()),
+            (3, rng.gen::<Bits>()),
+            (4, rng.gen::<Bits>()),
+            (6, rng.gen::<Bits>()),
+        ];
+
+        db.insert_masks(&masks).await?;
+
+        let shares = vec![
+            (1, rng.gen::<EncodedBits>()),
+            (2, rng.gen::<EncodedBits>()),
+            (3, rng.gen::<EncodedBits>()),
+            (4, rng.gen::<EncodedBits>()),
+            (6, rng.gen::<EncodedBits>()),
+        ];
+
+        db.insert_shares(&shares).await?;
+
+        db.prune_items(2).await?;
+
+        let fetched_masks = db.fetch_masks(0).await?;
+        let fetched_shares = db.fetch_shares(0).await?;
+
+        assert_eq!(fetched_masks.len(), 2);
+        assert_eq!(fetched_shares.len(), 2);
 
         Ok(())
     }
