@@ -76,7 +76,7 @@ async fn main() -> eyre::Result<()> {
 
     let iris_db = IrisDb::new(args.iris_code_db).await?;
 
-    let num_iris_codes = iris_db.count_iris_codes(latest_serial_id).await?;
+    let num_iris_codes = iris_db.count_whitelisted_iris_codes(latest_serial_id).await?;
     tracing::info!("Processing {} iris codes", num_iris_codes);
 
     let pb =

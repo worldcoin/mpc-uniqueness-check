@@ -14,6 +14,7 @@ pub const FINAL_RESULT_STATUS: &str = "COMPLETED";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IrisCodeEntry {
     pub signup_id: String,
+    /// Internal serial id of the iris code db
     pub serial_id: u64,
     pub iris_code_left: Bits,
     pub mask_code_left: Bits,
@@ -24,11 +25,13 @@ pub struct IrisCodeEntry {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FinalResult {
+    /// Should always by "COMPLETED"
     pub status: String,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// The MPC serial id associated with this signup
     pub serial_id: Option<u64>,
 
+    /// A unique signup id string
     pub signup_id: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -62,7 +65,54 @@ impl IrisDb {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn count_iris_codes(
+    pub async fn save_final_results(
+        &self,
+        final_results: &[FinalResult],
+    ) -> eyre::Result<()> {
+        let collection: Collection<FinalResult> =
+            self.db.collection(FINAL_RESULT_COLLECTION_NAME);
+
+        collection.insert_many(final_results, None).await?;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get_final_result_by_serial_id(
+        &self,
+        serial_id: u64,
+    ) -> eyre::Result<Option<FinalResult>> {
+        let collection: Collection<FinalResult> =
+            self.db.collection(FINAL_RESULT_COLLECTION_NAME);
+
+        let final_result = collection
+            .find_one(doc! { "serial_id": serial_id as i64 }, None)
+            .await?;
+
+        Ok(final_result)
+    }
+
+    /// Removes all final result entries with serial id larger than the given one
+    #[tracing::instrument(skip(self))]
+    pub async fn prune_final_results(
+        &self,
+        serial_id: u64,
+    ) -> eyre::Result<()> {
+        let collection: Collection<FinalResult> =
+            self.db.collection(FINAL_RESULT_COLLECTION_NAME);
+
+        collection
+            .delete_many(
+                doc! { "serial_id": { "$gt": serial_id as i64 } },
+                None,
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn count_whitelisted_iris_codes(
         &self,
         last_serial_id: u64,
     ) -> eyre::Result<u64> {
@@ -71,12 +121,30 @@ impl IrisDb {
 
         let count = collection
             .count_documents(
-                doc! {"mpc_serial_id": {"$gt": last_serial_id as i64}},
+                doc! {
+                    "serial_id": {"$gt": last_serial_id as i64},
+                    "whitelisted": true,
+                },
                 None,
             )
             .await?;
 
         Ok(count)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get_entry_by_signup_id(
+        &self,
+        signup_id: &str,
+    ) -> eyre::Result<Option<IrisCodeEntry>> {
+        let collection: Collection<IrisCodeEntry> =
+            self.db.collection(COLLECTION_NAME);
+
+        let iris_code_entry = collection
+            .find_one(doc! {"signup_id": signup_id}, None)
+            .await?;
+
+        Ok(iris_code_entry)
     }
 
     #[tracing::instrument(skip(self))]
@@ -88,14 +156,17 @@ impl IrisDb {
     > {
         let find_options = mongodb::options::FindOptions::builder()
             .batch_size(IRIS_CODE_BATCH_SIZE)
-            .sort(doc! {"mpc_serial_id": 1})
+            .sort(doc! { "serial_id": 1 })
             .build();
 
         let collection = self.db.collection(COLLECTION_NAME);
 
         let cursor = collection
             .find(
-                doc! {"mpc_serial_id": {"$gt": last_serial_id as i64}},
+                doc! {
+                    "serial_id": {"$gt": last_serial_id as i64},
+                    "whitelisted": true
+                },
                 find_options,
             )
             .await?;
