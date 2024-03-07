@@ -42,7 +42,7 @@ impl Db {
             r#"
             SELECT id, mask
             FROM masks
-            WHERE id >= $1
+            WHERE id > $1
             ORDER BY id ASC
         "#,
         )
@@ -50,7 +50,27 @@ impl Db {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(filter_sequential_items(masks, id as i64))
+        Ok(filter_sequential_items(masks, 1 + id as i64))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn fetch_latest_mask_id(&self) -> eyre::Result<u64> {
+        let mask_id = sqlx::query_as::<_, (i64,)>(
+            r#"
+            SELECT id
+            FROM masks
+            ORDER BY id DESC
+            LIMIT 1
+        "#,
+        )
+        .fetch_one(&self.pool)
+        .await;
+
+        match mask_id {
+            Ok(mask_id) => Ok(mask_id.0 as u64),
+            Err(sqlx::Error::RowNotFound) => Ok(0),
+            Err(err) => Err(err.into()),
+        }
     }
 
     #[tracing::instrument(skip(self))]
@@ -90,7 +110,7 @@ impl Db {
             r#"
             SELECT id, share
             FROM shares
-            WHERE id >= $1
+            WHERE id > $1
             ORDER BY id ASC
         "#,
         )
@@ -98,26 +118,7 @@ impl Db {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(filter_sequential_items(shares, id as i64))
-    }
-    #[tracing::instrument(skip(self))]
-    pub async fn fetch_latest_mask_id(&self) -> eyre::Result<u64> {
-        let mask_id = sqlx::query_as::<_, (i64,)>(
-            r#"
-            SELECT id
-            FROM masks
-            ORDER BY id DESC
-            LIMIT 1
-        "#,
-        )
-        .fetch_one(&self.pool)
-        .await;
-
-        match mask_id {
-            Ok(mask_id) => Ok(mask_id.0 as u64),
-            Err(sqlx::Error::RowNotFound) => Ok(0),
-            Err(err) => Err(err.into()),
-        }
+        Ok(filter_sequential_items(shares, 1 + id as i64))
     }
 
     #[tracing::instrument(skip(self))]
@@ -225,14 +226,25 @@ fn filter_sequential_items<T>(
 #[cfg(test)]
 mod tests {
     use rand::{thread_rng, Rng};
+    use testcontainers::{clients, Container};
 
     use super::*;
 
-    async fn setup() -> eyre::Result<(Db, docker_db::Postgres)> {
-        let pg_db = docker_db::Postgres::spawn().await?;
-        let url =
-            format!("postgres://postgres:postgres@{}", pg_db.socket_addr());
+    async fn setup(
+        docker: &testcontainers::clients::Cli,
+    ) -> eyre::Result<(Db, Container<testcontainers_modules::postgres::Postgres>)>
+    {
+        let postgres_container = docker.run(
+            testcontainers_modules::postgres::Postgres::default()
+                .with_host_auth(),
+        );
 
+        let mapped_port = postgres_container.get_host_port_ipv4(5432);
+
+        let url = format!(
+            "postgres://postgres:postgres@localhost:{}/postgres",
+            mapped_port
+        );
         let db = Db::new(&DbConfig {
             url,
             migrate: true,
@@ -240,12 +252,13 @@ mod tests {
         })
         .await?;
 
-        Ok((db, pg_db))
+        Ok((db, postgres_container))
     }
 
     #[tokio::test]
     async fn fetch_on_empty() -> eyre::Result<()> {
-        let (db, _pg) = setup().await?;
+        let docker = clients::Cli::default();
+        let (db, _pg) = setup(&docker).await?;
 
         let masks = db.fetch_masks(0).await?;
 
@@ -256,11 +269,12 @@ mod tests {
 
     #[tokio::test]
     async fn insert_and_fetch() -> eyre::Result<()> {
-        let (db, _pg) = setup().await?;
+        let docker = clients::Cli::default();
+        let (db, _pg) = setup(&docker).await?;
 
         let mut rng = thread_rng();
 
-        let masks = vec![(0, rng.gen::<Bits>()), (1, rng.gen::<Bits>())];
+        let masks = vec![(1, rng.gen::<Bits>()), (2, rng.gen::<Bits>())];
 
         db.insert_masks(&masks).await?;
 
@@ -276,11 +290,12 @@ mod tests {
 
     #[tokio::test]
     async fn partial_fetch() -> eyre::Result<()> {
-        let (db, _pg) = setup().await?;
+        let docker = clients::Cli::default();
+        let (db, _pg) = setup(&docker).await?;
 
         let mut rng = thread_rng();
 
-        let masks = vec![(0, rng.gen::<Bits>()), (1, rng.gen::<Bits>())];
+        let masks = vec![(1, rng.gen::<Bits>()), (2, rng.gen::<Bits>())];
 
         db.insert_masks(&masks).await?;
 
@@ -293,7 +308,8 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_shares_on_empty() -> eyre::Result<()> {
-        let (db, _pg) = setup().await?;
+        let docker = clients::Cli::default();
+        let (db, _pg) = setup(&docker).await?;
 
         let shares = db.fetch_shares(0).await?;
 
@@ -304,12 +320,13 @@ mod tests {
 
     #[tokio::test]
     async fn insert_and_fetch_shares() -> eyre::Result<()> {
-        let (db, _pg) = setup().await?;
+        let docker = clients::Cli::default();
+        let (db, _pg) = setup(&docker).await?;
 
         let mut rng = thread_rng();
 
         let shares =
-            vec![(0, rng.gen::<EncodedBits>()), (1, rng.gen::<EncodedBits>())];
+            vec![(1, rng.gen::<EncodedBits>()), (2, rng.gen::<EncodedBits>())];
 
         db.insert_shares(&shares).await?;
 
@@ -325,12 +342,13 @@ mod tests {
 
     #[tokio::test]
     async fn partial_fetch_shares() -> eyre::Result<()> {
-        let (db, _pg) = setup().await?;
+        let docker = clients::Cli::default();
+        let (db, _pg) = setup(&docker).await?;
 
         let mut rng = thread_rng();
 
         let shares =
-            vec![(0, rng.gen::<EncodedBits>()), (1, rng.gen::<EncodedBits>())];
+            vec![(1, rng.gen::<EncodedBits>()), (2, rng.gen::<EncodedBits>())];
 
         db.insert_shares(&shares).await?;
 
@@ -343,7 +361,8 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_latest_mask_id() -> eyre::Result<()> {
-        let (db, _pg) = setup().await?;
+        let docker = clients::Cli::default();
+        let (db, _pg) = setup(&docker).await?;
 
         let mut rng = thread_rng();
 
@@ -366,7 +385,8 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_latest_share_id() -> eyre::Result<()> {
-        let (db, _pg) = setup().await?;
+        let docker = clients::Cli::default();
+        let (db, _pg) = setup(&docker).await?;
 
         let mut rng = thread_rng();
 
@@ -389,7 +409,8 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_shares_returns_sequential_data() -> eyre::Result<()> {
-        let (db, _pg) = setup().await?;
+        let docker = clients::Cli::default();
+        let (db, _pg) = setup(&docker).await?;
 
         let mut rng = thread_rng();
 
@@ -399,29 +420,6 @@ mod tests {
             (5, rng.gen::<EncodedBits>()),
             (6, rng.gen::<EncodedBits>()),
             (8, rng.gen::<EncodedBits>()),
-        ];
-
-        db.insert_shares(&shares).await?;
-
-        let latest_share_id = db.fetch_latest_share_id().await?;
-
-        assert_eq!(latest_share_id, 8);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn fetch_shares_returns_sequential_data() -> eyre::Result<()> {
-        let (db, _pg) = setup().await?;
-
-        let mut rng = thread_rng();
-
-        let shares = vec![
-            (0, rng.gen::<EncodedBits>()),
-            (1, rng.gen::<EncodedBits>()),
-            (4, rng.gen::<EncodedBits>()),
-            (5, rng.gen::<EncodedBits>()),
-            (7, rng.gen::<EncodedBits>()),
         ];
 
         db.insert_shares(&shares).await?;
@@ -437,16 +435,17 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_masks_returns_sequential_data() -> eyre::Result<()> {
-        let (db, _pg) = setup().await?;
+        let docker = clients::Cli::default();
+        let (db, _pg) = setup(&docker).await?;
 
         let mut rng = thread_rng();
 
         let masks = vec![
-            (0, rng.gen::<Bits>()),
             (1, rng.gen::<Bits>()),
             (2, rng.gen::<Bits>()),
             (3, rng.gen::<Bits>()),
-            (5, rng.gen::<Bits>()),
+            (4, rng.gen::<Bits>()),
+            (6, rng.gen::<Bits>()),
         ];
 
         db.insert_masks(&masks).await?;
@@ -464,16 +463,17 @@ mod tests {
     #[tokio::test]
     async fn fetch_masks_returns_nothing_if_non_sequential() -> eyre::Result<()>
     {
-        let (db, _pg) = setup().await?;
+        let docker = clients::Cli::default();
+        let (db, _pg) = setup(&docker).await?;
 
         let mut rng = thread_rng();
 
         let masks = vec![
-            (0, rng.gen::<Bits>()),
             (1, rng.gen::<Bits>()),
             (2, rng.gen::<Bits>()),
             (3, rng.gen::<Bits>()),
-            (5, rng.gen::<Bits>()),
+            (4, rng.gen::<Bits>()),
+            (6, rng.gen::<Bits>()),
         ];
 
         db.insert_masks(&masks).await?;
@@ -488,7 +488,8 @@ mod tests {
     #[tokio::test]
     async fn fetch_masks_returns_nothing_if_missing_first() -> eyre::Result<()>
     {
-        let (db, _pg) = setup().await?;
+        let docker = clients::Cli::default();
+        let (db, _pg) = setup(&docker).await?;
 
         let mut rng = thread_rng();
 
@@ -511,7 +512,8 @@ mod tests {
 
     #[tokio::test]
     async fn prune_items() -> eyre::Result<()> {
-        let (db, _pg) = setup().await?;
+        let docker = clients::Cli::default();
+        let (db, _pg) = setup(&docker).await?;
 
         let mut rng = thread_rng();
 
@@ -520,7 +522,7 @@ mod tests {
             (2, rng.gen::<Bits>()),
             (3, rng.gen::<Bits>()),
             (4, rng.gen::<Bits>()),
-            (6, rng.gen::<Bits>()),
+            (5, rng.gen::<Bits>()),
         ];
 
         db.insert_masks(&masks).await?;
@@ -530,10 +532,16 @@ mod tests {
             (2, rng.gen::<EncodedBits>()),
             (3, rng.gen::<EncodedBits>()),
             (4, rng.gen::<EncodedBits>()),
-            (6, rng.gen::<EncodedBits>()),
+            (5, rng.gen::<EncodedBits>()),
         ];
 
         db.insert_shares(&shares).await?;
+
+        let fetched_masks = db.fetch_masks(0).await?;
+        let fetched_shares = db.fetch_shares(0).await?;
+
+        assert_eq!(fetched_masks.len(), 5);
+        assert_eq!(fetched_shares.len(), 5);
 
         db.prune_items(2).await?;
 

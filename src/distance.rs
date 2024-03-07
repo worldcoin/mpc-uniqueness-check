@@ -82,13 +82,13 @@ impl PartialEq for Distance {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DistanceResults {
     /// The lowest serial id known across all nodes
-    pub serial_id: Option<u64>,
+    pub serial_id: u64,
     /// The distances to the query
     pub matches: Vec<Distance>,
 }
 
 impl DistanceResults {
-    pub fn new(serial_id: Option<u64>, matches: Vec<Distance>) -> Self {
+    pub fn new(serial_id: u64, matches: Vec<Distance>) -> Self {
         Self { serial_id, matches }
     }
 }
@@ -99,11 +99,8 @@ pub struct MasksEngine {
 
 impl MasksEngine {
     pub fn new(query: &Bits) -> Self {
-        let rotations = ROTATIONS
-            .map(|r| query.rotated(r))
-            .collect::<Box<[Bits]>>()
-            .try_into()
-            .unwrap();
+        let rotations =
+            query.rotations().collect::<Box<[_]>>().try_into().unwrap();
         Self { rotations }
     }
 

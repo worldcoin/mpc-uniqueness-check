@@ -9,11 +9,11 @@ aws-config = "1.1.4"
 aws-sdk-sqs = "1.12.0"
 axum = "0.7.4"
 base64 = "0.21.7"
+bitvec = "1"
 bytemuck = { version = "1.14.1", features = ["derive"] }
 clap = { version = "4.4.18", features = ["derive", "env"] }
 config = "0.13.4"
 criterion = "0.5.1"
-docker-db = { git = "https://github.com/Dzejkop/docker-db", rev = "ef9a4dfccd9cb9b4babeebfea0ba815e36afbafe" }
 dotenv = "0.15.0"
 eyre = "0.6.11"
 futures = "0.3.30"
@@ -36,12 +36,13 @@ sqlx = { version = "0.7.3", features = [
     "postgres",
     "chrono",
 ] }
-telemetry-batteries = { git = "https://github.com/worldcoin/telemetry-batteries.git", rev = "c7d89a66bfb33423637d147e59de4758d3456c89" }
+telemetry-batteries = { git = "https://github.com/worldcoin/telemetry-batteries.git", rev = "e0891328b29d9f85df037633feccca2f74a291a6" }
 tinytemplate = "1.2.1"
 tokio = { version = "1.35.1", features = ["macros"] }
 toml = "0.8.9"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
+opentelemetry = "0.21.0"
 url = "2.5.0"
 
 [dev-dependencies]
@@ -50,6 +51,11 @@ proptest = "1.4.0"
 similar-asserts = "1.5.0"
 config = "0.13.4"
 test-case = "3.3.1"
+testcontainers = "0.15"
+testcontainers-modules = { version = "0.3", features = [
+    "postgres",
+    "localstack",
+] }
 
 [[bin]]
 name = "mpc-node"
@@ -59,16 +65,8 @@ path = "bin/mpc_node.rs"
 name = "utils"
 path = "bin/utils/utils.rs"
 
-[[bin]]
-name = "e2e"
-path = "bin/e2e/e2e.rs"
-
-[[bin]]
-name = "migrate-codes"
-path = "bin/migrate-codes/migrate.rs"
-
 [[bench]]
-name = "example"
+name = "rotation_comparison"
 harness = false
 
 [profile.release]

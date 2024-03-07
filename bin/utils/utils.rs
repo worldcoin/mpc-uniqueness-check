@@ -4,7 +4,6 @@ use seed_iris_db::{seed_iris_db, SeedIrisDb};
 use seed_mpc_db::{seed_mpc_db, SeedMPCDb};
 use sqs_query::{sqs_query, SQSQuery};
 use sqs_receive::{sqs_receive, SQSReceive};
-use telemetry_batteries::tracing::stdout::StdoutBattery;
 
 mod common;
 mod generate_mock_templates;
@@ -25,8 +24,6 @@ enum Opt {
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     dotenv::dotenv().ok();
-
-    let _shutdown_tracing_provider = StdoutBattery::init();
 
     let args = Opt::parse();
 

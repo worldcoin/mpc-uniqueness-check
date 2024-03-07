@@ -50,7 +50,6 @@ pub struct Config {
 pub struct CoordinatorConfig {
     pub participants: JsonStrWrapper<Vec<String>>,
     pub hamming_distance_threshold: f64,
-    pub n_closest_distances: usize,
     pub db: DbConfig,
     pub queues: CoordinatorQueuesConfig,
     #[serde(default)]
@@ -105,16 +104,19 @@ pub struct AwsConfig {
 pub struct ServiceConfig {
     // Service name - used for logging, metrics and tracing
     pub service_name: String,
-
     // Traces
     pub traces_endpoint: Option<String>,
-
     // Metrics
-    pub metrics_host: String,
-    pub metrics_port: u16,
-    pub metrics_queue_size: usize,
-    pub metrics_buffer_size: usize,
-    pub metrics_prefix: String,
+    pub metrics: Option<MetricsConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricsConfig {
+    pub host: String,
+    pub port: u16,
+    pub queue_size: usize,
+    pub buffer_size: usize,
+    pub prefix: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,11 +134,15 @@ mod tests {
             service: Some(ServiceConfig {
                 service_name: "mpc-coordinator".to_string(),
                 traces_endpoint: None,
-                metrics_host: "localhost".to_string(),
-                metrics_port: 8125,
-                metrics_queue_size: 5000,
-                metrics_buffer_size: 1024,
-                metrics_prefix: "mpc-coordinator".to_string(),
+
+                metrics: Some(MetricsConfig {
+                    // Metrics
+                    host: "localhost".to_string(),
+                    port: 8125,
+                    queue_size: 5000,
+                    buffer_size: 1024,
+                    prefix: "mpc-coordinator".to_string(),
+                }),
             }),
             coordinator: Some(CoordinatorConfig {
                 participants: JsonStrWrapper(vec![
@@ -145,7 +151,6 @@ mod tests {
                     "127.0.0.1:8002".to_string(),
                 ]),
                 hamming_distance_threshold: 0.375,
-                n_closest_distances: 20,
                 db: DbConfig {
                     url: "postgres://localhost:5432/mpc".to_string(),
                     migrate: true,
