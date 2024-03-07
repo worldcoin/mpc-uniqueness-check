@@ -272,11 +272,12 @@ impl Coordinator {
     ) -> (Receiver<Vec<[u16; 31]>>, JoinHandle<eyre::Result<()>>) {
         let (sender, denom_receiver) = tokio::sync::mpsc::channel(4);
         let masks = self.masks.clone();
+        let no_rotations = self.config.no_rotations;
 
         let denominator_handle = tokio::task::spawn_blocking(move || {
             let masks = masks.blocking_lock();
             let masks: &[Bits] = bytemuck::cast_slice(&masks);
-            let engine = MasksEngine::new(&mask);
+            let engine = MasksEngine::new(&mask, no_rotations);
             let total_masks: usize = masks.len();
 
             tracing::info!("Processing denominators");

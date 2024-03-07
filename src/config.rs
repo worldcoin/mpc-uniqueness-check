@@ -50,6 +50,8 @@ pub struct Config {
 pub struct CoordinatorConfig {
     pub participants: JsonStrWrapper<Vec<String>>,
     pub hamming_distance_threshold: f64,
+    #[serde(default)]
+    pub no_rotations: bool,
     pub db: DbConfig,
     pub queues: CoordinatorQueuesConfig,
     #[serde(default)]
@@ -60,6 +62,7 @@ pub struct CoordinatorConfig {
 pub struct ParticipantConfig {
     pub socket_addr: SocketAddr,
     pub batch_size: usize,
+    pub no_rotations: bool,
     pub db: DbConfig,
     pub queues: ParticipantQueuesConfig,
     #[serde(default)]
@@ -151,6 +154,7 @@ mod tests {
                     "127.0.0.1:8002".to_string(),
                 ]),
                 hamming_distance_threshold: 0.375,
+                no_rotations: false,
                 db: DbConfig {
                     url: "postgres://localhost:5432/mpc".to_string(),
                     migrate: true,
@@ -194,6 +198,7 @@ mod tests {
             participants = '["127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8002"]'
             hamming_distance_threshold = 0.375
             n_closest_distances = 20
+            no_rotations = false
 
             [coordinator.db]
             url = "postgres://localhost:5432/mpc"

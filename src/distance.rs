@@ -33,9 +33,13 @@ pub struct DistanceEngine {
 }
 
 impl DistanceEngine {
-    pub fn new(rotations: impl Iterator<Item = EncodedBits>) -> Self {
+    pub fn new(rotations: impl IntoIterator<Item = EncodedBits>) -> Self {
         Self {
-            rotations: rotations.collect::<Box<[_]>>().try_into().unwrap(),
+            rotations: rotations
+                .into_iter()
+                .collect::<Box<[_]>>()
+                .try_into()
+                .unwrap(),
         }
     }
 
@@ -98,9 +102,18 @@ pub struct MasksEngine {
 }
 
 impl MasksEngine {
-    pub fn new(query: &Bits) -> Self {
-        let rotations =
-            query.rotations().collect::<Box<[_]>>().try_into().unwrap();
+    pub fn new(query: &Bits, no_rotations: bool) -> Self {
+        let rotations = if no_rotations {
+            query
+                .rotations()
+                .map(|_| *query) // If rotations are disabled we just copy the original value for each rotation
+                .collect::<Box<[_]>>()
+                .try_into()
+                .unwrap()
+        } else {
+            query.rotations().collect::<Box<[_]>>().try_into().unwrap()
+        };
+
         Self { rotations }
     }
 

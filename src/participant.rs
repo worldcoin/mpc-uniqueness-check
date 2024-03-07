@@ -163,8 +163,15 @@ impl Participant {
 
         // Process in worker thread
         let (sender, mut receiver) = mpsc::channel(4);
+        let no_rotations = self.config.no_rotations;
         let worker = tokio::task::spawn_blocking(move || {
-            calculate_share_distances(shares_ref, template, batch_size, sender)
+            calculate_share_distances(
+                shares_ref,
+                template,
+                batch_size,
+                sender,
+                no_rotations,
+            )
         });
 
         while let Some(buffer) = receiver.recv().await {
@@ -295,11 +302,21 @@ fn calculate_share_distances(
     template: Template,
     batch_size: usize,
     sender: mpsc::Sender<Vec<u8>>,
+    no_rotations: bool,
 ) -> eyre::Result<()> {
     let shares = shares.blocking_lock();
     let patterns: &[EncodedBits] = bytemuck::cast_slice(&shares);
 
-    let template_rotations = template.rotations().map(|r| encode(&r));
+    let template_rotations: Vec<EncodedBits> = if no_rotations {
+        template
+            .rotations()
+            .map(|_| template) // ignore rotations
+            .map(|r| encode(&r))
+            .collect()
+    } else {
+        template.rotations().map(|r| encode(&r)).collect()
+    };
+
     let engine = DistanceEngine::new(template_rotations);
 
     for chunk in patterns.chunks(batch_size) {
