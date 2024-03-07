@@ -1,7 +1,8 @@
 use clap::Args;
 use indicatif::{ProgressBar, ProgressStyle};
-use mpc::bits::Bits;
-use serde::{Deserialize, Serialize};
+use mpc::iris_db::IrisCodeEntry;
+use mpc::rng_source::RngSource;
+use rand::Rng;
 
 use crate::common::{generate_random_string, generate_templates};
 
@@ -18,6 +19,9 @@ pub struct SeedIrisDb {
 
     #[clap(short, long, default_value = "100")]
     pub batch_size: usize,
+
+    #[clap(long, default_value = "thread")]
+    pub rng: RngSource,
 }
 
 pub async fn seed_iris_db(args: &SeedIrisDb) -> eyre::Result<()> {
@@ -41,18 +45,20 @@ pub async fn seed_iris_db(args: &SeedIrisDb) -> eyre::Result<()> {
 
     tracing::info!(?next_serial_id);
 
+    let mut rng = args.rng.to_rng();
+
     let documents = left_templates
         .iter()
         .zip(right_templates.iter())
         .enumerate()
         .map(|(serial_id, (left, right))| IrisCodeEntry {
-            signup_id: generate_random_string(10),
-            mpc_serial_id: next_serial_id + serial_id as u64,
+            signup_id: generate_random_string(&mut rng, 10),
+            serial_id: next_serial_id + serial_id as u64,
             iris_code_left: left.code,
             mask_code_left: left.mask,
             iris_code_right: right.code,
             mask_code_right: right.mask,
-            whitelisted: true,
+            whitelisted: rng.gen_bool(0.8),
         })
         .collect::<Vec<IrisCodeEntry>>();
 
@@ -72,15 +78,4 @@ pub async fn seed_iris_db(args: &SeedIrisDb) -> eyre::Result<()> {
     pb.finish_with_message("Seeded iris codes");
 
     Ok(())
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct IrisCodeEntry {
-    pub signup_id: String,
-    pub mpc_serial_id: u64,
-    pub iris_code_left: Bits,
-    pub mask_code_left: Bits,
-    pub iris_code_right: Bits,
-    pub mask_code_right: Bits,
-    pub whitelisted: bool,
 }

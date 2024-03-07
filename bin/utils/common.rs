@@ -30,9 +30,8 @@ pub fn generate_templates(num_templates: usize) -> Vec<Template> {
     templates
 }
 
-pub fn generate_random_string(len: usize) -> String {
-    rand::thread_rng()
-        .sample_iter(&Alphanumeric)
+pub fn generate_random_string(rng: &mut impl Rng, len: usize) -> String {
+    rng.sample_iter(&Alphanumeric)
         .take(len)
         .map(char::from)
         .collect()

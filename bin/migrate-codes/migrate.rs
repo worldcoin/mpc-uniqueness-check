@@ -3,19 +3,17 @@
 use clap::Parser;
 use futures::{pin_mut, Stream, StreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
-use iris_db::IrisCodeEntry;
 use mpc::bits::Bits;
 use mpc::db::Db;
 use mpc::distance::EncodedBits;
+use mpc::iris_db::{IrisCodeEntry, IrisDb};
 use mpc::template::Template;
 use rand::thread_rng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use telemetry_batteries::tracing::stdout::StdoutBattery;
 
-use crate::iris_db::IrisDb;
 use crate::mpc_db::MPCDb;
 
-mod iris_db;
 mod mpc_db;
 
 #[derive(Parser)]
@@ -71,6 +69,8 @@ async fn main() -> eyre::Result<()> {
     )
     .await?;
 
+    // TODO: This is wrong, we need to run this value against the final result mapping
+    // in mongo
     let latest_serial_id = mpc_db.fetch_latest_serial_id().await?;
     tracing::info!("Latest serial id {latest_serial_id}");
 
@@ -86,7 +86,9 @@ async fn main() -> eyre::Result<()> {
         .expect("Could not create progress bar");
     pb.set_style(pb_style);
 
-    let iris_code_entries = iris_db.stream_iris_codes(latest_serial_id).await?;
+    let iris_code_entries = iris_db
+        .stream_whitelisted_iris_codes(latest_serial_id)
+        .await?;
     let iris_code_chunks = iris_code_entries.chunks(args.batch_size);
     let iris_code_template_chunks = iris_code_chunks
         .map(|chunk| chunk.into_iter().collect::<Result<Vec<_>, _>>())
@@ -137,14 +139,14 @@ pub fn extract_templates(
         .map(|entry| {
             (
                 (
-                    entry.mpc_serial_id as usize,
+                    entry.serial_id as usize,
                     Template {
                         code: entry.iris_code_left,
                         mask: entry.mask_code_left,
                     },
                 ),
                 (
-                    entry.mpc_serial_id as usize,
+                    entry.serial_id as usize,
                     Template {
                         code: entry.iris_code_right,
                         mask: entry.mask_code_right,
