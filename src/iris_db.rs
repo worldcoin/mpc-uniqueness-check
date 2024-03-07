@@ -8,7 +8,7 @@ use crate::bits::Bits;
 pub const IRIS_CODE_BATCH_SIZE: u32 = 30_000;
 pub const DATABASE_NAME: &str = "iris";
 pub const COLLECTION_NAME: &str = "codes.v2";
-pub const FINAL_RESULT_COLLECTION_NAME: &str = "iris.mpc.results";
+pub const FINAL_RESULT_COLLECTION_NAME: &str = "mpc.results";
 pub const FINAL_RESULT_STATUS: &str = "COMPLETED";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,13 +29,12 @@ pub struct FinalResult {
     pub status: String,
 
     /// The MPC serial id associated with this signup
-    pub serial_id: Option<u64>,
+    pub serial_id: u64,
 
     /// A unique signup id string
     pub signup_id: String,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub unique: Option<bool>,
+    pub unique: bool,
 
     pub right_result: SideResult,
 

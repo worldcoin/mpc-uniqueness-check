@@ -71,6 +71,22 @@ impl MPCDb {
     }
 
     #[tracing::instrument(skip(self,))]
+    pub async fn prune_items(&self, serial_id: u64) -> eyre::Result<()> {
+        self.left_coordinator_db.prune_items(serial_id).await?;
+        self.right_coordinator_db.prune_items(serial_id).await?;
+
+        for db in self.left_participant_dbs.iter() {
+            db.prune_items(serial_id).await?;
+        }
+
+        for db in self.right_participant_dbs.iter() {
+            db.prune_items(serial_id).await?;
+        }
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self,))]
     pub async fn fetch_latest_serial_id(&self) -> eyre::Result<u64> {
         let mut ids = Vec::new();
 
