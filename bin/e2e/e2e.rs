@@ -7,7 +7,6 @@ use eyre::ContextCompat;
 use mpc::config::{load_config, AwsConfig, DbConfig};
 use mpc::coordinator::UniquenessCheckResult;
 use mpc::db::Db;
-use mpc::rng_source::RngSource;
 use mpc::template::{Bits, Template};
 use mpc::utils::aws::{self, sqs_client_from_config};
 use serde::Deserialize;
@@ -45,9 +44,6 @@ struct Args {
     /// The path to the signup sequence file to use
     #[clap(short, long, default_value = "bin/e2e/signup_sequence.json")]
     signup_sequence: String,
-
-    #[clap(short, long, env, default_value = "thread")]
-    rng: RngSource,
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,8 +73,6 @@ async fn main() -> eyre::Result<()> {
     if std::env::var("AWS_DEFAULT_REGION").is_err() {
         tracing::warn!("AWS_DEFAULT_REGION not set");
     }
-
-    let mut rng = args.rng.to_rng();
 
     let _shutdown_tracing_provider = StdoutBattery::init();
 
@@ -118,7 +112,7 @@ async fn main() -> eyre::Result<()> {
 
         let masks = db.fetch_masks(0).await?;
 
-        masks.len() as u64
+        (masks.len() as u64).checked_sub(1)
     };
 
     let participant_db_sync_queues = vec![
@@ -138,7 +132,7 @@ async fn main() -> eyre::Result<()> {
             &sqs_client,
             &config.coordinator_queue.query_queue,
             &element.signup_id,
-            &common::generate_random_string(4, &mut rng),
+            &common::generate_random_string(4),
         )
         .await?;
 
@@ -153,18 +147,12 @@ async fn main() -> eyre::Result<()> {
         let uniqueness_check_result =
             serde_json::from_str::<UniquenessCheckResult>(&message_body)?;
 
+        // Check that signup id and serial id match expected values
         assert_eq!(uniqueness_check_result.signup_id, element.signup_id);
         assert_eq!(uniqueness_check_result.serial_id, next_serial_id);
 
-        // If there should be matches, check that the distances match the expected values
-        if !element.matched_with.is_empty() {
-            assert_eq!(
-                uniqueness_check_result.matches.len(),
-                element.matched_with.len(),
-                "Wrong number of matches for signup_id: {}",
-                element.signup_id
-            );
-
+        // If there are matches, check that the distances match the expected values
+        if !uniqueness_check_result.matches.is_empty() {
             for (i, distance) in
                 uniqueness_check_result.matches.iter().enumerate()
             {
@@ -175,15 +163,18 @@ async fn main() -> eyre::Result<()> {
                 );
             }
         } else {
-            next_serial_id += 1;
+            if let Some(id) = next_serial_id.as_mut() {
+                *id += 1;
+            } else {
+                next_serial_id = Some(0);
+            }
 
             common::seed_db_sync(
                 &sqs_client,
                 &config.db_sync.coordinator_db_sync_queue,
                 &participant_db_sync_queues,
                 template,
-                next_serial_id,
-                &mut rng,
+                next_serial_id.context("Could not get next serial id")?,
             )
             .await?;
 

@@ -2,9 +2,8 @@ use clap::Args;
 use indicatif::ProgressBar;
 use mpc::config::DbConfig;
 use mpc::db::Db;
-use mpc::rng_source::RngSource;
 use mpc::template::Template;
-use rand::Rng;
+use rand::{thread_rng, Rng};
 
 #[derive(Debug, Clone, Args)]
 pub struct SeedMPCDb {
@@ -19,9 +18,6 @@ pub struct SeedMPCDb {
 
     #[clap(short, long, default_value = "10000")]
     pub batch_size: usize,
-
-    #[clap(short, long, env, default_value = "thread")]
-    pub rng: RngSource,
 }
 
 pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
@@ -35,7 +31,7 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
     let pb = ProgressBar::new(args.num_templates as u64)
         .with_message("Generating templates");
 
-    let mut rng = args.rng.to_rng();
+    let mut rng = thread_rng();
 
     for _ in 0..args.num_templates {
         templates.push(rng.gen());
@@ -85,8 +81,8 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
         let pb = ProgressBar::new(chunk.len() as u64)
             .with_message("Encoding shares");
         for (offset, template) in chunk.iter().enumerate() {
-            let shares = mpc::distance::encode(template)
-                .share(participant_dbs.len(), &mut rng);
+            let shares =
+                mpc::distance::encode(template).share(participant_dbs.len());
 
             let id = offset + (idx * args.batch_size);
 
