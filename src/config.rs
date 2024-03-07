@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::path::Path;
+use std::time::Duration;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -49,6 +50,11 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoordinatorConfig {
     pub participants: JsonStrWrapper<Vec<String>>,
+    #[serde(
+        with = "humantime_serde",
+        default = "default::participant_connection_timeout"
+    )]
+    pub participant_connection_timeout: Duration,
     pub hamming_distance_threshold: f64,
     pub db: DbConfig,
     pub queues: CoordinatorQueuesConfig,
@@ -124,6 +130,14 @@ pub struct HealthCheckConfig {
     pub socket_addr: SocketAddr,
 }
 
+mod default {
+    use std::time::Duration;
+
+    pub fn participant_connection_timeout() -> Duration {
+        Duration::from_secs(5)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,6 +164,7 @@ mod tests {
                     "127.0.0.1:8001".to_string(),
                     "127.0.0.1:8002".to_string(),
                 ]),
+                participant_connection_timeout: Duration::from_secs(1),
                 hamming_distance_threshold: 0.375,
                 db: DbConfig {
                     url: "postgres://localhost:5432/mpc".to_string(),

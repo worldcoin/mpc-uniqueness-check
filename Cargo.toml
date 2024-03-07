@@ -44,6 +44,7 @@ tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 opentelemetry = "0.21.0"
 url = "2.5.0"
+humantime-serde = "1.1.1"
 
 [dev-dependencies]
 float_eq = "1.0.1"

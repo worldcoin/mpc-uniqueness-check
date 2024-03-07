@@ -240,9 +240,12 @@ impl Coordinator {
                         ?participant_host,
                         "Connecting to participant"
                     );
-                    let mut stream = TcpStream::connect(participant_host)
-                        .await
-                        .context("Connecting to participant")?;
+                    let mut stream = tokio::time::timeout(
+                        self.config.participant_connection_timeout,
+                        TcpStream::connect(participant_host),
+                    )
+                    .await
+                    .context("Connecting to participant")??;
 
                     // Send the trace and span IDs
                     stream.write_all(&trace_id.to_bytes()).await?;
