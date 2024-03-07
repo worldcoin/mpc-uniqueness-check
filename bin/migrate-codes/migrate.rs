@@ -240,9 +240,9 @@ async fn handle_side_data_chunk(
     coordinator_db: &Db,
     participant_dbs: &[Db],
 ) -> eyre::Result<()> {
-    let left_data = encode_shares(templates, num_participants)?;
+    let data = encode_shares(templates, num_participants)?;
 
-    insert_masks_and_shares(&left_data, coordinator_db, participant_dbs)
+    insert_masks_and_shares(&data, coordinator_db, participant_dbs)
         .await?;
 
     Ok(())
@@ -253,13 +253,12 @@ async fn insert_masks_and_shares(
     coordinator_db: &Db,
     participant_dbs: &[Db],
 ) -> eyre::Result<()> {
-    // Insert masks
-    let left_masks: Vec<_> = data
+    let masks: Vec<_> = data
         .iter()
         .map(|(serial_id, mask, _)| (*serial_id as u64, *mask))
         .collect();
 
-    coordinator_db.insert_masks(&left_masks).await?;
+    coordinator_db.insert_masks(&masks).await?;
 
     // Insert shares to each participant
     for (i, participant_db) in participant_dbs.iter().enumerate() {
