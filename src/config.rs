@@ -209,6 +209,7 @@ mod tests {
             participants = '["127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8002"]'
             hamming_distance_threshold = 0.375
             n_closest_distances = 20
+            participant_connection_timeout = "1s"
 
             [coordinator.db]
             url = "postgres://localhost:5432/mpc"
