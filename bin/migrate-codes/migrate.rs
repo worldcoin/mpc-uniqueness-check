@@ -242,8 +242,7 @@ async fn handle_side_data_chunk(
 ) -> eyre::Result<()> {
     let data = encode_shares(templates, num_participants)?;
 
-    insert_masks_and_shares(&data, coordinator_db, participant_dbs)
-        .await?;
+    insert_masks_and_shares(&data, coordinator_db, participant_dbs).await?;
 
     Ok(())
 }
