@@ -404,7 +404,7 @@ impl Coordinator {
         let mut matches = vec![];
 
         // Keep track of entry ids
-        let mut i: usize = 0;
+        let mut i: usize = 1;
 
         while let Some((denom_batch, shares)) = processed_shares_rx.recv().await
         {
@@ -439,7 +439,7 @@ impl Coordinator {
             let distances = worker.await?;
 
             for (j, distance) in distances.into_iter().enumerate() {
-                let id = j + i + 1;
+                let id = j + i;
 
                 if distance < self.hamming_distance_threshold {
                     matches.push(Distance::new(id as u64, distance));
