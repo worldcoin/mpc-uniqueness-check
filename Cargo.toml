@@ -66,6 +66,10 @@ path = "bin/mpc_node.rs"
 name = "utils"
 path = "bin/utils/utils.rs"
 
+[[bin]]
+name = "migrate-codes"
+path = "bin/migrate-codes/migrate.rs"
+
 [[bench]]
 name = "rotation_comparison"
 harness = false
