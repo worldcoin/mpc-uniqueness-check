@@ -248,7 +248,7 @@ async fn test_signup_sequence(
     sqs_client: aws_sdk_sqs::Client,
     e2e_config: E2EConfig,
 ) -> eyre::Result<()> {
-    let mut next_serial_id = 1;
+    let mut latest_serial_id = 0;
 
     for element in signup_sequence {
         let template = Template {
@@ -279,6 +279,7 @@ async fn test_signup_sequence(
 
         // Check that signup id and serial id match expected values
         assert_eq!(uniqueness_check_result.signup_id, element.signup_id);
+        assert_eq!(uniqueness_check_result.serial_id, latest_serial_id);
 
         assert_eq!(
             uniqueness_check_result.matches.len(),
@@ -300,6 +301,8 @@ async fn test_signup_sequence(
                 );
             }
         } else {
+            let next_serial_id = latest_serial_id + 1;
+
             seed_db_sync(
                 &sqs_client,
                 &e2e_config.coordinator.queues.db_sync_queue_url,
@@ -312,7 +315,7 @@ async fn test_signup_sequence(
             )
             .await?;
 
-            next_serial_id += 1;
+            latest_serial_id = next_serial_id;
 
             // Sleep a little to give the nodes time to sync dbs
             tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
