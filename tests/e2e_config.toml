@@ -1,0 +1,26 @@
+[coordinator]
+service_name = "mpc-coordinator"
+db.url = "postgres://postgres:postgres@localhost:8432/coordinator_db"
+db.migrate = true
+db.create = true
+queues.queries_queue_url = "http://localhost:4566/000000000000/coordinator-queries.fifo"
+queues.distances_queue_url = "http://localhost:4566/000000000000/coordinator-distances.fifo"
+queues.db_sync_queue_url = "http://localhost:4566/000000000000/coordinator-db-sync"
+participants = '["0.0.0.0:8080", "0.0.0.0:8081"]'
+hamming_distance_threshold = 0.375
+
+[[participant]]
+socket_addr = "0.0.0.0:8080"
+batch_size = 20000
+db.url = "postgres://postgres:postgres@localhost:8433/participant_0_db"
+db.migrate = true
+db.create = true
+queues.db_sync_queue_url = "http://localhost:4566/000000000000/participant-0-db-sync"
+
+[[participant]]
+socket_addr = "0.0.0.0:8081"
+batch_size = 20000
+db.url = "postgres://postgres:postgres@localhost:8434/participant_1_db"
+db.migrate = true
+db.create = true
+queues.db_sync_queue_url = "http://localhost:4566/000000000000/participant-1-db-sync"
