@@ -314,5 +314,7 @@ fn calculate_share_distances(
         sender.blocking_send(result)?;
     }
 
+    metrics::gauge!("participant.latest_serial_id", shares.len() as f64);
+
     Ok(())
 }
