@@ -454,8 +454,6 @@ impl Coordinator {
             tracing::info!(?matches, "Matches found");
         }
 
-        metrics::gauge!("coordinator.latest_serial_id", i as f64);
-
         let distance_results = DistanceResults::new(i as u64, matches);
 
         Ok(distance_results)
@@ -473,6 +471,7 @@ impl Coordinator {
         masks.extend(new_masks);
 
         tracing::info!(num_masks = masks.len(), "New masks synchronized");
+        metrics::gauge!("coordinator.latest_serial_id", masks.len() as f64);
 
         Ok(())
     }
