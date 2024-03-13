@@ -1,5 +1,6 @@
 use clap::Parser;
 use generate_mock_templates::{generate_mock_templates, GenerateMockTemplates};
+use measure_fetch::{measure_fetch, MeasureFetch};
 use seed_iris_db::{seed_iris_db, SeedIrisDb};
 use seed_mpc_db::{seed_mpc_db, SeedMPCDb};
 use sqs_query::{sqs_query, SQSQuery};
@@ -7,6 +8,7 @@ use sqs_receive::{sqs_receive, SQSReceive};
 
 mod common;
 mod generate_mock_templates;
+mod measure_fetch;
 mod seed_iris_db;
 mod seed_mpc_db;
 mod sqs_query;
@@ -19,6 +21,7 @@ enum Opt {
     SeedIrisDb(SeedIrisDb),
     SQSReceive(SQSReceive),
     GenerateMockTemplates(GenerateMockTemplates),
+    MeasureFetch(MeasureFetch),
 }
 
 #[tokio::main]
@@ -42,6 +45,9 @@ async fn main() -> eyre::Result<()> {
         }
         Opt::GenerateMockTemplates(args) => {
             generate_mock_templates(&args).await?;
+        }
+        Opt::MeasureFetch(args) => {
+            measure_fetch(&args).await?;
         }
     }
 
