@@ -107,6 +107,8 @@ where
         {
             let end = (start + MULTI_CONNECTION_FETCH_THRESHOLD)
                 .min(first_gap as usize);
+
+            tracing::info!("Pushing fetch job for items {} to {}", start, end);
             fetches.push_back(async move {
                 let query_template = self.construct_fetch_query();
 
