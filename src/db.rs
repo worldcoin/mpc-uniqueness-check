@@ -47,7 +47,7 @@ where
         }
 
         let pool = sqlx::pool::PoolOptions::new()
-            .max_connections(1000)
+            .max_connections(100)
             .connect(&config.url)
             .await?;
 
