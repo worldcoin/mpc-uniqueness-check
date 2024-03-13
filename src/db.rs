@@ -13,7 +13,7 @@ static MIGRATOR: Migrator = sqlx::migrate!("./migrations/");
 pub mod impls;
 pub mod kinds;
 
-pub const MULTI_CONNECTION_FETCH_THRESHOLD: usize = 1000;
+pub const MULTI_CONNECTION_FETCH_THRESHOLD: usize = 10000;
 
 pub struct Db<K> {
     pool: sqlx::Pool<Postgres>,
