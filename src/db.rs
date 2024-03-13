@@ -63,104 +63,93 @@ where
 
     #[tracing::instrument(skip(self))]
     pub async fn fetch_items(&self, id: usize) -> eyre::Result<Vec<K::Item>> {
-        let (first_gap,): (i64,) = sqlx::query_as(&format!(
-            r#"
-            WITH RECURSIVE seq AS (
-                -- Base case: Start the sequence with the value immediately after the specified starting ID
-                SELECT $1 + 1 AS val
-                UNION ALL
-                -- Recursive step: Incrementally add 1 to the previous value to generate the sequence,
-                -- stopping when reaching the maximum ID present in the table.
-                SELECT val + 1
-                FROM seq
-                JOIN {table} ON {table}.id = seq.val
-                WHERE val < (SELECT MAX(id) FROM {table})
-            ),
-            min_gap AS (
-                -- Find the minimum value in the generated sequence that does not exist in the table,
-                -- indicating the first gap.
-                SELECT MIN(val) AS first_gap
-                FROM seq
-                WHERE val NOT IN (SELECT id FROM {table})
-            )
-            -- Final selection: Choose the first non-null value from the options below,
-            -- effectively identifying the first gap or the next possible ID if no gaps are found.
-            SELECT COALESCE(
-                (SELECT first_gap FROM min_gap), -- The first gap found in the sequence.
-                (SELECT MAX(id) + 1 FROM {table}), -- If no gaps, use the next ID after the highest existing ID.
-                $1 + 1 -- Default case if the table is empty, starting the sequence immediately after $1.
-            ) AS id_value
-            "#,
-            table = K::TABLE_NAME
-        ))
-        .bind(id as i64)
-        .fetch_one(&self.pool)
-        .await?;
-
-        println!("id = {id}");
-        println!("first_gap = {first_gap}");
+        let first_gap = self.find_first_gap(id).await?;
         let num_items = first_gap - id as i64;
-        println!("num_items = {num_items}");
 
         if num_items as usize > MULTI_CONNECTION_FETCH_THRESHOLD {
-            let mut fetches = FuturesOrdered::new();
-
-            for start in (id..first_gap as usize)
-                .step_by(MULTI_CONNECTION_FETCH_THRESHOLD)
-            {
-                let end = (start + MULTI_CONNECTION_FETCH_THRESHOLD)
-                    .min(first_gap as usize);
-
-                let fetch = async move {
-                    let items: Vec<(i64, K::Item)> =
-                        sqlx::query_as::<_, (i64, K::Item)>(&format!(
-                            r#"
-                                SELECT id, {column}
-                                FROM {table}
-                                WHERE id > $1
-                                AND   id <= $2
-                                ORDER BY id ASC
-                            "#,
-                            column = K::COLUMN_NAME,
-                            table = K::TABLE_NAME,
-                        ))
-                        .bind(start as i64)
-                        .bind(end as i64)
-                        .fetch_all(&self.pool)
-                        .await?;
-
-                    eyre::Result::<_>::Ok(items)
-                };
-
-                fetches.push_back(fetch);
-            }
-
-            let mut all_items = Vec::with_capacity(num_items as usize);
-
-            while let Some(items) = fetches.next().await {
-                all_items.extend(items?);
-            }
-
-            Ok(all_items.into_iter().map(|(_id, item)| item).collect())
+            self.fetch_items_in_bulk(id, first_gap).await
         } else {
-            let items: Vec<(i64, K::Item)> = sqlx::query_as(&format!(
-                r#"
-                    SELECT id, {column}
-                    FROM {table}
-                    WHERE id > $1
-                    AND   id <= $2
-                    ORDER BY id ASC
-                "#,
-                column = K::COLUMN_NAME,
-                table = K::TABLE_NAME,
-            ))
-            .bind(id as i64)
-            .bind(first_gap)
-            .fetch_all(&self.pool)
-            .await?;
-
-            Ok(items.into_iter().map(|(_id, item)| item).collect())
+            self.fetch_items_single_query(id, first_gap).await
         }
+    }
+
+    async fn find_first_gap(&self, id: usize) -> eyre::Result<i64> {
+        let query = format!(
+            "WITH RECURSIVE seq AS (
+                SELECT $1 + 1 AS val
+                UNION ALL
+                SELECT val + 1 FROM seq JOIN {table} ON {table}.id = seq.val WHERE val < (SELECT MAX(id) FROM {table})
+            ), min_gap AS (
+                SELECT MIN(val) AS first_gap FROM seq WHERE val NOT IN (SELECT id FROM {table})
+            )
+            SELECT COALESCE((SELECT first_gap FROM min_gap), (SELECT MAX(id) + 1 FROM {table}), $1 + 1) AS id_value",
+            table = K::TABLE_NAME
+        );
+        let (first_gap,): (i64,) = sqlx::query_as(&query)
+            .bind(id as i64)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(first_gap)
+    }
+
+    async fn fetch_items_in_bulk(
+        &self,
+        id: usize,
+        first_gap: i64,
+    ) -> eyre::Result<Vec<K::Item>> {
+        let mut fetches = FuturesOrdered::new();
+
+        for start in
+            (id..first_gap as usize).step_by(MULTI_CONNECTION_FETCH_THRESHOLD)
+        {
+            let end = (start + MULTI_CONNECTION_FETCH_THRESHOLD)
+                .min(first_gap as usize);
+            fetches.push_back(async move {
+                let query_template = self.construct_fetch_query();
+
+                self.fetch_range(&query_template, start, end).await
+            });
+        }
+
+        let mut all_items = Vec::new();
+        while let Some(items) = fetches.next().await {
+            all_items.extend(items?);
+        }
+
+        Ok(all_items.into_iter().map(|(_id, item)| item).collect())
+    }
+
+    async fn fetch_items_single_query(
+        &self,
+        id: usize,
+        first_gap: i64,
+    ) -> eyre::Result<Vec<K::Item>> {
+        let query = self.construct_fetch_query();
+
+        let items = self.fetch_range(&query, id, first_gap as usize).await?;
+
+        Ok(items.into_iter().map(|(_id, item)| item).collect())
+    }
+
+    fn construct_fetch_query(&self) -> String {
+        format!(
+            "SELECT id, {column} FROM {table} WHERE id > $1 AND id <= $2 ORDER BY id ASC",
+            column = K::COLUMN_NAME,
+            table = K::TABLE_NAME,
+        )
+    }
+
+    async fn fetch_range(
+        &self,
+        query: &str,
+        start: usize,
+        end: usize,
+    ) -> eyre::Result<Vec<(i64, K::Item)>> {
+        Ok(sqlx::query_as::<_, (i64, K::Item)>(query)
+            .bind(start as i64)
+            .bind(end as i64)
+            .fetch_all(&self.pool)
+            .await?)
     }
 
     #[tracing::instrument(skip(self))]
@@ -441,12 +430,45 @@ mod tests {
             .map(|id| (id, rng.gen::<Bits>()))
             .collect::<Vec<_>>();
 
+        assert!(masks.len() > MULTI_CONNECTION_FETCH_THRESHOLD);
+
         db.insert_items(&masks).await?;
 
         let expected_masks =
             masks.iter().map(|(_, mask)| *mask).collect::<Vec<_>>();
         let fetched_masks = db.fetch_items(0).await?;
 
+        assert_eq!(fetched_masks, expected_masks);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn large_fetch_with_gap() -> eyre::Result<()> {
+        let docker = clients::Cli::default();
+        let (db, _pg) = setup::<Masks>(&docker).await?;
+
+        const GAP: usize = 1534;
+
+        let mut rng = thread_rng();
+
+        let mut masks = (1..3000)
+            .map(|id| (id, rng.gen::<Bits>()))
+            .collect::<Vec<_>>();
+
+        masks.remove(GAP);
+
+        assert!(masks.len() > MULTI_CONNECTION_FETCH_THRESHOLD);
+
+        db.insert_items(&masks).await?;
+
+        let expected_masks = masks[..GAP]
+            .iter()
+            .map(|(_, mask)| *mask)
+            .collect::<Vec<_>>();
+        let fetched_masks = db.fetch_items(0).await?;
+
+        assert_eq!(fetched_masks.len(), expected_masks.len());
         assert_eq!(fetched_masks, expected_masks);
 
         Ok(())
