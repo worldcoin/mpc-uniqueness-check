@@ -2,6 +2,7 @@ use clap::Args;
 use mpc::config::DbConfig;
 use mpc::db::kinds::Masks;
 use mpc::db::Db;
+use telemetry_batteries::tracing::stdout::StdoutBattery;
 
 #[derive(Debug, Clone, Args)]
 pub struct MeasureFetch {
@@ -20,7 +21,7 @@ pub async fn measure_fetch(args: &MeasureFetch) -> eyre::Result<()> {
     let start = std::time::Instant::now();
     let shares = db.fetch_items(0).await?;
 
-    println!("Masks {} fetched in {:?}", shares.len(), start.elapsed());
+    tracing::info!("Masks {} fetched in {:?}", shares.len(), start.elapsed());
 
     Ok(())
 }
