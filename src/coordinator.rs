@@ -471,6 +471,7 @@ impl Coordinator {
         masks.extend(new_masks);
 
         tracing::info!(num_masks = masks.len(), "New masks synchronized");
+        metrics::gauge!("coordinator.latest_serial_id", masks.len() as f64);
 
         Ok(())
     }
