@@ -46,7 +46,10 @@ where
             sqlx::Postgres::create_database(&config.url).await?;
         }
 
-        let pool = sqlx::Pool::connect(&config.url).await?;
+        let pool = sqlx::pool::PoolOptions::new()
+            .max_connections(1000)
+            .connect(&config.url)
+            .await?;
 
         if config.migrate {
             tracing::info!("Running migrations");
