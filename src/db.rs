@@ -13,7 +13,7 @@ static MIGRATOR: Migrator = sqlx::migrate!("./migrations/");
 pub mod impls;
 pub mod kinds;
 
-pub const MULTI_CONNECTION_FETCH_THRESHOLD: usize = 10000;
+pub const MULTI_CONNECTION_FETCH_THRESHOLD: usize = 1000;
 
 pub struct Db<K> {
     pool: sqlx::Pool<Postgres>,
@@ -77,21 +77,32 @@ where
     }
 
     async fn find_first_gap(&self, id: usize) -> eyre::Result<i64> {
-        let query = format!(
-            "WITH RECURSIVE seq AS (
-                SELECT $1 + 1 AS val
-                UNION ALL
-                SELECT val + 1 FROM seq JOIN {table} ON {table}.id = seq.val WHERE val < (SELECT MAX(id) FROM {table})
-            ), min_gap AS (
-                SELECT MIN(val) AS first_gap FROM seq WHERE val NOT IN (SELECT id FROM {table})
-            )
-            SELECT COALESCE((SELECT first_gap FROM min_gap), (SELECT MAX(id) + 1 FROM {table}), $1 + 1) AS id_value",
+        let ids: Vec<(i64,)> = sqlx::query_as(&format!(
+            r#"
+            SELECT id
+            FROM {table}
+            WHERE id > $1
+            ORDER BY id ASC
+            "#,
             table = K::TABLE_NAME
-        );
-        let (first_gap,): (i64,) = sqlx::query_as(&query)
-            .bind(id as i64)
-            .fetch_one(&self.pool)
-            .await?;
+        ))
+        .bind(id as i64)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let expected_ids = (id as i64 + 1)..;
+        let first_gap = expected_ids
+            .zip(ids.iter().map(|(id,)| *id))
+            .find_map(|(expected, actual)| {
+                if expected != actual {
+                    Some(expected)
+                } else {
+                    None
+                }
+            })
+            .or_else(|| ids.last().map(|(id,)| *id))
+            .unwrap_or(0);
+
         Ok(first_gap)
     }
 
@@ -110,7 +121,11 @@ where
 
             tracing::info!("Pushing fetch job for items {} to {}", start, end);
             fetches.push_back(async move {
-                let query_template = self.construct_fetch_query();
+                let query_template = format!(
+                    "SELECT id, {column} FROM {table} WHERE id > $1 AND id <= $2 ORDER BY id ASC",
+                    column = K::COLUMN_NAME,
+                    table = K::TABLE_NAME,
+                );
 
                 tracing::info!("Fetching items {} to {}", start, end);
                 let items = self.fetch_range(&query_template, start, end).await;
@@ -135,19 +150,15 @@ where
         id: usize,
         first_gap: i64,
     ) -> eyre::Result<Vec<K::Item>> {
-        let query = self.construct_fetch_query();
+        let query = format!(
+            "SELECT id, {column} FROM {table} WHERE id > $1 AND id <= $2 ORDER BY id ASC",
+            column = K::COLUMN_NAME,
+            table = K::TABLE_NAME,
+        );
 
         let items = self.fetch_range(&query, id, first_gap as usize).await?;
 
         Ok(items.into_iter().map(|(_id, item)| item).collect())
-    }
-
-    fn construct_fetch_query(&self) -> String {
-        format!(
-            "SELECT id, {column} FROM {table} WHERE id > $1 AND id <= $2 ORDER BY id ASC",
-            column = K::COLUMN_NAME,
-            table = K::TABLE_NAME,
-        )
     }
 
     async fn fetch_range(
@@ -318,6 +329,7 @@ mod tests {
 
         let fetched_masks = db.fetch_items(1).await?;
 
+        assert_eq!(fetched_masks.len(), 1);
         assert_eq!(fetched_masks[0], masks[1].1);
 
         Ok(())
