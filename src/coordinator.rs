@@ -16,6 +16,7 @@ use tracing::{debug_span, Instrument};
 
 use crate::bits::Bits;
 use crate::config::CoordinatorConfig;
+use crate::db::kinds::Masks;
 use crate::db::Db;
 use crate::distance::{self, Distance, DistanceResults, MasksEngine};
 use crate::template::Template;
@@ -34,7 +35,7 @@ const RESPONSE_MESSAGE_GROUP_ID: &str = "mpc-uniqueness-check-response";
 pub struct Coordinator {
     participants: Vec<String>,
     hamming_distance_threshold: f64,
-    database: Arc<Db>,
+    database: Arc<Db<Masks>>,
     masks: Arc<Mutex<Vec<Bits>>>,
     sqs_client: Arc<aws_sdk_sqs::Client>,
     config: CoordinatorConfig,
@@ -46,7 +47,7 @@ impl Coordinator {
         let database = Arc::new(Db::new(&config.db).await?);
 
         tracing::info!("Fetching masks from database");
-        let masks = database.fetch_masks(0).await?;
+        let masks = database.fetch_items(0).await?;
         let masks = Arc::new(Mutex::new(masks));
 
         tracing::info!("Initializing SQS client");
@@ -466,7 +467,7 @@ impl Coordinator {
 
         tracing::info!(?next_mask_number, "Synchronizing masks");
 
-        let new_masks = self.database.fetch_masks(next_mask_number).await?;
+        let new_masks = self.database.fetch_items(next_mask_number).await?;
 
         masks.extend(new_masks);
 
@@ -551,7 +552,7 @@ impl Coordinator {
             "Inserting masks into database"
         );
 
-        self.database.insert_masks(&masks).await?;
+        self.database.insert_items(&masks).await?;
 
         sqs_delete_message(
             &self.sqs_client,

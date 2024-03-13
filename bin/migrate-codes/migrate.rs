@@ -5,6 +5,7 @@ use eyre::ContextCompat;
 use futures::{pin_mut, Stream, StreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
 use mpc::bits::Bits;
+use mpc::db::kinds::{Masks, Shares};
 use mpc::db::Db;
 use mpc::distance::EncodedBits;
 use mpc::iris_db::{
@@ -237,8 +238,8 @@ async fn handle_templates_stream(
 async fn handle_side_data_chunk(
     templates: Vec<(usize, Template)>,
     num_participants: usize,
-    coordinator_db: &Db,
-    participant_dbs: &[Db],
+    coordinator_db: &Db<Masks>,
+    participant_dbs: &[Db<Shares>],
 ) -> eyre::Result<()> {
     let data = encode_shares(templates, num_participants)?;
 
@@ -249,15 +250,15 @@ async fn handle_side_data_chunk(
 
 async fn insert_masks_and_shares(
     data: &[(usize, Bits, Box<[EncodedBits]>)],
-    coordinator_db: &Db,
-    participant_dbs: &[Db],
+    coordinator_db: &Db<Masks>,
+    participant_dbs: &[Db<Shares>],
 ) -> eyre::Result<()> {
     let masks: Vec<_> = data
         .iter()
         .map(|(serial_id, mask, _)| (*serial_id as u64, *mask))
         .collect();
 
-    coordinator_db.insert_masks(&masks).await?;
+    coordinator_db.insert_items(&masks).await?;
 
     // Insert shares to each participant
     for (i, participant_db) in participant_dbs.iter().enumerate() {
@@ -266,7 +267,7 @@ async fn insert_masks_and_shares(
             .map(|(serial_id, _, shares)| (*serial_id as u64, shares[i]))
             .collect();
 
-        participant_db.insert_shares(&shares).await?;
+        participant_db.insert_items(&shares).await?;
     }
 
     Ok(())

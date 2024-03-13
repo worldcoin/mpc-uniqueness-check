@@ -1,12 +1,13 @@
 use eyre::ContextCompat;
 use mpc::config::DbConfig;
+use mpc::db::kinds::{Masks, Shares};
 use mpc::db::Db;
 
 pub struct MPCDb {
-    pub left_coordinator_db: Db,
-    pub left_participant_dbs: Vec<Db>,
-    pub right_coordinator_db: Db,
-    pub right_participant_dbs: Vec<Db>,
+    pub left_coordinator_db: Db<Masks>,
+    pub left_participant_dbs: Vec<Db<Shares>>,
+    pub right_coordinator_db: Db<Masks>,
+    pub right_participant_dbs: Vec<Db<Shares>>,
 }
 
 impl MPCDb {
@@ -90,15 +91,15 @@ impl MPCDb {
     pub async fn fetch_latest_serial_id(&self) -> eyre::Result<u64> {
         let mut ids = Vec::new();
 
-        ids.push(self.left_coordinator_db.fetch_latest_mask_id().await?);
-        ids.push(self.right_coordinator_db.fetch_latest_mask_id().await?);
+        ids.push(self.left_coordinator_db.fetch_latest_item_id().await?);
+        ids.push(self.right_coordinator_db.fetch_latest_item_id().await?);
 
         for db in self.left_participant_dbs.iter() {
-            ids.push(db.fetch_latest_share_id().await?);
+            ids.push(db.fetch_latest_item_id().await?);
         }
 
         for db in self.right_participant_dbs.iter() {
-            ids.push(db.fetch_latest_share_id().await?);
+            ids.push(db.fetch_latest_item_id().await?);
         }
 
         ids.into_iter().min().context("No serial ids found")

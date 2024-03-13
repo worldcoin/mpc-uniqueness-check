@@ -15,6 +15,7 @@ use tokio::sync::{mpsc, Mutex};
 use tracing::instrument;
 
 use crate::config::ParticipantConfig;
+use crate::db::kinds::Shares;
 use crate::db::Db;
 use crate::distance::{self, encode, DistanceEngine, EncodedBits};
 use crate::utils;
@@ -28,7 +29,7 @@ const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
 pub struct Participant {
     listener: tokio::net::TcpListener,
     batch_size: usize,
-    database: Arc<Db>,
+    database: Arc<Db<Shares>>,
     shares: Arc<Mutex<Vec<EncodedBits>>>,
     sqs_client: aws_sdk_sqs::Client,
     config: ParticipantConfig,
@@ -41,7 +42,7 @@ impl Participant {
         let database = Db::new(&config.db).await?;
 
         tracing::info!("Fetching shares from database");
-        let shares = database.fetch_shares(0).await?;
+        let shares = database.fetch_items(0).await?;
         let shares = Arc::new(Mutex::new(shares));
 
         let database = Arc::new(database);
@@ -256,7 +257,7 @@ impl Participant {
             num_new_shares = shares.len(),
             "Inserting shares into database"
         );
-        self.database.insert_shares(&shares).await?;
+        self.database.insert_items(&shares).await?;
 
         sqs_delete_message(
             &self.sqs_client,
@@ -273,7 +274,7 @@ impl Participant {
         let mut shares = self.shares.lock().await;
 
         let next_share_number = shares.len();
-        let new_shares = self.database.fetch_shares(next_share_number).await?;
+        let new_shares = self.database.fetch_items(next_share_number).await?;
 
         shares.extend(new_shares);
 

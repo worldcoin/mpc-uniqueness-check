@@ -5,6 +5,7 @@ use futures::stream::FuturesUnordered;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use mpc::bits::Bits;
 use mpc::config::DbConfig;
+use mpc::db::kinds::{Masks, Shares};
 use mpc::db::Db;
 use mpc::distance::EncodedBits;
 use mpc::rng_source::RngSource;
@@ -71,7 +72,7 @@ pub async fn seed_mpc_db(args: &SeedMPCDb) -> eyre::Result<()> {
 
 async fn initialize_dbs(
     args: &SeedMPCDb,
-) -> eyre::Result<(Arc<Db>, Vec<Arc<Db>>)> {
+) -> eyre::Result<(Arc<Db<Masks>>, Vec<Arc<Db<Shares>>>)> {
     let coordinator_db = Arc::new(
         Db::new(&DbConfig {
             url: args.coordinator_db_url.clone(),
@@ -187,8 +188,8 @@ fn generate_shares_and_masks(
 async fn insert_masks_and_shares(
     batched_masks: BatchedMasks,
     batched_shares: BatchedShares,
-    coordinator_db: Arc<Db>,
-    participant_dbs: Vec<Arc<Db>>,
+    coordinator_db: Arc<Db<Masks>>,
+    participant_dbs: Vec<Arc<Db<Shares>>>,
     num_templates: usize,
     batch_size: usize,
 ) -> eyre::Result<()> {
@@ -229,7 +230,7 @@ async fn insert_masks_and_shares(
             let pb = participant_progress_bars[idx].clone();
 
             tasks.push(tokio::spawn(async move {
-                db.insert_shares(&shares).await?;
+                db.insert_items(&shares).await?;
                 pb.inc(batch_size as u64);
                 eyre::Result::<()>::Ok(())
             }));
@@ -238,7 +239,7 @@ async fn insert_masks_and_shares(
         let coordinator_db = coordinator_db.clone();
         let coordinator_progress_bar = coordinator_progress_bar.clone();
         tasks.push(tokio::spawn(async move {
-            coordinator_db.insert_masks(&masks).await?;
+            coordinator_db.insert_items(&masks).await?;
             coordinator_progress_bar.inc(batch_size as u64);
             eyre::Result::<()>::Ok(())
         }));
@@ -250,14 +251,14 @@ async fn insert_masks_and_shares(
 }
 
 async fn get_latest_serial_id(
-    coordinator_db: Arc<Db>,
-    participant_dbs: Vec<Arc<Db>>,
+    coordinator_db: Arc<Db<Masks>>,
+    participant_dbs: Vec<Arc<Db<Shares>>>,
 ) -> eyre::Result<u64> {
-    let coordinator_serial_id = coordinator_db.fetch_latest_mask_id().await?;
+    let coordinator_serial_id = coordinator_db.fetch_latest_item_id().await?;
     println!("Coordinator serial id: {}", coordinator_serial_id);
 
     for (i, db) in participant_dbs.iter().enumerate() {
-        let participant_id = db.fetch_latest_share_id().await?;
+        let participant_id = db.fetch_latest_item_id().await?;
 
         println!("Participant {} ids: {}", i, participant_id);
         assert_eq!(
