@@ -1,5 +1,7 @@
 use std::marker::PhantomData;
 
+use futures::stream::FuturesOrdered;
+use futures::StreamExt;
 use sqlx::migrate::{MigrateDatabase, Migrator};
 use sqlx::{Postgres, QueryBuilder};
 
@@ -10,6 +12,8 @@ static MIGRATOR: Migrator = sqlx::migrate!("./migrations/");
 
 pub mod impls;
 pub mod kinds;
+
+pub const MULTI_CONNECTION_FETCH_THRESHOLD: usize = 1000;
 
 pub struct Db<K> {
     pool: sqlx::Pool<Postgres>,
@@ -59,21 +63,104 @@ where
 
     #[tracing::instrument(skip(self))]
     pub async fn fetch_items(&self, id: usize) -> eyre::Result<Vec<K::Item>> {
-        let items: Vec<(i64, K::Item)> = sqlx::query_as(&format!(
+        let (first_gap,): (i64,) = sqlx::query_as(&format!(
             r#"
-                SELECT id, {column}
-                FROM {table}
-                WHERE id > $1
-                ORDER BY id ASC
+            WITH RECURSIVE seq AS (
+                -- Base case: Start the sequence with the value immediately after the specified starting ID
+                SELECT $1 + 1 AS val
+                UNION ALL
+                -- Recursive step: Incrementally add 1 to the previous value to generate the sequence,
+                -- stopping when reaching the maximum ID present in the table.
+                SELECT val + 1
+                FROM seq
+                JOIN {table} ON {table}.id = seq.val
+                WHERE val < (SELECT MAX(id) FROM {table})
+            ),
+            min_gap AS (
+                -- Find the minimum value in the generated sequence that does not exist in the table,
+                -- indicating the first gap.
+                SELECT MIN(val) AS first_gap
+                FROM seq
+                WHERE val NOT IN (SELECT id FROM {table})
+            )
+            -- Final selection: Choose the first non-null value from the options below,
+            -- effectively identifying the first gap or the next possible ID if no gaps are found.
+            SELECT COALESCE(
+                (SELECT first_gap FROM min_gap), -- The first gap found in the sequence.
+                (SELECT MAX(id) + 1 FROM {table}), -- If no gaps, use the next ID after the highest existing ID.
+                $1 + 1 -- Default case if the table is empty, starting the sequence immediately after $1.
+            ) AS id_value
             "#,
-            column = K::COLUMN_NAME,
-            table = K::TABLE_NAME,
+            table = K::TABLE_NAME
         ))
         .bind(id as i64)
-        .fetch_all(&self.pool)
+        .fetch_one(&self.pool)
         .await?;
 
-        Ok(filter_sequential_items(items, 1 + id as i64))
+        println!("id = {id}");
+        println!("first_gap = {first_gap}");
+        let num_items = first_gap - id as i64;
+        println!("num_items = {num_items}");
+
+        if num_items as usize > MULTI_CONNECTION_FETCH_THRESHOLD {
+            let mut fetches = FuturesOrdered::new();
+
+            for start in (id..first_gap as usize)
+                .step_by(MULTI_CONNECTION_FETCH_THRESHOLD)
+            {
+                let end = (start + MULTI_CONNECTION_FETCH_THRESHOLD)
+                    .min(first_gap as usize);
+
+                let fetch = async move {
+                    let items: Vec<(i64, K::Item)> =
+                        sqlx::query_as::<_, (i64, K::Item)>(&format!(
+                            r#"
+                                SELECT id, {column}
+                                FROM {table}
+                                WHERE id > $1
+                                AND   id <= $2
+                                ORDER BY id ASC
+                            "#,
+                            column = K::COLUMN_NAME,
+                            table = K::TABLE_NAME,
+                        ))
+                        .bind(start as i64)
+                        .bind(end as i64)
+                        .fetch_all(&self.pool)
+                        .await?;
+
+                    eyre::Result::<_>::Ok(items)
+                };
+
+                fetches.push_back(fetch);
+            }
+
+            let mut all_items = Vec::with_capacity(num_items as usize);
+
+            while let Some(items) = fetches.next().await {
+                all_items.extend(items?);
+            }
+
+            Ok(all_items.into_iter().map(|(_id, item)| item).collect())
+        } else {
+            let items: Vec<(i64, K::Item)> = sqlx::query_as(&format!(
+                r#"
+                    SELECT id, {column}
+                    FROM {table}
+                    WHERE id > $1
+                    AND   id <= $2
+                    ORDER BY id ASC
+                "#,
+                column = K::COLUMN_NAME,
+                table = K::TABLE_NAME,
+            ))
+            .bind(id as i64)
+            .bind(first_gap)
+            .fetch_all(&self.pool)
+            .await?;
+
+            Ok(items.into_iter().map(|(_id, item)| item).collect())
+        }
     }
 
     #[tracing::instrument(skip(self))]
@@ -144,33 +231,6 @@ where
 
         Ok(())
     }
-}
-
-fn filter_sequential_items<T>(
-    items: impl IntoIterator<Item = (i64, T)>,
-    first_id: i64,
-) -> Vec<T> {
-    let mut last_key = None;
-
-    let mut items = items.into_iter();
-
-    std::iter::from_fn(move || {
-        let (key, value) = items.next()?;
-
-        if let Some(last_key) = last_key {
-            if key != last_key + 1 {
-                return None;
-            }
-        } else if key != first_id {
-            return None;
-        }
-
-        last_key = Some(key);
-
-        Some(value)
-    })
-    .fuse()
-    .collect()
 }
 
 #[cfg(test)]
@@ -366,6 +426,28 @@ mod tests {
         let fetched_masks = db.fetch_items(0).await?;
 
         assert_eq!(fetched_masks.len(), 2);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn large_fetch() -> eyre::Result<()> {
+        let docker = clients::Cli::default();
+        let (db, _pg) = setup::<Masks>(&docker).await?;
+
+        let mut rng = thread_rng();
+
+        let masks = (1..3000)
+            .map(|id| (id, rng.gen::<Bits>()))
+            .collect::<Vec<_>>();
+
+        db.insert_items(&masks).await?;
+
+        let expected_masks =
+            masks.iter().map(|(_, mask)| *mask).collect::<Vec<_>>();
+        let fetched_masks = db.fetch_items(0).await?;
+
+        assert_eq!(fetched_masks, expected_masks);
 
         Ok(())
     }
