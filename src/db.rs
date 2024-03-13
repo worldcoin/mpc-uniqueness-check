@@ -110,7 +110,11 @@ where
             fetches.push_back(async move {
                 let query_template = self.construct_fetch_query();
 
-                self.fetch_range(&query_template, start, end).await
+                tracing::info!("Fetching items {} to {}", start, end);
+                let items = self.fetch_range(&query_template, start, end).await;
+
+                tracing::info!("Fetched items {} to {}", start, end);
+                items
             });
         }
 
@@ -118,6 +122,8 @@ where
         while let Some(items) = fetches.next().await {
             all_items.extend(items?);
         }
+
+        tracing::info!("Collected all items");
 
         Ok(all_items.into_iter().map(|(_id, item)| item).collect())
     }
