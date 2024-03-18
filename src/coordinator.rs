@@ -310,12 +310,7 @@ impl Coordinator {
                 // Send the query
                 stream.write_all(bytemuck::bytes_of(query)).await?;
 
-                //TODO: uncomment logging
-                // tracing::info!(
-                //     participant = i,
-                //     ?participant_host,
-                //     "Query sent to participant"
-                // );
+                tracing::info!(participant = i, "Query sent to participant");
 
                 Ok::<_, eyre::Report>(())
             },
