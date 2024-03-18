@@ -174,8 +174,13 @@ impl Coordinator {
             signup_id,
         }) = serde_json::from_str::<UniquenessCheckRequest>(&body)
         {
-            self.uniqueness_check(receipt_handle, plain_code, signup_id)
-                .await?;
+            self.uniqueness_check(
+                receipt_handle,
+                plain_code,
+                signup_id,
+                participant_streams,
+            )
+            .await?;
         } else {
             tracing::error!(
                 ?receipt_handle,
@@ -199,12 +204,14 @@ impl Coordinator {
         receipt_handle: String,
         template: Template,
         signup_id: String,
+        participant_streams: Vec<Arc<Mutex<BufReader<TcpStream>>>>,
     ) -> Result<(), eyre::Error> {
         tracing::info!("Processing message");
         self.sync_masks().await?;
 
         tracing::info!("Sending query to participants");
-        let streams = self.send_query_to_participants(&template).await?;
+        self.send_query_to_participants(&template, &participant_streams)
+            .await?;
         let tasks = FuturesUnordered::new();
 
         tracing::info!("Computing denominators");
@@ -213,8 +220,11 @@ impl Coordinator {
         tasks.push(denominator_handle);
 
         tracing::info!("Processing participant shares");
-        let (batch_process_shares_rx, batch_process_shares_handle) =
-            self.batch_process_participant_shares(denominator_rx, streams);
+        let (batch_process_shares_rx, batch_process_shares_handle) = self
+            .batch_process_participant_shares(
+                denominator_rx,
+                participant_streams,
+            );
         tasks.push(batch_process_shares_handle);
 
         tracing::info!("Processing results");
@@ -283,45 +293,36 @@ impl Coordinator {
     pub async fn send_query_to_participants(
         &self,
         query: &Template,
-    ) -> eyre::Result<Vec<BufReader<TcpStream>>> {
+        participant_streams: &[Arc<Mutex<BufReader<TcpStream>>>],
+    ) -> eyre::Result<()> {
         let (trace_id, span_id) =
             telemetry_batteries::tracing::extract_span_ids();
 
         // Write each share to the corresponding participant
-        let streams =
-            future::try_join_all(self.participants.iter().enumerate().map(
-                |(i, participant_host)| async move {
-                    tracing::info!(
-                        participant = i,
-                        ?participant_host,
-                        "Connecting to participant"
-                    );
-                    let mut stream = tokio::time::timeout(
-                        self.config.participant_connection_timeout,
-                        TcpStream::connect(participant_host),
-                    )
-                    .await
-                    .context("Connecting to participant")??;
+        future::try_join_all(participant_streams.iter().enumerate().map(
+            |(i, stream)| async move {
+                let mut stream = stream.lock().await;
 
-                    // Send the trace and span IDs
-                    stream.write_all(&trace_id.to_bytes()).await?;
-                    stream.write_all(&span_id.to_bytes()).await?;
+                // Send the trace and span IDs
+                stream.write_all(&trace_id.to_bytes()).await?;
+                stream.write_all(&span_id.to_bytes()).await?;
 
-                    // Send the query
-                    stream.write_all(bytemuck::bytes_of(query)).await?;
+                // Send the query
+                stream.write_all(bytemuck::bytes_of(query)).await?;
 
-                    tracing::info!(
-                        participant = i,
-                        ?participant_host,
-                        "Query sent to participant"
-                    );
+                //TODO: uncomment logging
+                // tracing::info!(
+                //     participant = i,
+                //     ?participant_host,
+                //     "Query sent to participant"
+                // );
 
-                    Ok::<_, eyre::Report>(BufReader::new(stream))
-                },
-            ))
-            .await?;
+                Ok::<_, eyre::Report>(())
+            },
+        ))
+        .await?;
 
-        Ok(streams)
+        Ok(())
     }
 
     #[tracing::instrument(skip(self))]
@@ -363,7 +364,7 @@ impl Coordinator {
     pub fn batch_process_participant_shares(
         &self,
         mut denominator_rx: Receiver<Vec<[u16; 31]>>,
-        mut streams: Vec<BufReader<TcpStream>>,
+        participant_streams: Vec<Arc<Mutex<BufReader<TcpStream>>>>,
     ) -> (
         Receiver<(Vec<[u16; 31]>, Vec<Vec<[u16; 31]>>)>,
         JoinHandle<eyre::Result<()>>,
@@ -376,9 +377,10 @@ impl Coordinator {
             loop {
                 // Collect futures of denominator and share batches
                 let streams_future =
-                    future::try_join_all(streams.iter_mut().enumerate().map(
+                    future::try_join_all(participant_streams.iter().enumerate().map(
                         |(i, stream)| async move {
 
+                            let mut stream = stream.lock().await;
 
                             let buffer_size = match stream.read_u64().await{
                                 Ok(buffer_size) => buffer_size as usize,
