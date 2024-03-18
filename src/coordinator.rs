@@ -21,7 +21,8 @@ use crate::distance::{self, Distance, DistanceResults, MasksEngine};
 use crate::template::Template;
 use crate::utils;
 use crate::utils::aws::{
-    sqs_client_from_config, sqs_delete_message, sqs_dequeue, sqs_enqueue,
+    check_approximate_queue_length, sqs_client_from_config, sqs_delete_message,
+    sqs_dequeue, sqs_enqueue,
 };
 use crate::utils::tasks::finalize_futures_unordered;
 use crate::utils::templating::resolve_template;
@@ -90,23 +91,53 @@ impl Coordinator {
         self: Arc<Self>,
     ) -> Result<(), eyre::Error> {
         loop {
-            let messages = match sqs_dequeue(
+            let queue_len = check_approximate_queue_length(
                 &self.sqs_client,
                 &self.config.queues.queries_queue_url,
             )
-            .await
-            {
-                Ok(messages) => messages,
-                Err(error) => {
-                    tracing::error!(?error, "Failed to dequeue messages");
-                    continue;
-                }
-            };
+            .await?;
 
-            for message in messages {
-                if let Err(error) = self.handle_uniqueness_check(message).await
+            if queue_len > 0 {
+                let participant_streams =
+                    match self.connect_to_participants().await {
+                        Ok(streams) => streams
+                            .into_iter()
+                            .map(|stream| {
+                                Arc::new(Mutex::new(BufReader::new(stream)))
+                            })
+                            .collect::<Vec<Arc<Mutex<BufReader<TcpStream>>>>>(),
+                        Err(e) => {
+                            tracing::error!(
+                                ?e,
+                                "Failed to connect to participants"
+                            );
+                            continue;
+                        }
+                    };
+
+                let messages = match sqs_dequeue(
+                    &self.sqs_client,
+                    &self.config.queues.queries_queue_url,
+                )
+                .await
                 {
-                    tracing::error!(?error, "Uniqueness check failed");
+                    Ok(messages) => messages,
+                    Err(error) => {
+                        tracing::error!(?error, "Failed to dequeue messages");
+                        continue;
+                    }
+                };
+
+                for message in messages {
+                    if let Err(error) = self
+                        .handle_uniqueness_check(
+                            message,
+                            participant_streams.clone(),
+                        )
+                        .await
+                    {
+                        tracing::error!(?error, "Uniqueness check failed");
+                    }
                 }
             }
         }
@@ -116,6 +147,7 @@ impl Coordinator {
     pub async fn handle_uniqueness_check(
         &self,
         payload: Message,
+        participant_streams: Vec<Arc<Mutex<BufReader<TcpStream>>>>,
     ) -> eyre::Result<()> {
         tracing::debug!(?payload, "Handling message");
 
@@ -221,6 +253,30 @@ impl Coordinator {
         .await?;
 
         Ok(())
+    }
+
+    pub async fn connect_to_participants(
+        &self,
+    ) -> eyre::Result<Vec<TcpStream>> {
+        let streams =
+            future::try_join_all(self.participants.iter().enumerate().map(
+                |(i, participant_host)| async move {
+                    tracing::info!(
+                        participant = i,
+                        ?participant_host,
+                        "Connecting to participant"
+                    );
+
+                    let stream = TcpStream::connect(participant_host)
+                        .await
+                        .context("Connecting to participant")?;
+
+                    Ok::<_, eyre::Report>(stream)
+                },
+            ))
+            .await?;
+
+        Ok(streams)
     }
 
     #[tracing::instrument(skip(self, query))]
