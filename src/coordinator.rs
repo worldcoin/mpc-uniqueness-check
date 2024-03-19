@@ -99,45 +99,42 @@ impl Coordinator {
 
             if queue_len == 0 {
                 continue;
-            } else {
-                let participant_streams =
-                    match self.connect_to_participants().await {
-                        Ok(streams) => streams
-                            .into_iter()
-                            .map(BufReader::new)
-                            .collect::<Vec<BufReader<TcpStream>>>(),
-                        Err(e) => {
-                            tracing::error!(
-                                ?e,
-                                "Failed to connect to participants"
-                            );
-                            continue;
-                        }
-                    };
+            }
 
-                // Dequeue messages, limiting the max number of messages to 1
-                let messages = match sqs_dequeue(
-                    &self.sqs_client,
-                    &self.config.queues.queries_queue_url,
-                    None,
-                )
-                .await
+            let participant_streams = match self.connect_to_participants().await
+            {
+                Ok(streams) => streams
+                    .into_iter()
+                    .map(BufReader::new)
+                    .collect::<Vec<BufReader<TcpStream>>>(),
+                Err(e) => {
+                    tracing::error!(?e, "Failed to connect to participants");
+                    continue;
+                }
+            };
+
+            // Dequeue messages, limiting the max number of messages to 1
+            let messages = match sqs_dequeue(
+                &self.sqs_client,
+                &self.config.queues.queries_queue_url,
+                None,
+            )
+            .await
+            {
+                Ok(dequeued_message) => dequeued_message,
+                Err(error) => {
+                    tracing::error!(?error, "Failed to dequeue messages");
+                    continue;
+                }
+            };
+
+            // Process the message
+            if let Some(message) = messages.into_iter().next() {
+                if let Err(error) = self
+                    .handle_uniqueness_check(message, participant_streams)
+                    .await
                 {
-                    Ok(dequeued_message) => dequeued_message,
-                    Err(error) => {
-                        tracing::error!(?error, "Failed to dequeue messages");
-                        continue;
-                    }
-                };
-
-                // Process the message
-                if let Some(message) = messages.into_iter().next() {
-                    if let Err(error) = self
-                        .handle_uniqueness_check(message, participant_streams)
-                        .await
-                    {
-                        tracing::error!(?error, "Uniqueness check failed");
-                    }
+                    tracing::error!(?error, "Uniqueness check failed");
                 }
             }
         }
