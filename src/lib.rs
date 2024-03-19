@@ -14,3 +14,5 @@ pub mod participant;
 pub mod rng_source;
 pub mod template;
 pub mod utils;
+pub mod snapshot;
+pub mod error;

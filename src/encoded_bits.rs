@@ -12,6 +12,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::bits::{Bits, BITS};
+use crate::error::VecToArrayConvertError;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -62,6 +63,24 @@ impl Default for EncodedBits {
 impl From<&Bits> for EncodedBits {
     fn from(value: &Bits) -> Self {
         EncodedBits(array::from_fn(|i| if value[i] { 1 } else { 0 }))
+    }
+}
+
+impl TryFrom<&[u8]> for EncodedBits {
+    type Error = VecToArrayConvertError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let bits: Vec<u16> = value
+            .array_chunks::<2>()
+            .map(|x| u16::from_be_bytes(*x))
+            .collect();
+
+        let bits = match bits.try_into() {
+            Ok(bits) => bits,
+            Err(_) => return Err(VecToArrayConvertError),
+        };
+
+        Ok(Self(bits))
     }
 }
 

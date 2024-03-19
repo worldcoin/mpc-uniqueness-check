@@ -76,13 +76,8 @@ where
         let bytes =
             <[u8; BYTES_PER_ENCODED_BITS] as sqlx::Decode<DB>>::decode(value)?;
 
-        let bits: Vec<u16> = bytes
-            .array_chunks::<2>()
-            .map(|x| u16::from_be_bytes(*x))
-            .collect();
-        let bits = bits.try_into().expect("Wrong size");
-
-        Ok(Self(bits))
+        Self::try_from(bytes.as_slice())
+            .map_err(|err| Box::new(err) as sqlx::error::BoxDynError)
     }
 }
 
