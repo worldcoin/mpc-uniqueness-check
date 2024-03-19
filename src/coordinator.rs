@@ -21,8 +21,7 @@ use crate::distance::{self, Distance, DistanceResults, MasksEngine};
 use crate::template::Template;
 use crate::utils;
 use crate::utils::aws::{
-    check_approximate_queue_length, sqs_client_from_config, sqs_delete_message,
-    sqs_dequeue, sqs_enqueue,
+    sqs_client_from_config, sqs_delete_message, sqs_dequeue, sqs_enqueue,
 };
 use crate::utils::tasks::finalize_futures_unordered;
 use crate::utils::templating::resolve_template;
@@ -90,16 +89,6 @@ impl Coordinator {
         self: Arc<Self>,
     ) -> Result<(), eyre::Error> {
         loop {
-            let queue_len = check_approximate_queue_length(
-                &self.sqs_client,
-                &self.config.queues.queries_queue_url,
-            )
-            .await?;
-
-            if queue_len == 0 {
-                continue;
-            }
-
             let participant_streams = match self.connect_to_participants().await
             {
                 Ok(streams) => streams

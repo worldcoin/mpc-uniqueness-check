@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 use aws_config::Region;
-use aws_sdk_sqs::types::{Message, MessageAttributeValue, QueueAttributeName};
+use aws_sdk_sqs::types::{Message, MessageAttributeValue};
 use eyre::Context;
 use opentelemetry::trace::{
     SpanContext, SpanId, TraceFlags, TraceId, TraceState,
@@ -34,29 +34,6 @@ pub async fn sqs_client_from_config(
     let aws_client = aws_sdk_sqs::Client::new(&aws_config);
 
     Ok(aws_client)
-}
-
-#[tracing::instrument(skip(client, queue_url))]
-pub async fn check_approximate_queue_length(
-    client: &aws_sdk_sqs::Client,
-    queue_url: &str,
-) -> eyre::Result<usize> {
-    let queue_attributes = client
-        .get_queue_attributes()
-        .queue_url(queue_url)
-        .attribute_names(QueueAttributeName::ApproximateNumberOfMessages)
-        .send()
-        .await?;
-
-    let message_count = queue_attributes
-        .attributes()
-        .and_then(|attrs| {
-            attrs.get(&QueueAttributeName::ApproximateNumberOfMessages)
-        })
-        .and_then(|count| count.parse::<usize>().ok())
-        .unwrap_or(0);
-
-    Ok(message_count)
 }
 
 #[tracing::instrument(skip(client, queue_url))]
