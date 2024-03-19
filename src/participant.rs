@@ -1,3 +1,4 @@
+use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -88,8 +89,6 @@ impl Participant {
                 }
             };
 
-            let stream = tokio::io::BufWriter::new(stream);
-
             if let Err(error) = self.handle_uniqueness_check(stream).await {
                 tracing::error!(?error, "Uniqueness check failed");
             }
@@ -99,15 +98,25 @@ impl Participant {
     #[tracing::instrument(skip(self))]
     async fn handle_uniqueness_check(
         &self,
-        mut stream: BufWriter<TcpStream>,
+        stream: TcpStream,
     ) -> eyre::Result<()> {
-        // Process the trace and span ids to correlate traces between services
-        self.handle_traces_payload(&mut stream).await?;
+        let mut stream = tokio::io::BufWriter::new(stream);
 
-        tracing::info!("Incoming connection accepted");
+        loop {
+            // Process the trace and span ids to correlate traces between services
+            // Note that once the connection is closed by the coordinator, this will result in EOF
+            match self.handle_traces_payload(&mut stream).await {
+                Ok(_) => (),
+                Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => {
+                    tracing::info!("Connection closed by coordinator");
+                    break;
+                }
+                Err(error) => return Err(error.into()),
+            }
 
-        // Process the query
-        self.uniqueness_check(stream).await?;
+            // Process the query
+            self.uniqueness_check(&mut stream).await?;
+        }
 
         Ok(())
     }
@@ -115,7 +124,7 @@ impl Participant {
     async fn handle_traces_payload(
         &self,
         stream: &mut BufWriter<TcpStream>,
-    ) -> eyre::Result<()> {
+    ) -> io::Result<()> {
         // Read the span ID from the stream and add to the current span
         let mut trace_id_bytes = [0_u8; 16];
         let mut span_id_bytes = [0_u8; 8];
@@ -146,7 +155,7 @@ impl Participant {
     #[tracing::instrument(skip(self, stream))]
     async fn uniqueness_check(
         &self,
-        mut stream: BufWriter<TcpStream>,
+        mut stream: &BufWriter<TcpStream>,
     ) -> eyre::Result<()> {
         // We could do this and reading from the stream simultaneously
         self.sync_shares().await?;
