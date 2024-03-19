@@ -75,6 +75,10 @@ pub struct CoordinatorConfig {
 pub struct ParticipantConfig {
     pub socket_addr: SocketAddr,
     pub batch_size: usize,
+
+    /// Directory containing parquet snapshots
+    pub snapshot_dir: Option<PathBuf>,
+
     pub db: DbConfig,
     pub queues: ParticipantQueuesConfig,
     #[serde(default)]

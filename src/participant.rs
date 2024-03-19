@@ -17,6 +17,7 @@ use tracing::instrument;
 use crate::config::ParticipantConfig;
 use crate::db::Db;
 use crate::distance::{self, encode, DistanceEngine, EncodedBits};
+use crate::item_kind::Shares;
 use crate::utils;
 use crate::utils::aws::{
     sqs_client_from_config, sqs_delete_message, sqs_dequeue,
@@ -40,8 +41,27 @@ impl Participant {
 
         let database = Db::new(&config.db).await?;
 
+        let mut shares = vec![];
+
+        if let Some(snapshot_dir) = config.snapshot_dir.as_deref() {
+            tracing::info!("Reading shares from snapshot");
+
+            let snapshot_files =
+                crate::snapshot::open_dir_files(snapshot_dir).await?;
+
+            for snapshot in snapshot_files {
+                let shares_snapshot =
+                    crate::snapshot::read_parquet::<Shares, _>(snapshot)
+                        .await?;
+
+                shares.extend(
+                    shares_snapshot.into_iter().map(|(_id, share)| share),
+                );
+            }
+        }
+
         tracing::info!("Fetching shares from database");
-        let shares = database.fetch_shares(0).await?;
+        shares.extend(database.fetch_shares(shares.len()).await?);
         let shares = Arc::new(Mutex::new(shares));
 
         let database = Arc::new(database);
