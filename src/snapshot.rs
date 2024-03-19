@@ -8,29 +8,7 @@ use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncSeek};
 
-use crate::bits::Bits;
-use crate::distance::EncodedBits;
-
-pub trait ItemKind {
-    const PARQUET_COLUMN_NAME: &'static str;
-
-    type Type;
-}
-
-pub struct Shares;
-pub struct Masks;
-
-impl ItemKind for Shares {
-    const PARQUET_COLUMN_NAME: &'static str = "share";
-
-    type Type = EncodedBits;
-}
-
-impl ItemKind for Masks {
-    const PARQUET_COLUMN_NAME: &'static str = "mask";
-
-    type Type = Bits;
-}
+use crate::item_kind::ItemKindMarker;
 
 pub async fn open_dir_files(dir: impl AsRef<Path>) -> eyre::Result<Vec<File>> {
     let mut read_dir = tokio::fs::read_dir(dir).await?;
@@ -58,13 +36,13 @@ pub async fn read_parquet<I, T>(file: T) -> eyre::Result<Vec<(i64, I::Type)>>
 where
     // Generic over any type that is async readable
     T: AsyncRead + AsyncSeek + Unpin + Send + 'static,
-    I: ItemKind,
+    I: ItemKindMarker,
     // The type is safe to send across threads and owns its own data
-    <I as ItemKind>::Type: Send + Sync + 'static,
+    <I as ItemKindMarker>::Type: Send + Sync + 'static,
     // The the type can be created from a slice of bytes
-    for<'a> <I as ItemKind>::Type: TryFrom<&'a [u8]>,
+    for<'a> <I as ItemKindMarker>::Type: TryFrom<&'a [u8]>,
     // The conversion error is a standard error
-    for<'a> <<I as ItemKind>::Type as TryFrom<&'a [u8]>>::Error:
+    for<'a> <<I as ItemKindMarker>::Type as TryFrom<&'a [u8]>>::Error:
         std::error::Error + Send + Sync + 'static,
 {
     let mut parquet_reader =
@@ -113,6 +91,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::item_kind::Shares;
 
     #[tokio::test]
     async fn validate_share_parquet_files() -> eyre::Result<()> {

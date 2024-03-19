@@ -16,3 +16,4 @@ pub mod template;
 pub mod utils;
 pub mod snapshot;
 pub mod error;
+pub mod item_kind;
