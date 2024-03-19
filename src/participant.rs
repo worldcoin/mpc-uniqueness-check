@@ -155,7 +155,7 @@ impl Participant {
     #[tracing::instrument(skip(self, stream))]
     async fn uniqueness_check(
         &self,
-        mut stream: &BufWriter<TcpStream>,
+        stream: &mut BufWriter<TcpStream>,
     ) -> eyre::Result<()> {
         // We could do this and reading from the stream simultaneously
         self.sync_shares().await?;
