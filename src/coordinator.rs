@@ -97,7 +97,9 @@ impl Coordinator {
             )
             .await?;
 
-            if queue_len > 0 {
+            if queue_len == 0 {
+                continue;
+            } else {
                 let participant_streams =
                     match self.connect_to_participants().await {
                         Ok(streams) => streams
@@ -138,6 +140,11 @@ impl Coordinator {
                     {
                         tracing::error!(?error, "Uniqueness check failed");
                     }
+                }
+
+                for stream in participant_streams {
+                    let mut stream = stream.lock().await;
+                    stream.shutdown().await?;
                 }
             }
         }

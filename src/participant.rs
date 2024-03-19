@@ -88,6 +88,8 @@ impl Participant {
                 }
             };
 
+            let stream = tokio::io::BufWriter::new(stream);
+
             if let Err(error) = self.handle_uniqueness_check(stream).await {
                 tracing::error!(?error, "Uniqueness check failed");
             }
@@ -97,10 +99,8 @@ impl Participant {
     #[tracing::instrument(skip(self))]
     async fn handle_uniqueness_check(
         &self,
-        stream: TcpStream,
+        mut stream: BufWriter<TcpStream>,
     ) -> eyre::Result<()> {
-        let mut stream = tokio::io::BufWriter::new(stream);
-
         // Process the trace and span ids to correlate traces between services
         self.handle_traces_payload(&mut stream).await?;
 
