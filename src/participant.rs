@@ -106,7 +106,7 @@ impl Participant {
         self.handle_traces_payload(&mut stream).await?;
 
         // Process the query
-        self.uniqueness_check(&mut stream).await?;
+        self.uniqueness_check(stream).await?;
 
         Ok(())
     }
@@ -145,7 +145,7 @@ impl Participant {
     #[tracing::instrument(skip(self, stream))]
     async fn uniqueness_check(
         &self,
-        stream: &mut BufWriter<TcpStream>,
+        mut stream: BufWriter<TcpStream>,
     ) -> eyre::Result<()> {
         // We could do this and reading from the stream simultaneously
         self.sync_shares().await?;
