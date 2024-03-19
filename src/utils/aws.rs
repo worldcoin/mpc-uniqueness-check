@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 use aws_config::Region;
-use aws_sdk_sqs::types::{Message, MessageAttributeValue, QueueAttributeName};
+use aws_sdk_sqs::types::{Message, MessageAttributeValue};
 use eyre::Context;
 use opentelemetry::trace::{
     SpanContext, SpanId, TraceFlags, TraceId, TraceState,
