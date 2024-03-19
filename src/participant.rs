@@ -1,3 +1,4 @@
+use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -104,8 +105,6 @@ impl Participant {
         // Process the trace and span ids to correlate traces between services
         self.handle_traces_payload(&mut stream).await?;
 
-        tracing::info!("Incoming connection accepted");
-
         // Process the query
         self.uniqueness_check(stream).await?;
 
@@ -115,7 +114,7 @@ impl Participant {
     async fn handle_traces_payload(
         &self,
         stream: &mut BufWriter<TcpStream>,
-    ) -> eyre::Result<()> {
+    ) -> io::Result<()> {
         // Read the span ID from the stream and add to the current span
         let mut trace_id_bytes = [0_u8; 16];
         let mut span_id_bytes = [0_u8; 8];
@@ -182,9 +181,11 @@ impl Participant {
 
     async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
         loop {
+            // Dequeue the max number of messages possible from the queue
             let messages = match sqs_dequeue(
                 &self.sqs_client,
                 &self.config.queues.db_sync_queue_url,
+                Some(10),
             )
             .await
             {
