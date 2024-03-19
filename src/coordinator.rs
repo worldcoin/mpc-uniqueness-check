@@ -29,7 +29,6 @@ use crate::utils::templating::resolve_template;
 const BATCH_SIZE: usize = 20_000;
 const BATCH_ELEMENT_SIZE: usize = std::mem::size_of::<[u16; 31]>();
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
-const RESPONSE_MESSAGE_GROUP_ID: &str = "mpc-uniqueness-check-response";
 
 pub struct Coordinator {
     participants: Vec<String>,
@@ -192,7 +191,7 @@ impl Coordinator {
         let result = UniquenessCheckResult {
             serial_id: distance_results.serial_id,
             matches: distance_results.matches,
-            signup_id,
+            signup_id: signup_id.clone(),
         };
 
         tracing::info!(?result, "MPC results processed");
@@ -208,7 +207,7 @@ impl Coordinator {
         sqs_enqueue(
             &self.sqs_client,
             &self.config.queues.distances_queue_url,
-            RESPONSE_MESSAGE_GROUP_ID,
+            &signup_id,
             &result,
         )
         .await?;
