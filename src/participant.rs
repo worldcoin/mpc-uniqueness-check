@@ -102,21 +102,11 @@ impl Participant {
     ) -> eyre::Result<()> {
         let mut stream = tokio::io::BufWriter::new(stream);
 
-        loop {
-            // Process the trace and span ids to correlate traces between services
-            // Note that once the connection is closed by the coordinator, this will result in EOF
-            match self.handle_traces_payload(&mut stream).await {
-                Ok(_) => (),
-                Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => {
-                    tracing::info!("Connection closed by coordinator");
-                    break;
-                }
-                Err(error) => return Err(error.into()),
-            }
+        // Process the trace and span ids to correlate traces between services
+        self.handle_traces_payload(&mut stream).await?;
 
-            // Process the query
-            self.uniqueness_check(&mut stream).await?;
-        }
+        // Process the query
+        self.uniqueness_check(&mut stream).await?;
 
         Ok(())
     }
@@ -191,9 +181,11 @@ impl Participant {
 
     async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
         loop {
+            // Dequeue the max number of messages possible from the queue
             let messages = match sqs_dequeue(
                 &self.sqs_client,
                 &self.config.queues.db_sync_queue_url,
+                Some(10),
             )
             .await
             {
