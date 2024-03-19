@@ -63,6 +63,7 @@ pub struct CoordinatorConfig {
     pub hamming_distance_threshold: f64,
 
     /// Directory containing parquet snapshots
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot_dir: Option<PathBuf>,
 
     pub db: DbConfig,
@@ -77,6 +78,7 @@ pub struct ParticipantConfig {
     pub batch_size: usize,
 
     /// Directory containing parquet snapshots
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot_dir: Option<PathBuf>,
 
     pub db: DbConfig,
