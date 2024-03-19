@@ -18,6 +18,7 @@ use crate::bits::Bits;
 use crate::config::CoordinatorConfig;
 use crate::db::Db;
 use crate::distance::{self, Distance, DistanceResults, MasksEngine};
+use crate::item_kind::Masks;
 use crate::template::Template;
 use crate::utils;
 use crate::utils::aws::{
@@ -45,8 +46,25 @@ impl Coordinator {
         tracing::info!("Initializing coordinator");
         let database = Arc::new(Db::new(&config.db).await?);
 
+        let mut masks = vec![];
+
+        if let Some(snapshot_dir) = config.snapshot_dir.as_deref() {
+            tracing::info!("Reading masks from snapshot");
+
+            let snapshot_files =
+                crate::snapshot::open_dir_files(snapshot_dir).await?;
+
+            for snapshot in snapshot_files {
+                let masks_snapshot =
+                    crate::snapshot::read_parquet::<Masks, _>(snapshot).await?;
+
+                masks
+                    .extend(masks_snapshot.into_iter().map(|(_id, mask)| mask));
+            }
+        }
+
         tracing::info!("Fetching masks from database");
-        let masks = database.fetch_masks(0).await?;
+        masks.extend(database.fetch_masks(masks.len()).await?);
         let masks = Arc::new(Mutex::new(masks));
 
         tracing::info!("Initializing SQS client");

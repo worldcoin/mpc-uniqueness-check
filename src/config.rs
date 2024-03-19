@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
@@ -49,13 +49,22 @@ pub struct Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoordinatorConfig {
+    /// The socket addresses (or dns names) of participants
+    //
+    /// NOTE: Order is important
     pub participants: JsonStrWrapper<Vec<String>>,
     #[serde(
         with = "humantime_serde",
         default = "default::participant_connection_timeout"
     )]
+    /// How long will the coordinator wait for a participant connection
     pub participant_connection_timeout: Duration,
+    /// The threshold at which a pair of iris codes is considered a match
     pub hamming_distance_threshold: f64,
+
+    /// Directory containing parquet snapshots
+    pub snapshot_dir: Option<PathBuf>,
+
     pub db: DbConfig,
     pub queues: CoordinatorQueuesConfig,
     #[serde(default)]
@@ -166,6 +175,7 @@ mod tests {
                 ]),
                 participant_connection_timeout: Duration::from_secs(1),
                 hamming_distance_threshold: 0.375,
+                snapshot_dir: None,
                 db: DbConfig {
                     url: "postgres://localhost:5432/mpc".to_string(),
                     migrate: true,
