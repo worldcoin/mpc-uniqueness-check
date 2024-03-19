@@ -104,7 +104,7 @@ impl Coordinator {
                     match self.connect_to_participants().await {
                         Ok(streams) => streams
                             .into_iter()
-                            .map(|stream| BufReader::new(stream))
+                            .map(BufReader::new)
                             .collect::<Vec<BufReader<TcpStream>>>(),
                         Err(e) => {
                             tracing::error!(
