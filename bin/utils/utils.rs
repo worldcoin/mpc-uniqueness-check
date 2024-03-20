@@ -1,3 +1,5 @@
+#![feature(array_chunks)]
+
 use clap::Parser;
 use generate_mock_templates::{generate_mock_templates, GenerateMockTemplates};
 use seed_iris_db::{seed_iris_db, SeedIrisDb};
