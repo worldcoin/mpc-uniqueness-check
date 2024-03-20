@@ -3,8 +3,6 @@ use std::fs::read_to_string;
 use clap::Args;
 use mpc::bits::{Bits, BITS};
 use mpc::distance::EncodedBits;
-use mpc::template::Template;
-use rand::Rng;
 
 #[derive(Debug, Clone, Args)]
 pub struct SumShares {
