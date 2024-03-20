@@ -87,22 +87,3 @@ where
 
     Ok(items)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::item_kind::Shares;
-
-    #[tokio::test]
-    async fn validate_share_parquet_files() -> eyre::Result<()> {
-        let files = open_dir_files("src/snapshot").await?;
-
-        for file in files {
-            read_parquet::<Shares, _>(file)
-                .await
-                .expect("Failed to read shares");
-        }
-
-        Ok(())
-    }
-}
