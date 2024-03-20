@@ -70,7 +70,7 @@ where
             .downcast_ref::<Int64Array>()
             .context("Failed to cast to Int64Array")?;
 
-        let share_array = batch
+        let item_array = batch
             .column(item_idx)
             .as_any()
             .downcast_ref::<BinaryArray>()
@@ -78,9 +78,9 @@ where
 
         for i in 0..batch.num_rows() {
             let id = id_array.value(i);
-            let share = share_array.value(i);
+            let item = item_array.value(i);
 
-            let item = I::Type::try_from(share)?;
+            let item = I::Type::try_from(item)?;
             items.push((id, item));
         }
     }
