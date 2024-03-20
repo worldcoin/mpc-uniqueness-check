@@ -234,6 +234,7 @@ mod tests {
     }
 
     use crate::bits::tests::*;
+    use crate::template::Template;
 
     #[test]
     fn encoded_bits_deserialization_known_pattern() -> eyre::Result<()> {
@@ -330,5 +331,24 @@ mod tests {
             })
             .collect::<Vec<String>>()
             .join(if separated { " " } else { "" })
+    }
+
+    #[test]
+    fn test_sum_shares() {
+        let mut rng = rand::thread_rng();
+
+        for _ in 0..100 {
+            let template = rng.gen::<Template>();
+
+            let encoded_bits: EncodedBits = EncodedBits::from(&template.code);
+
+            let shares = encoded_bits.share(2, &mut rng);
+
+            let summed_encoded_bits = shares.iter().sum::<EncodedBits>();
+
+            let summed_bits = Bits::from(&summed_encoded_bits);
+
+            assert_eq!(summed_bits, template.code);
+        }
     }
 }

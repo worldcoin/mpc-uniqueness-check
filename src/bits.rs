@@ -12,7 +12,7 @@ use rand::Rng;
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 
-use crate::distance::ROTATIONS;
+use crate::distance::{EncodedBits, ROTATIONS};
 
 mod all_bit_patterns_test;
 
@@ -98,6 +98,20 @@ impl Debug for Bits {
             write!(f, "{limb:016x}")?;
         }
         Ok(())
+    }
+}
+
+impl From<&EncodedBits> for Bits {
+    fn from(value: &EncodedBits) -> Self {
+        let mut bits = [0_u64; LIMBS];
+        for i in 0..BITS {
+            let limb = i / 64;
+            let bit = i % 64;
+            if value.0[i] == 1 {
+                bits[limb] |= 1_u64 << (63 - bit);
+            }
+        }
+        Bits(bits)
     }
 }
 
@@ -514,5 +528,18 @@ pub mod tests {
             .map(|v| format!("{:064b}", v))
             .collect::<Vec<String>>()
             .join(if separated { " " } else { "" })
+    }
+
+    #[test]
+    fn test_from_encoded_bits() {
+        let mut rng = thread_rng();
+        for _ in 0..100 {
+            let bits: Bits = rng.gen();
+
+            let encoded_bits = EncodedBits::from(&bits);
+            let decoded_bits = Bits::from(&encoded_bits);
+
+            assert_eq!(bits, decoded_bits);
+        }
     }
 }
