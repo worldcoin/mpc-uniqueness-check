@@ -3,6 +3,8 @@ use std::fs::read_to_string;
 use clap::Args;
 use mpc::bits::{Bits, BITS};
 use mpc::distance::EncodedBits;
+use mpc::template::Template;
+use rand::Rng;
 
 #[derive(Debug, Clone, Args)]
 pub struct SumShares {
@@ -21,7 +23,9 @@ pub async fn sum_shares(args: &SumShares) -> eyre::Result<()> {
 
     let sum = encoded_shares.iter().sum::<EncodedBits>();
     let plain_text_code = Bits::from(&sum);
-    println!("Iris Code: {plain_text_code:?}");
+
+    let serialized_code = serde_json::to_string(&plain_text_code)?;
+    println!("Iris Code: {:?}", serialized_code);
 
     Ok(())
 }
