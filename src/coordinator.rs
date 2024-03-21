@@ -117,7 +117,7 @@ impl Coordinator {
     ) -> eyre::Result<()> {
         loop {
             // Send ack and wait for response from all participants
-            self.send_ack(&participant_streams).await?;
+            self.send_ack(participant_streams).await?;
 
             // Dequeue messages, limiting the max number of messages to 1
             let messages = match sqs_dequeue(
@@ -136,7 +136,7 @@ impl Coordinator {
 
             // Process the message
             if let Some(message) = messages.into_iter().next() {
-                self.handle_uniqueness_check(message, &participant_streams)
+                self.handle_uniqueness_check(message, participant_streams)
                     .await?;
             }
         }
@@ -243,7 +243,7 @@ impl Coordinator {
         self.sync_masks().await?;
 
         tracing::info!("Sending query to participants");
-        self.send_query_to_participants(&template, &participant_streams)
+        self.send_query_to_participants(&template, participant_streams)
             .await?;
         let tasks = FuturesUnordered::new();
 
@@ -404,14 +404,9 @@ impl Coordinator {
     ) {
         // Collect batches of shares
         let (processed_shares_tx, processed_shares_rx) = mpsc::channel(4);
+        let participant_streams = participant_streams.to_vec();
 
         tracing::info!("Spawning batch worker");
-
-        let participant_streams = participant_streams
-            .iter()
-            .map(|stream| stream.clone())
-            .collect::<Vec<Arc<Mutex<BufReader<TcpStream>>>>>();
-
         let batch_worker = tokio::task::spawn(async move {
             loop {
                 // Collect futures of denominator and share batches
