@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use aws_sdk_sqs::types::Message;
 use eyre::ContextCompat;
-use futures::stream::FuturesUnordered;
 use futures::future;
+use futures::stream::FuturesUnordered;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
@@ -104,43 +104,40 @@ impl Coordinator {
                 }
             };
 
-            'inner: loop {
-                // Send ack and wait for response from all participants
-                if let Err(err) =
-                    self.send_ack(&participant_streams).await
-                {
-                    tracing::error!(
-                        ?err,
-                        "Coordinator failed to connect to all participants"
-                    );
-                    break 'inner;
-                }
+            if let Err(err) = self.process_queue(&participant_streams).await {
+                tracing::error!(?err, "Failed to process queue");
+                continue;
+            }
+        }
+    }
 
-                //     // Dequeue messages, limiting the max number of messages to 1
-                let messages = match sqs_dequeue(
-                    &self.sqs_client,
-                    &self.config.queues.queries_queue_url,
-                    None,
-                )
-                .await
-                {
-                    Ok(dequeued_message) => dequeued_message,
-                    Err(error) => {
-                        tracing::error!(?error, "Failed to dequeue messages");
-                        continue;
-                    }
-                };
+    pub async fn process_queue(
+        &self,
+        participant_streams: &[Arc<Mutex<BufReader<TcpStream>>>],
+    ) -> eyre::Result<()> {
+        loop {
+            // Send ack and wait for response from all participants
+            self.send_ack(&participant_streams).await?;
 
-                // Process the message
-                if let Some(message) = messages.into_iter().next() {
-                    if let Err(error) = self
-                        .handle_uniqueness_check(message, &participant_streams)
-                        .await
-                    {
-                        tracing::error!(?error, "Uniqueness check failed");
-                        //TODO: decide where to break
-                    }
+            // Dequeue messages, limiting the max number of messages to 1
+            let messages = match sqs_dequeue(
+                &self.sqs_client,
+                &self.config.queues.queries_queue_url,
+                None,
+            )
+            .await
+            {
+                Ok(dequeued_message) => dequeued_message,
+                Err(error) => {
+                    tracing::error!(?error, "Failed to dequeue messages");
+                    continue;
                 }
+            };
+
+            // Process the message
+            if let Some(message) = messages.into_iter().next() {
+                self.handle_uniqueness_check(message, &participant_streams)
+                    .await?;
             }
         }
     }
@@ -166,12 +163,8 @@ impl Coordinator {
                 .await??;
 
                 if buffer[0] != ACK_BYTE {
-                    tracing::error!(
-                        participant = i,
-                        "Unexpected response from participant"
-                    );
                     return Err(eyre::eyre!(
-                        "Unexpected response from participant"
+                        "Unexpected response from participant {i}"
                     ));
                 }
 
@@ -436,7 +429,6 @@ impl Coordinator {
                             if buffer_size == 0 {
                                 return Ok(vec![]);
                             }
-                            
 
                             if buffer_size % BATCH_ELEMENT_SIZE != 0 {
                                 return Err(eyre::eyre!(
@@ -525,7 +517,6 @@ impl Coordinator {
         {
             let batch_size = denom_batch.len();
             if batch_size == 0 {
-                tracing::warn!("Batch size is empty");
                 break;
             }
 

@@ -90,39 +90,30 @@ impl Participant {
                 }
             };
 
-            'inner: loop {
-                match stream.read_u8().await {
-                    Ok(byte) => match byte {
-                        ACK_BYTE => {
-                            stream.write_u8(ACK_BYTE).await?;
-                            stream.flush().await?;
+            if let Err(err) = self.process_stream(&mut stream).await {
+                tracing::error!(?err, "Failed to process stream");
+                continue;
+            }
+        }
+    }
 
-                            continue;
-                        }
+    async fn process_stream(
+        &self,
+        stream: &mut BufWriter<TcpStream>,
+    ) -> eyre::Result<()> {
+        loop {
+            // Handle ack/start signal from the coordinator
+            let payload = stream.read_u8().await?;
 
-                        // If the start byte is received, continue with the uniqueness check
-                        START_BYTE => {
-                            tracing::debug!("START received from coordinator");
-                        }
-                        _ => {
-                            tracing::error!(
-                                ?byte,
-                                "Received unknown byte from coordinator"
-                            );
-                            break 'inner;
-                        }
-                    },
-                    Err(error) => {
-                        tracing::error!(?error, "Failed to read stream");
-                        break 'inner;
-                    }
-                }
-
-                if let Err(error) =
-                    self.handle_uniqueness_check(&mut stream).await
-                {
-                    tracing::error!(?error, "Uniqueness check failed");
-                }
+            if payload == START_BYTE {
+                self.handle_uniqueness_check(stream).await?;
+            } else if payload == ACK_BYTE {
+                stream.write_u8(ACK_BYTE).await?;
+                stream.flush().await?;
+            } else {
+                return Err(eyre::eyre!(
+                    "Unknown byte from coordinator: {payload}",
+                ));
             }
         }
     }
