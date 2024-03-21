@@ -16,6 +16,7 @@ use tokio::sync::{mpsc, Mutex};
 use tracing::instrument;
 
 use crate::config::ParticipantConfig;
+use crate::coordinator::{ACK_BYTE, START_BYTE};
 use crate::db::Db;
 use crate::distance::{self, encode, DistanceEngine, EncodedBits};
 use crate::utils;
@@ -74,11 +75,11 @@ impl Participant {
 
     async fn handle_uniqueness_checks(self: Arc<Self>) -> eyre::Result<()> {
         loop {
-            let stream = match self.listener.accept().await {
+            let mut stream = match self.listener.accept().await {
                 Ok((stream, addr)) => {
                     tracing::debug!(?addr, "Accepting connection");
 
-                    stream
+                    tokio::io::BufWriter::new(stream)
                 }
                 Err(error) => {
                     tracing::error!(
@@ -89,8 +90,39 @@ impl Participant {
                 }
             };
 
-            if let Err(error) = self.handle_uniqueness_check(stream).await {
-                tracing::error!(?error, "Uniqueness check failed");
+            'inner: loop {
+                match stream.read_u8().await {
+                    Ok(byte) => match byte {
+                        ACK_BYTE => {
+                            stream.write_u8(ACK_BYTE).await?;
+                            stream.flush().await?;
+
+                            continue;
+                        }
+
+                        // If the start byte is received, continue with the uniqueness check
+                        START_BYTE => {
+                            tracing::debug!("START received from coordinator");
+                        }
+                        _ => {
+                            tracing::error!(
+                                ?byte,
+                                "Received unknown byte from coordinator"
+                            );
+                            break 'inner;
+                        }
+                    },
+                    Err(error) => {
+                        tracing::error!(?error, "Failed to read stream");
+                        break 'inner;
+                    }
+                }
+
+                if let Err(error) =
+                    self.handle_uniqueness_check(&mut stream).await
+                {
+                    tracing::error!(?error, "Uniqueness check failed");
+                }
             }
         }
     }
@@ -98,12 +130,10 @@ impl Participant {
     #[tracing::instrument(skip(self))]
     async fn handle_uniqueness_check(
         &self,
-        stream: TcpStream,
+        stream: &mut BufWriter<TcpStream>,
     ) -> eyre::Result<()> {
-        let mut stream = tokio::io::BufWriter::new(stream);
-
         // Process the trace and span ids to correlate traces between services
-        self.handle_traces_payload(&mut stream).await?;
+        self.handle_traces_payload(stream).await?;
 
         // Process the query
         self.uniqueness_check(stream).await?;
@@ -145,7 +175,7 @@ impl Participant {
     #[tracing::instrument(skip(self, stream))]
     async fn uniqueness_check(
         &self,
-        mut stream: BufWriter<TcpStream>,
+        stream: &mut BufWriter<TcpStream>,
     ) -> eyre::Result<()> {
         // We could do this and reading from the stream simultaneously
         self.sync_shares().await?;
@@ -170,10 +200,14 @@ impl Participant {
         while let Some(buffer) = receiver.recv().await {
             let buffer_len = buffer.len() as u64;
             stream.write_u64(buffer_len).await?;
-
             stream.write_all(&buffer).await?;
             stream.flush().await?;
         }
+
+        // Signal the end of the payload
+        stream.write_u64(0).await?;
+        tracing::info!("Batch result sent to coordinator");
+
         worker.await??;
 
         Ok(())
