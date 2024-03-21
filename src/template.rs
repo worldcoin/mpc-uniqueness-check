@@ -76,6 +76,8 @@ impl Distribution<Template> for Standard {
 
 #[cfg(test)]
 mod tests {
+    use crate::distance;
+
     use super::*;
 
     const A: &str = indoc::indoc! { r#"{

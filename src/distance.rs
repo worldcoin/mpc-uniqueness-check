@@ -28,6 +28,31 @@ pub fn encode(template: &Template) -> EncodedBits {
     mask - &pattern - &pattern
 }
 
+pub fn decode(encoded: &EncodedBits) -> eyre::Result<Template> {
+    let mut code = Bits::ZERO;
+    let mut mask = Bits::ZERO;
+
+    for (idx, bit) in encoded.0.iter().enumerate() {
+        match bit {
+            0 => {
+                code.set(idx, false);
+                mask.set(idx, false);
+            }
+            1 => {
+                code.set(idx, false);
+                mask.set(idx, true);
+            }
+            &u16::MAX => {
+                code.set(idx, true);
+                mask.set(idx, true);
+            }
+            _ => eyre::bail!("Invalid encoded bits"),
+        }
+    }
+
+    Ok(Template { code, mask })
+}
+
 pub struct DistanceEngine {
     rotations: Box<[EncodedBits; 31]>,
 }
@@ -204,6 +229,28 @@ mod tests {
             assert_eq!(equal + uneq, denominator);
             assert_eq!((denominator - sum) % 2, 0);
             assert_eq!(uneq, (denominator - sum) / 2);
+        }
+    }
+
+    #[test]
+    fn encode_decode() {
+        let mut rng = thread_rng();
+
+        for _ in 0..100 {
+            let template = rng.gen::<Template>();
+
+            let encoded = encode(&template);
+
+            let decoded = decode(&encoded).expect("Decoding failed");
+
+            // Masks must always be equal
+            assert_eq!(template.mask, decoded.mask);
+
+            // Codes are equal with masks applied
+            let orig_pattern = template.code & &template.mask;
+            let actual_pattern = decoded.code & &decoded.mask;
+
+            assert_eq!(orig_pattern, actual_pattern);
         }
     }
 }

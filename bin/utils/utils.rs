@@ -7,6 +7,8 @@ use seed_mpc_db::{seed_mpc_db, SeedMPCDb};
 use sqs_query::{sqs_query, SQSQuery};
 use sqs_receive::{sqs_receive, SQSReceive};
 use sum_shares::{sum_shares, SumShares};
+use hex_to_base64::{hex_to_base64, HexToBase64};
+use base64_to_hex::{base64_to_hex, Base64ToHex};
 
 mod common;
 mod generate_mock_templates;
@@ -15,6 +17,8 @@ mod seed_mpc_db;
 mod sqs_query;
 mod sqs_receive;
 mod sum_shares;
+mod hex_to_base64;
+mod base64_to_hex;
 
 #[derive(Debug, Clone, Parser)]
 enum Opt {
@@ -24,6 +28,8 @@ enum Opt {
     SQSReceive(SQSReceive),
     GenerateMockTemplates(GenerateMockTemplates),
     SumShares(SumShares),
+    HexToBase64(HexToBase64),
+    Base64ToHex(Base64ToHex),
 }
 
 #[tokio::main]
@@ -50,6 +56,12 @@ async fn main() -> eyre::Result<()> {
         }
         Opt::SumShares(args) => {
             sum_shares(&args).await?;
+        }
+        Opt::HexToBase64(args) => {
+            hex_to_base64(&args).await?;
+        }
+        Opt::Base64ToHex(args) => {
+            base64_to_hex(&args).await?;
         }
     }
 
