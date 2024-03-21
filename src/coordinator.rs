@@ -413,12 +413,7 @@ impl Coordinator {
                 let streams_future =
                     future::try_join_all(participant_streams.iter().enumerate().map(
                         |(i, stream)| async move {
-                            tracing::warn!(participant = i, "locking stream");
                             let mut stream = stream.lock().await;
-                            tracing::warn!(participant = i, "stream locked");
-
-
-                            tracing::warn!(participant = i, "reading u64");
 
                             let buffer_size =  stream.read_u64().await? as usize;
                             if buffer_size == 0 {
@@ -438,15 +433,8 @@ impl Coordinator {
                             let buffer =
                                 bytemuck::cast_slice_mut(&mut batch);
 
-                                tracing::warn!(participant = i, "reading exact");
-
-
-
                             // Read in the batch results
                             stream.read_exact(buffer).await?;
-
-
-                            tracing::warn!(participant = i, "read exact");
 
                             tracing::info!(
                                 participant = i,
