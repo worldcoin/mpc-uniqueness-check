@@ -206,6 +206,8 @@ impl Participant {
 
         // Signal the end of the payload
         stream.write_u64(0).await?;
+        stream.flush().await?;
+
         tracing::info!("Batch result sent to coordinator");
 
         worker.await??;
