@@ -2,7 +2,7 @@ use core::fmt;
 use std::array;
 use std::borrow::Cow;
 use std::iter::{self, Sum};
-use std::ops::{self, DivAssign, MulAssign};
+use std::ops::{self, MulAssign};
 
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
@@ -40,9 +40,6 @@ impl EncodedBits {
         // Initialize last to sum of self
         *last = self - rest.iter().sum::<EncodedBits>();
 
-        // share_1 = enc(iris) - share_0
-        // share_0 = enc(iris) - share_1
-
         result
     }
 
@@ -56,14 +53,6 @@ impl EncodedBits {
             .zip(other.0.iter())
             .map(|(&a, &b)| u16::wrapping_mul(a, b))
             .fold(0_u16, u16::wrapping_add)
-    }
-
-    pub fn half(&self) -> Self {
-        let mut result = *self;
-        for r in result.0.iter_mut() {
-            *r = r.wrapping_shr(1);
-        }
-        result
     }
 }
 
@@ -205,15 +194,6 @@ impl ops::Mul<u16> for EncodedBits {
     }
 }
 
-impl ops::Div<u16> for EncodedBits {
-    type Output = EncodedBits;
-
-    fn div(mut self, rhs: u16) -> Self::Output {
-        self.div_assign(rhs);
-        self
-    }
-}
-
 impl ops::AddAssign<&EncodedBits> for EncodedBits {
     fn add_assign(&mut self, rhs: &EncodedBits) {
         for (s, &r) in self.0.iter_mut().zip(rhs.0.iter()) {
@@ -246,14 +226,6 @@ impl ops::MulAssign<u16> for EncodedBits {
     }
 }
 
-impl ops::DivAssign<u16> for EncodedBits {
-    fn div_assign(&mut self, rhs: u16) {
-        for s in self.0.iter_mut() {
-            *s = s.wrapping_div(rhs);
-        }
-    }
-}
-
 impl<'de> Deserialize<'de> for EncodedBits {
     fn deserialize<D>(deserializer: D) -> Result<EncodedBits, D::Error>
     where
@@ -264,6 +236,10 @@ impl<'de> Deserialize<'de> for EncodedBits {
         let bytes = BASE64_STANDARD
             .decode(s.as_bytes())
             .map_err(D::Error::custom)?;
+
+        if bytes.len() != std::mem::size_of::<EncodedBits>() {
+            return Err(D::Error::invalid_length(bytes.len(), &"16 bytes"));
+        }
 
         let mut limbs = [0_u16; BITS];
         for (i, chunk) in bytes.array_chunks::<2>().enumerate() {
@@ -309,6 +285,8 @@ mod tests {
     use rand::thread_rng;
 
     use super::*;
+    use crate::bits::tests::*;
+    use crate::template::Template;
 
     #[test]
     fn encoded_bits_serialization() {
@@ -329,10 +307,6 @@ mod tests {
 
         assert_eq!(deserialized, encoded_bits);
     }
-
-    use crate::bits::tests::*;
-    use crate::distance;
-    use crate::template::Template;
 
     #[test]
     fn encoded_bits_deserialization_known_pattern() -> eyre::Result<()> {
@@ -484,21 +458,10 @@ mod tests {
     }
 
     #[test]
-    fn mul_and_div() {
-        let mut rng = rand::thread_rng();
-
-        let eb: EncodedBits = rng.gen();
-
-        let eb2 = eb * 2;
-        let actual = eb2 / 2;
-
-        assert_eq!(eb, actual);
-    }
-
-    #[test]
     fn deserialize_missing_data() {
         const ENCODED_BITS: &str = r#""////""#;
 
-        let _eb = serde_json::from_str::<EncodedBits>(ENCODED_BITS).unwrap();
+        let _eb = serde_json::from_str::<EncodedBits>(ENCODED_BITS)
+            .expect_err("Parsing should fail if not enough data");
     }
 }
