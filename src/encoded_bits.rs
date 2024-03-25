@@ -1,3 +1,4 @@
+use core::fmt;
 use std::array;
 use std::borrow::Cow;
 use std::iter::{self, Sum};
@@ -14,7 +15,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::bits::{Bits, BITS};
 
 #[repr(transparent)]
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EncodedBits(pub [u16; BITS]);
 
 unsafe impl Zeroable for EncodedBits {}
@@ -106,6 +107,34 @@ impl<'a> Sum<&'a EncodedBits> for EncodedBits {
     }
 }
 
+impl ops::Add<EncodedBits> for &EncodedBits {
+    type Output = EncodedBits;
+
+    fn add(self, rhs: EncodedBits) -> Self::Output {
+        let mut copy = *self;
+        copy += &rhs;
+        copy
+    }
+}
+
+impl ops::Add<&EncodedBits> for EncodedBits {
+    type Output = EncodedBits;
+
+    fn add(mut self, rhs: &EncodedBits) -> Self::Output {
+        self += rhs;
+        self
+    }
+}
+
+impl ops::Add<EncodedBits> for EncodedBits {
+    type Output = EncodedBits;
+
+    fn add(mut self, rhs: EncodedBits) -> Self::Output {
+        self += &rhs;
+        self
+    }
+}
+
 impl ops::Sub<EncodedBits> for &EncodedBits {
     type Output = EncodedBits;
 
@@ -126,6 +155,15 @@ impl ops::Sub<&EncodedBits> for EncodedBits {
     }
 }
 
+impl ops::Sub<EncodedBits> for EncodedBits {
+    type Output = EncodedBits;
+
+    fn sub(mut self, rhs: EncodedBits) -> Self::Output {
+        self -= &rhs;
+        self
+    }
+}
+
 impl ops::Mul for &EncodedBits {
     type Output = EncodedBits;
 
@@ -140,6 +178,15 @@ impl ops::Mul<&EncodedBits> for EncodedBits {
     type Output = EncodedBits;
 
     fn mul(mut self, rhs: &EncodedBits) -> Self::Output {
+        self.mul_assign(rhs);
+        self
+    }
+}
+
+impl ops::Mul<u16> for EncodedBits {
+    type Output = EncodedBits;
+
+    fn mul(mut self, rhs: u16) -> Self::Output {
         self.mul_assign(rhs);
         self
     }
@@ -169,6 +216,14 @@ impl ops::MulAssign<&EncodedBits> for EncodedBits {
     }
 }
 
+impl ops::MulAssign<u16> for EncodedBits {
+    fn mul_assign(&mut self, rhs: u16) {
+        for s in self.0.iter_mut() {
+            *s = s.wrapping_mul(rhs);
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for EncodedBits {
     fn deserialize<D>(deserializer: D) -> Result<EncodedBits, D::Error>
     where
@@ -179,6 +234,10 @@ impl<'de> Deserialize<'de> for EncodedBits {
         let bytes = BASE64_STANDARD
             .decode(s.as_bytes())
             .map_err(D::Error::custom)?;
+
+        if bytes.len() != std::mem::size_of::<EncodedBits>() {
+            return Err(D::Error::invalid_length(bytes.len(), &"16 bytes"));
+        }
 
         let mut limbs = [0_u16; BITS];
         for (i, chunk) in bytes.array_chunks::<2>().enumerate() {
@@ -207,11 +266,25 @@ impl Serialize for EncodedBits {
     }
 }
 
+impl fmt::Debug for EncodedBits {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if f.alternate() {
+            write!(f, "EncodedBits({:?})", &self.0)
+        } else {
+            let s = serde_json::to_string(self).unwrap();
+            let s = s.trim_matches('"');
+            write!(f, "{}", s)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rand::thread_rng;
 
     use super::*;
+    use crate::bits::tests::*;
+    use crate::template::Template;
 
     #[test]
     fn encoded_bits_serialization() {
@@ -232,8 +305,6 @@ mod tests {
 
         assert_eq!(deserialized, encoded_bits);
     }
-
-    use crate::bits::tests::*;
 
     #[test]
     fn encoded_bits_deserialization_known_pattern() -> eyre::Result<()> {
@@ -330,5 +401,65 @@ mod tests {
             })
             .collect::<Vec<String>>()
             .join(if separated { " " } else { "" })
+    }
+
+    #[test]
+    fn test_sum_shares() {
+        let mut rng = rand::thread_rng();
+
+        for _ in 0..100 {
+            let template = rng.gen::<Template>();
+
+            let encoded_bits: EncodedBits = EncodedBits::from(&template.code);
+
+            let shares = encoded_bits.share(2, &mut rng);
+
+            let summed_encoded_bits = shares.iter().sum::<EncodedBits>();
+
+            let summed_bits = Bits::from(&summed_encoded_bits);
+
+            assert_eq!(summed_bits, template.code);
+        }
+    }
+
+    #[test]
+    fn add_shares() {
+        let mut rng = rand::thread_rng();
+
+        let template = rng.gen::<Template>();
+        let encoded_bits: EncodedBits = EncodedBits::from(&template.code);
+
+        let shares = encoded_bits.share(2, &mut rng);
+        let summed_encoded_bits = shares[1] + shares[0];
+
+        let summed_bits = Bits::from(&summed_encoded_bits);
+
+        assert_eq!(summed_bits, template.code);
+    }
+
+    #[test]
+    fn recovery_text_repr() {
+        let mut rng = rand::thread_rng();
+
+        let template = rng.gen::<Template>();
+        let code_repr = serde_json::to_string(&template.code).unwrap();
+        let encoded_bits: EncodedBits = EncodedBits::from(&template.code);
+
+        let shares = encoded_bits.share(2, &mut rng);
+        let summed_encoded_bits = shares[1] + shares[0];
+
+        let summed_bits = Bits::from(&summed_encoded_bits);
+        let summed_repr = serde_json::to_string(&summed_bits).unwrap();
+
+        assert_eq!(summed_bits, template.code);
+        assert_eq!(summed_repr, code_repr);
+    }
+
+    #[test]
+    fn deserialize_missing_data() {
+        const ENCODED_BITS: &str = r#""////""#;
+
+        let _eb = serde_json::from_str::<EncodedBits>(ENCODED_BITS)
+            .expect_err("Parsing should fail if not enough data");
     }
 }
