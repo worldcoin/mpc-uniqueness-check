@@ -23,8 +23,6 @@ unsafe impl Zeroable for EncodedBits {}
 unsafe impl Pod for EncodedBits {}
 
 impl EncodedBits {
-    pub const ONES: EncodedBits = EncodedBits([1; BITS]);
-
     /// Generate secret shares from this bitvector.
     pub fn share(&self, n: usize, rng: &mut impl Rng) -> Box<[EncodedBits]> {
         assert!(n > 0);
