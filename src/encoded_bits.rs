@@ -298,8 +298,7 @@ impl fmt::Debug for EncodedBits {
             write!(f, "EncodedBits({:?})", &self.0)
         } else {
             let s = serde_json::to_string(self).unwrap();
-            let s = s.trim_start_matches('"');
-            let s = s.trim_end_matches('"');
+            let s = s.trim_matches('"');
             write!(f, "{}", s)
         }
     }

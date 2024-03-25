@@ -16,7 +16,8 @@ pub async fn sum_shares(args: &SumShares) -> eyre::Result<()> {
 
     let decoded = decode(&encoded)?;
 
-    println!("{:?}", decoded);
+    println!("Code: {:?}", decoded.code);
+    println!("Mask: {:?}", decoded.mask);
 
     Ok(())
 }

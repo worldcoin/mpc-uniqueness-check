@@ -111,8 +111,14 @@ impl Default for Bits {
 
 impl Debug for Bits {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for limb in self.0 {
-            write!(f, "{limb:016x}")?;
+        if f.alternate() {
+            for limb in self.0 {
+                write!(f, "{limb:016x}")?;
+            }
+        } else {
+            let s = serde_json::to_string(self).unwrap();
+            let s = s.trim_matches('"');
+            write!(f, "{}", s)?;
         }
         Ok(())
     }
