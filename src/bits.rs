@@ -223,7 +223,7 @@ fn u64_slice_to_u8_vec(s: &[u64]) -> Vec<u8> {
 impl fmt::Display for Bits {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let bytes = u64_slice_to_u8_vec(&self.0);
-        let s = BASE64_STANDARD.encode(&bytes);
+        let s = BASE64_STANDARD.encode(bytes);
         write!(f, "{}", s)
     }
 }

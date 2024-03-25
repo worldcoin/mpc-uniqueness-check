@@ -25,7 +25,7 @@ pub fn encode(template: &Template) -> EncodedBits {
     let mask = EncodedBits::from(&template.mask);
 
     // Preprocessed is (mask - 2 * pattern)
-    mask - &pattern - &pattern
+    mask - pattern - pattern
 }
 
 pub fn decode(encoded: &EncodedBits) -> eyre::Result<Template> {
