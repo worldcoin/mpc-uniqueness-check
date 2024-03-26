@@ -19,5 +19,6 @@ jobs:
               "ref": "${{ github.ref }}",
               "ref_name": "${{ github.ref_name }}",
               "ref_type": "${{ github.ref_type }}",
-              "repository": "${{ github.repository }}"
+              "repository": "${{ github.repository }}",
+              "default_branch": "${{ github.event.repository.default_branch }}"
             }
