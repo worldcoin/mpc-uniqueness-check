@@ -6,11 +6,8 @@ use seed_iris_db::{seed_iris_db, SeedIrisDb};
 use seed_mpc_db::{seed_mpc_db, SeedMPCDb};
 use sqs_query::{sqs_query, SQSQuery};
 use sqs_receive::{sqs_receive, SQSReceive};
-<<<<<<< HEAD
 use verify_parquet::{verify_parquet, VerifyParquet};
-=======
 use sum_shares::{sum_shares, SumShares};
->>>>>>> 28c6fc200557716accb6db3bbe1255c2bd1e53e3
 
 mod common;
 mod generate_mock_templates;
