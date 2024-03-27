@@ -1,7 +1,6 @@
 use std::borrow::Cow;
-use std::fmt::Debug;
-use std::ops;
-use std::ops::Index;
+use std::fmt::{self, Debug};
+use std::ops::{self, Index};
 
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
@@ -12,7 +11,7 @@ use rand::Rng;
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 
-use crate::distance::ROTATIONS;
+use crate::distance::{EncodedBits, ROTATIONS};
 
 mod all_bit_patterns_test;
 
@@ -27,6 +26,8 @@ const LIMBS: usize = BITS / 64;
 pub struct Bits(pub [u64; LIMBS]);
 
 impl Bits {
+    pub const ZERO: Self = Self([0; LIMBS]);
+
     /// Returns an unordered iterator over the 31 possible rotations
     pub fn rotations(&self) -> impl Iterator<Item = Self> + '_ {
         ROTATIONS.map(|rot| {
@@ -65,6 +66,22 @@ impl Bits {
             .map(|(&a, &b)| (a & b).count_ones() as u16)
             .sum()
     }
+
+    pub fn get(&self, index: usize) -> bool {
+        assert!(index < BITS);
+        let (limb, bit) = (index / 64, index % 64);
+        self.0[limb] & (1_u64 << (63 - bit)) != 0
+    }
+
+    pub fn set(&mut self, index: usize, value: bool) {
+        assert!(index < BITS);
+        let (limb, bit) = (index / 64, index % 64);
+        if value {
+            self.0[limb] |= 1_u64 << (63 - bit);
+        } else {
+            self.0[limb] &= !(1_u64 << (63 - bit));
+        }
+    }
 }
 
 unsafe impl Zeroable for Bits {}
@@ -94,10 +111,30 @@ impl Default for Bits {
 
 impl Debug for Bits {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for limb in self.0 {
-            write!(f, "{limb:016x}")?;
+        if f.alternate() {
+            for limb in self.0 {
+                write!(f, "{limb:016x}")?;
+            }
+        } else {
+            let s = serde_json::to_string(self).unwrap();
+            let s = s.trim_matches('"');
+            write!(f, "{}", s)?;
         }
         Ok(())
+    }
+}
+
+impl From<&EncodedBits> for Bits {
+    fn from(value: &EncodedBits) -> Self {
+        let mut bits = [0_u64; LIMBS];
+        for i in 0..BITS {
+            let limb = i / 64;
+            let bit = i % 64;
+            if value.0[i] == 1 {
+                bits[limb] |= 1_u64 << (63 - bit);
+            }
+        }
+        Bits(bits)
     }
 }
 
@@ -179,11 +216,23 @@ impl TryFrom<Vec<u8>> for Bits {
     }
 }
 
+fn u64_slice_to_u8_vec(s: &[u64]) -> Vec<u8> {
+    s.iter().flat_map(|x| x.to_be_bytes()).collect()
+}
+
+impl fmt::Display for Bits {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let bytes = u64_slice_to_u8_vec(&self.0);
+        let s = BASE64_STANDARD.encode(bytes);
+        write!(f, "{}", s)
+    }
+}
+
 impl std::str::FromStr for Bits {
     type Err = base64::DecodeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let bytes = BASE64_STANDARD.decode(s.as_bytes())?;
+        let bytes = BASE64_STANDARD.decode(s)?;
 
         Self::try_from(bytes)
     }
@@ -514,5 +563,74 @@ pub mod tests {
             .map(|v| format!("{:064b}", v))
             .collect::<Vec<String>>()
             .join(if separated { " " } else { "" })
+    }
+
+    #[test]
+    fn test_from_encoded_bits() {
+        let mut rng = thread_rng();
+        for _ in 0..100 {
+            let bits: Bits = rng.gen();
+
+            let encoded_bits = EncodedBits::from(&bits);
+            let decoded_bits = Bits::from(&encoded_bits);
+
+            assert_eq!(bits, decoded_bits);
+        }
+    }
+
+    #[test]
+    fn test_serialization_round_trip() -> eyre::Result<()> {
+        let mut rng = thread_rng();
+        for _ in 0..100 {
+            let bits: Bits = rng.gen();
+
+            let serialized = serde_json::to_string(&bits)?;
+            let deserialized: Bits = serde_json::from_str(&serialized)?;
+
+            assert_eq!(bits, deserialized);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parsing_round_trip() -> eyre::Result<()> {
+        let mut rng = thread_rng();
+        for _ in 0..100 {
+            let bits: Bits = rng.gen();
+
+            let serialized = bits.to_string();
+            let deserialized: Bits = serialized.parse()?;
+
+            assert_eq!(bits, deserialized);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn get_set() {
+        let mut bits = Bits::ZERO;
+
+        // All bits are unset
+        for bit in 0..BITS {
+            assert!(!bits.get(bit));
+            assert!(!bits[bit]);
+        }
+
+        let mut rng = thread_rng();
+        let mut set_indexes = vec![];
+        for _ in 0..100 {
+            set_indexes.push(rng.gen::<usize>() % BITS);
+        }
+
+        for index in &set_indexes {
+            bits.set(*index, true);
+        }
+
+        for index in &set_indexes {
+            assert!(bits.get(*index));
+            assert!(bits[*index]);
+        }
     }
 }

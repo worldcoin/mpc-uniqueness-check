@@ -30,7 +30,6 @@ use crate::utils::templating::resolve_template;
 const BATCH_SIZE: usize = 20_000;
 const BATCH_ELEMENT_SIZE: usize = std::mem::size_of::<[u16; 31]>();
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
-const RESPONSE_MESSAGE_GROUP_ID: &str = "mpc-uniqueness-check-response";
 
 pub struct Coordinator {
     participants: Vec<String>,
@@ -108,21 +107,38 @@ impl Coordinator {
         self: Arc<Self>,
     ) -> Result<(), eyre::Error> {
         loop {
+            let participant_streams = match self.connect_to_participants().await
+            {
+                Ok(streams) => streams
+                    .into_iter()
+                    .map(BufReader::new)
+                    .collect::<Vec<BufReader<TcpStream>>>(),
+                Err(e) => {
+                    tracing::error!(?e, "Failed to connect to participants");
+                    continue;
+                }
+            };
+
+            // Dequeue messages, limiting the max number of messages to 1
             let messages = match sqs_dequeue(
                 &self.sqs_client,
                 &self.config.queues.queries_queue_url,
+                None,
             )
             .await
             {
-                Ok(messages) => messages,
+                Ok(dequeued_message) => dequeued_message,
                 Err(error) => {
                     tracing::error!(?error, "Failed to dequeue messages");
                     continue;
                 }
             };
 
-            for message in messages {
-                if let Err(error) = self.handle_uniqueness_check(message).await
+            // Process the message
+            if let Some(message) = messages.into_iter().next() {
+                if let Err(error) = self
+                    .handle_uniqueness_check(message, participant_streams)
+                    .await
                 {
                     tracing::error!(?error, "Uniqueness check failed");
                 }
@@ -134,6 +150,7 @@ impl Coordinator {
     pub async fn handle_uniqueness_check(
         &self,
         payload: Message,
+        participant_streams: Vec<BufReader<TcpStream>>,
     ) -> eyre::Result<()> {
         tracing::debug!(?payload, "Handling message");
 
@@ -160,8 +177,13 @@ impl Coordinator {
             signup_id,
         }) = serde_json::from_str::<UniquenessCheckRequest>(&body)
         {
-            self.uniqueness_check(receipt_handle, plain_code, signup_id)
-                .await?;
+            self.uniqueness_check(
+                receipt_handle,
+                plain_code,
+                signup_id,
+                participant_streams,
+            )
+            .await?;
         } else {
             tracing::error!(
                 ?receipt_handle,
@@ -185,12 +207,14 @@ impl Coordinator {
         receipt_handle: String,
         template: Template,
         signup_id: String,
+        mut participant_streams: Vec<BufReader<TcpStream>>,
     ) -> Result<(), eyre::Error> {
         tracing::info!("Processing message");
         self.sync_masks().await?;
 
         tracing::info!("Sending query to participants");
-        let streams = self.send_query_to_participants(&template).await?;
+        self.send_query_to_participants(&template, &mut participant_streams)
+            .await?;
         let tasks = FuturesUnordered::new();
 
         tracing::info!("Computing denominators");
@@ -199,8 +223,11 @@ impl Coordinator {
         tasks.push(denominator_handle);
 
         tracing::info!("Processing participant shares");
-        let (batch_process_shares_rx, batch_process_shares_handle) =
-            self.batch_process_participant_shares(denominator_rx, streams);
+        let (batch_process_shares_rx, batch_process_shares_handle) = self
+            .batch_process_participant_shares(
+                denominator_rx,
+                participant_streams,
+            );
         tasks.push(batch_process_shares_handle);
 
         tracing::info!("Processing results");
@@ -210,7 +237,7 @@ impl Coordinator {
         let result = UniquenessCheckResult {
             serial_id: distance_results.serial_id,
             matches: distance_results.matches,
-            signup_id,
+            signup_id: signup_id.clone(),
         };
 
         tracing::info!(?result, "MPC results processed");
@@ -226,7 +253,7 @@ impl Coordinator {
         sqs_enqueue(
             &self.sqs_client,
             &self.config.queues.distances_queue_url,
-            RESPONSE_MESSAGE_GROUP_ID,
+            &signup_id,
             &result,
         )
         .await?;
@@ -241,15 +268,9 @@ impl Coordinator {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, query))]
-    pub async fn send_query_to_participants(
+    pub async fn connect_to_participants(
         &self,
-        query: &Template,
-    ) -> eyre::Result<Vec<BufReader<TcpStream>>> {
-        let (trace_id, span_id) =
-            telemetry_batteries::tracing::extract_span_ids();
-
-        // Write each share to the corresponding participant
+    ) -> eyre::Result<Vec<TcpStream>> {
         let streams =
             future::try_join_all(self.participants.iter().enumerate().map(
                 |(i, participant_host)| async move {
@@ -258,32 +279,46 @@ impl Coordinator {
                         ?participant_host,
                         "Connecting to participant"
                     );
-                    let mut stream = tokio::time::timeout(
-                        self.config.participant_connection_timeout,
-                        TcpStream::connect(participant_host),
-                    )
-                    .await
-                    .context("Connecting to participant")??;
 
-                    // Send the trace and span IDs
-                    stream.write_all(&trace_id.to_bytes()).await?;
-                    stream.write_all(&span_id.to_bytes()).await?;
+                    let stream = TcpStream::connect(participant_host)
+                        .await
+                        .context("Connecting to participant")?;
 
-                    // Send the query
-                    stream.write_all(bytemuck::bytes_of(query)).await?;
-
-                    tracing::info!(
-                        participant = i,
-                        ?participant_host,
-                        "Query sent to participant"
-                    );
-
-                    Ok::<_, eyre::Report>(BufReader::new(stream))
+                    Ok::<_, eyre::Report>(stream)
                 },
             ))
             .await?;
 
         Ok(streams)
+    }
+
+    #[tracing::instrument(skip(self, query))]
+    pub async fn send_query_to_participants(
+        &self,
+        query: &Template,
+        participant_streams: &mut [BufReader<TcpStream>],
+    ) -> eyre::Result<()> {
+        let (trace_id, span_id) =
+            telemetry_batteries::tracing::extract_span_ids();
+
+        // Write each share to the corresponding participant
+        future::try_join_all(participant_streams.iter_mut().enumerate().map(
+            |(i, stream)| async move {
+                // Send the trace and span IDs
+                stream.write_all(&trace_id.to_bytes()).await?;
+                stream.write_all(&span_id.to_bytes()).await?;
+
+                // Send the query
+                stream.write_all(bytemuck::bytes_of(query)).await?;
+
+                tracing::info!(participant = i, "Query sent to participant");
+
+                Ok::<_, eyre::Report>(())
+            },
+        ))
+        .await?;
+
+        Ok(())
     }
 
     #[tracing::instrument(skip(self))]
@@ -325,7 +360,7 @@ impl Coordinator {
     pub fn batch_process_participant_shares(
         &self,
         mut denominator_rx: Receiver<Vec<[u16; 31]>>,
-        mut streams: Vec<BufReader<TcpStream>>,
+        mut participant_streams: Vec<BufReader<TcpStream>>,
     ) -> (
         Receiver<(Vec<[u16; 31]>, Vec<Vec<[u16; 31]>>)>,
         JoinHandle<eyre::Result<()>>,
@@ -338,9 +373,8 @@ impl Coordinator {
             loop {
                 // Collect futures of denominator and share batches
                 let streams_future =
-                    future::try_join_all(streams.iter_mut().enumerate().map(
+                    future::try_join_all(participant_streams.iter_mut().enumerate().map(
                         |(i, stream)| async move {
-
 
                             let buffer_size = match stream.read_u64().await{
                                 Ok(buffer_size) => buffer_size as usize,
@@ -459,7 +493,7 @@ impl Coordinator {
             for (j, distance) in distances.into_iter().enumerate() {
                 let id = j + i + 1;
 
-                if distance < self.hamming_distance_threshold {
+                if distance <= self.hamming_distance_threshold {
                     matches.push(Distance::new(id as u64, distance));
                 }
             }
@@ -499,6 +533,7 @@ impl Coordinator {
             let messages = match sqs_dequeue(
                 &self.sqs_client,
                 &self.config.queues.db_sync_queue_url,
+                Some(10),
             )
             .await
             {

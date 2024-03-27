@@ -40,14 +40,20 @@ pub async fn sqs_client_from_config(
 pub async fn sqs_dequeue(
     client: &aws_sdk_sqs::Client,
     queue_url: &str,
+    max_number_of_messages: Option<i32>,
 ) -> eyre::Result<Vec<Message>> {
-    let sqs_message = client
+    let mut sqs_message = client
         .receive_message()
         .message_attribute_names("All")
         .queue_url(queue_url)
-        .wait_time_seconds(DEQUEUE_WAIT_TIME_SECONDS)
-        .send()
-        .await?;
+        .wait_time_seconds(DEQUEUE_WAIT_TIME_SECONDS);
+
+    if let Some(max_number_of_messages) = max_number_of_messages {
+        sqs_message =
+            sqs_message.max_number_of_messages(max_number_of_messages);
+    }
+
+    let sqs_message = sqs_message.send().await?;
 
     let messages = sqs_message.messages;
 

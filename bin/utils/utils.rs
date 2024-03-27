@@ -1,10 +1,16 @@
+#![feature(array_chunks)]
+
 use clap::Parser;
 use generate_mock_templates::{generate_mock_templates, GenerateMockTemplates};
 use seed_iris_db::{seed_iris_db, SeedIrisDb};
 use seed_mpc_db::{seed_mpc_db, SeedMPCDb};
 use sqs_query::{sqs_query, SQSQuery};
 use sqs_receive::{sqs_receive, SQSReceive};
+<<<<<<< HEAD
 use verify_parquet::{verify_parquet, VerifyParquet};
+=======
+use sum_shares::{sum_shares, SumShares};
+>>>>>>> 28c6fc200557716accb6db3bbe1255c2bd1e53e3
 
 mod common;
 mod generate_mock_templates;
@@ -13,6 +19,7 @@ mod seed_mpc_db;
 mod sqs_query;
 mod sqs_receive;
 mod verify_parquet;
+mod sum_shares;
 
 #[derive(Debug, Clone, Parser)]
 enum Opt {
@@ -22,6 +29,7 @@ enum Opt {
     SQSReceive(SQSReceive),
     GenerateMockTemplates(GenerateMockTemplates),
     VerifyParquet(VerifyParquet),
+    SumShares(SumShares),
 }
 
 #[tokio::main]
@@ -48,6 +56,9 @@ async fn main() -> eyre::Result<()> {
         }
         Opt::VerifyParquet(args) => {
             verify_parquet(&args).await?;
+        }
+	Opt::SumShares(args) => {
+            sum_shares(&args).await?;
         }
     }
 
