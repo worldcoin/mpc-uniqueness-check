@@ -35,6 +35,8 @@ async fn main() -> eyre::Result<()> {
 
     let args = Opt::parse();
 
+    tracing_subscriber::fmt::init();
+
     match args {
         Opt::SeedMPCDb(args) => {
             seed_mpc_db(&args).await?;

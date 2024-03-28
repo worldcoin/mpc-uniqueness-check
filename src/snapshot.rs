@@ -2,7 +2,7 @@ use std::path::Path;
 
 use arrow::array::{BinaryArray, Int64Array};
 use arrow::datatypes::DataType;
-use eyre::ContextCompat;
+use eyre::{Context, ContextCompat};
 use futures::StreamExt;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use tokio::fs::File;
@@ -11,7 +11,11 @@ use tokio::io::{AsyncRead, AsyncSeek};
 use crate::item_kind::ItemKindMarker;
 
 pub async fn open_dir_files(dir: impl AsRef<Path>) -> eyre::Result<Vec<File>> {
-    let mut read_dir = tokio::fs::read_dir(dir).await?;
+    let dir = dir.as_ref();
+
+    let mut read_dir = tokio::fs::read_dir(dir)
+        .await
+        .context(format!("Reading dir {dir:?}"))?;
 
     let mut file_paths = vec![];
 
@@ -25,7 +29,10 @@ pub async fn open_dir_files(dir: impl AsRef<Path>) -> eyre::Result<Vec<File>> {
 
     let mut files = vec![];
     for file_path in file_paths {
-        let file = File::open(file_path).await?;
+        let file = File::open(&file_path)
+            .await
+            .context(format!("Reading {file_path:?}"))?;
+
         files.push(file);
     }
 

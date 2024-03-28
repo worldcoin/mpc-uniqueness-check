@@ -1,4 +1,4 @@
-use strum::EnumString;
+use strum::{Display, EnumString};
 
 use crate::bits::Bits;
 use crate::encoded_bits::EncodedBits;
@@ -24,7 +24,7 @@ impl ItemKindMarker for Masks {
     type Type = Bits;
 }
 
-#[derive(Debug, Clone, Copy, EnumString)]
+#[derive(Debug, Clone, Copy, EnumString, Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum ItemKind {
     Shares,
