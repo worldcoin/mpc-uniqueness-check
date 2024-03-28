@@ -36,7 +36,7 @@ pub async fn sqs_client_from_config(
     Ok(aws_client)
 }
 
-#[tracing::instrument(skip(client, queue_url))]
+#[tracing::instrument(skip(client, queue_url), level = "debug")]
 pub async fn sqs_dequeue(
     client: &aws_sdk_sqs::Client,
     queue_url: &str,
@@ -66,7 +66,7 @@ pub async fn sqs_dequeue(
         .map(|message| message.receipt_handle.clone())
         .collect::<Vec<Option<String>>>();
 
-    tracing::info!(?message_receipts, "Dequeued messages");
+    tracing::debug!(?message_receipts, "Dequeued messages");
 
     Ok(messages)
 }

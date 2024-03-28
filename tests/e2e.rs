@@ -437,7 +437,7 @@ pub async fn wait_for_messages(
             .expect("Could not get approximate number of messages in queue");
 
         if approx_num_messages == "0" {
-            tracing::info!("No messages in queue, retrying");
+            tracing::debug!("No messages in queue, retrying");
             tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
             continue;
         } else {
