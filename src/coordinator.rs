@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use aws_sdk_sqs::types::Message;
-use eyre::ContextCompat;
+use eyre::{Context, ContextCompat};
 use futures::future;
 use futures::stream::FuturesUnordered;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -29,9 +29,6 @@ use crate::utils::templating::resolve_template;
 const BATCH_SIZE: usize = 20_000;
 const BATCH_ELEMENT_SIZE: usize = std::mem::size_of::<[u16; 31]>();
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
-
-pub const ACK_BYTE: u8 = 0x00;
-pub const START_BYTE: u8 = 0x01;
 
 pub struct Coordinator {
     participants: Vec<String>,
@@ -96,28 +93,13 @@ impl Coordinator {
             {
                 Ok(streams) => streams
                     .into_iter()
-                    .map(|stream| Arc::new(Mutex::new(BufReader::new(stream))))
-                    .collect::<Vec<Arc<Mutex<BufReader<TcpStream>>>>>(),
+                    .map(BufReader::new)
+                    .collect::<Vec<BufReader<TcpStream>>>(),
                 Err(e) => {
                     tracing::error!(?e, "Failed to connect to participants");
                     continue;
                 }
             };
-
-            if let Err(err) = self.process_queue(&participant_streams).await {
-                tracing::error!(?err, "Failed to process queue");
-                continue;
-            }
-        }
-    }
-
-    pub async fn process_queue(
-        &self,
-        participant_streams: &[Arc<Mutex<BufReader<TcpStream>>>],
-    ) -> eyre::Result<()> {
-        loop {
-            // Send ack and wait for response from all participants
-            self.send_ack(participant_streams).await?;
 
             // Dequeue messages, limiting the max number of messages to 1
             let messages = match sqs_dequeue(
@@ -136,51 +118,21 @@ impl Coordinator {
 
             // Process the message
             if let Some(message) = messages.into_iter().next() {
-                self.handle_uniqueness_check(message, participant_streams)
-                    .await?;
+                if let Err(error) = self
+                    .handle_uniqueness_check(message, participant_streams)
+                    .await
+                {
+                    tracing::error!(?error, "Uniqueness check failed");
+                }
             }
         }
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn send_ack(
-        &self,
-        participant_streams: &[Arc<Mutex<BufReader<TcpStream>>>],
-    ) -> eyre::Result<()> {
-        future::try_join_all(participant_streams.iter().enumerate().map(
-            |(i, stream)| async move {
-                let mut stream = stream.lock().await;
-                // Send ack byte
-                tracing::info!(participant = i, "Sending ack to participant");
-                stream.write_u8(ACK_BYTE).await?;
-
-                // Wait for ack byte from participant
-                let mut buffer = [0u8; 1];
-                tokio::time::timeout(
-                    self.config.participant_connection_timeout,
-                    stream.read_exact(&mut buffer),
-                )
-                .await??;
-
-                if buffer[0] != ACK_BYTE {
-                    return Err(eyre::eyre!(
-                        "Unexpected response from participant {i}"
-                    ));
-                }
-
-                Ok::<_, eyre::Report>(())
-            },
-        ))
-        .await?;
-
-        Ok(())
     }
 
     #[tracing::instrument(skip(self, payload))]
     pub async fn handle_uniqueness_check(
         &self,
         payload: Message,
-        participant_streams: &[Arc<Mutex<BufReader<TcpStream>>>],
+        participant_streams: Vec<BufReader<TcpStream>>,
     ) -> eyre::Result<()> {
         tracing::debug!(?payload, "Handling message");
 
@@ -237,13 +189,13 @@ impl Coordinator {
         receipt_handle: String,
         template: Template,
         signup_id: String,
-        participant_streams: &[Arc<Mutex<BufReader<TcpStream>>>],
+        mut participant_streams: Vec<BufReader<TcpStream>>,
     ) -> Result<(), eyre::Error> {
         tracing::info!("Processing message");
         self.sync_masks().await?;
 
         tracing::info!("Sending query to participants");
-        self.send_query_to_participants(&template, participant_streams)
+        self.send_query_to_participants(&template, &mut participant_streams)
             .await?;
         let tasks = FuturesUnordered::new();
 
@@ -310,11 +262,9 @@ impl Coordinator {
                         "Connecting to participant"
                     );
 
-                    let stream = tokio::time::timeout(
-                        self.config.participant_connection_timeout,
-                        TcpStream::connect(participant_host),
-                    )
-                    .await??;
+                    let stream = TcpStream::connect(participant_host)
+                        .await
+                        .context("Connecting to participant")?;
 
                     Ok::<_, eyre::Report>(stream)
                 },
@@ -328,19 +278,14 @@ impl Coordinator {
     pub async fn send_query_to_participants(
         &self,
         query: &Template,
-        participant_streams: &[Arc<Mutex<BufReader<TcpStream>>>],
+        participant_streams: &mut [BufReader<TcpStream>],
     ) -> eyre::Result<()> {
         let (trace_id, span_id) =
             telemetry_batteries::tracing::extract_span_ids();
 
         // Write each share to the corresponding participant
-        future::try_join_all(participant_streams.iter().enumerate().map(
+        future::try_join_all(participant_streams.iter_mut().enumerate().map(
             |(i, stream)| async move {
-                let mut stream = stream.lock().await;
-
-                // Send start byte to signal the start of the uniqueness check
-                stream.write_u8(START_BYTE).await?;
-
                 // Send the trace and span IDs
                 stream.write_all(&trace_id.to_bytes()).await?;
                 stream.write_all(&span_id.to_bytes()).await?;
@@ -397,29 +342,30 @@ impl Coordinator {
     pub fn batch_process_participant_shares(
         &self,
         mut denominator_rx: Receiver<Vec<[u16; 31]>>,
-        participant_streams: &[Arc<Mutex<BufReader<TcpStream>>>],
+        mut participant_streams: Vec<BufReader<TcpStream>>,
     ) -> (
         Receiver<(Vec<[u16; 31]>, Vec<Vec<[u16; 31]>>)>,
         JoinHandle<eyre::Result<()>>,
     ) {
         // Collect batches of shares
         let (processed_shares_tx, processed_shares_rx) = mpsc::channel(4);
-        let participant_streams = participant_streams.to_vec();
 
         tracing::info!("Spawning batch worker");
         let batch_worker = tokio::task::spawn(async move {
             loop {
                 // Collect futures of denominator and share batches
                 let streams_future =
-                    future::try_join_all(participant_streams.iter().enumerate().map(
+                    future::try_join_all(participant_streams.iter_mut().enumerate().map(
                         |(i, stream)| async move {
-                            let mut stream = stream.lock().await;
 
-                            let buffer_size =  stream.read_u64().await? as usize;
-                            if buffer_size == 0 {
-                                return Ok(vec![]);
-                            }
-
+                            let buffer_size = match stream.read_u64().await{
+                                Ok(buffer_size) => buffer_size as usize,
+                                Err(e) if e.kind() == tokio::io::ErrorKind::UnexpectedEof => {
+                                    tracing::info!("Connection closed by participant");
+                                    return Ok(vec![]);
+                                }
+                                Err(e) => Err(e)?
+                            };
                             if buffer_size % BATCH_ELEMENT_SIZE != 0 {
                                 return Err(eyre::eyre!(
                                     "Buffer size is not a multiple of the batch part size"
@@ -441,8 +387,6 @@ impl Coordinator {
                                 batch_size = batch.len(),
                                 "Shares batch received"
                             );
-
-                            drop(stream);
 
                             Ok::<_, eyre::Report>(batch)
                         },
@@ -500,6 +444,7 @@ impl Coordinator {
         {
             let batch_size = denom_batch.len();
             if batch_size == 0 {
+                tracing::warn!("Batch size is empty");
                 break;
             }
 
