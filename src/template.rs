@@ -1,3 +1,4 @@
+use core::panic;
 use std::fmt::Debug;
 
 use bytemuck::{Pod, Zeroable};
@@ -60,7 +61,10 @@ impl Template {
             den += m.count_ones();
         }
 
-        // tmp_dist
+        if den == 0 {
+            panic!("Denominator is 0");
+        }
+
         (num as f64) / (den as f64)
     }
 }
