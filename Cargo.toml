@@ -14,16 +14,18 @@ bytemuck = { version = "1.14.1", features = ["derive"] }
 clap = { version = "4.4.18", features = ["derive", "env"] }
 config = "0.14.0"
 criterion = "0.5.1"
-dotenv = "0.15.0"
+dotenvy = "0.15.7"
 eyre = "0.6.12"
 futures = "0.3.30"
 hex = { version = "0.4.3", features = ["serde"] }
+humantime-serde = "1.1.1"
 indicatif = "0.17.7"
 indoc = "2.0.4"
 itertools = "0.12.0"
 metrics = "0.21.1"
 # TODO: only include this for migrate-codes bin
 mongodb = "2.8.1"
+opentelemetry = "0.21.0"
 ordered-float = "4.2.0"
 rand = "0.8.5"
 rayon = "1.8.1"
@@ -42,15 +44,13 @@ tokio = { version = "1.35.1", features = ["macros"] }
 toml = "0.8.9"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
-opentelemetry = "0.21.0"
 url = "2.5.0"
-humantime-serde = "1.1.1"
 
 [dev-dependencies]
+config = "0.14.0"
 float_eq = "1.0.1"
 proptest = "1.4.0"
 similar-asserts = "1.5.0"
-config = "0.14.0"
 test-case = "3.3.1"
 testcontainers = "0.15"
 testcontainers-modules = { version = "0.3", features = [
