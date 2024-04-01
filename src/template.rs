@@ -8,7 +8,6 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 pub use crate::bits::Bits;
-use crate::db;
 
 #[repr(C)]
 #[derive(
