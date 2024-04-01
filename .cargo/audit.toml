@@ -3,5 +3,5 @@
 # - This vulnerability does not currently have a patch available, however work is underway to address this issue.
 
 # RUSTSEC-2024-0320: yaml-rust is unmaintained
-# - A recent update to the config crate has updated the library to yanml-rust2, which will be included in the next release
+# - The config crate has been updated to use yaml-rust2, which will be included in the next release.
 ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2024-0320"]
