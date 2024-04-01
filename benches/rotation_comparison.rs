@@ -17,7 +17,7 @@ pub fn rotation_comparison(c: &mut Criterion) {
     c.bench_function("rotation comparison", |bencher| {
         bencher.iter(|| {
             // Benchmark logic here
-            a.distance(&b);
+            a.distance(&b).unwrap();
         })
     });
 }

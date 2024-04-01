@@ -1,4 +1,3 @@
-use core::panic;
 use std::fmt::Debug;
 
 use bytemuck::{Pod, Zeroable};
@@ -39,13 +38,13 @@ impl Template {
             .map(|(code, mask)| Template { code, mask })
     }
 
-    pub fn distance(&self, other: &Self) -> f64 {
+    pub fn distance(&self, other: &Self) -> eyre::Result<f64> {
         self.rotations()
             .map(|r| r.fraction_hamming(other))
-            .fold(f64::INFINITY, |a, b| a.min(b))
+            .try_fold(f64::INFINITY, |a, b| Ok(a.min(b?)))
     }
 
-    pub fn fraction_hamming(&self, other: &Self) -> f64 {
+    pub fn fraction_hamming(&self, other: &Self) -> eyre::Result<f64> {
         let mut num = 0;
         let mut den = 0;
 
@@ -62,12 +61,10 @@ impl Template {
         }
 
         if den == 0 {
-            panic!("division by zero");
+            return Err(eyre::eyre!("division by zero"));
         }
 
-        dbg!(den);
-
-        (num as f64) / (den as f64)
+        Ok((num as f64) / (den as f64))
     }
 }
 
@@ -100,7 +97,7 @@ mod tests {
         let a: Template = serde_json::from_str(A).unwrap();
         let b: Template = serde_json::from_str(B).unwrap();
 
-        let d = a.distance(&b);
+        let d = a.distance(&b).unwrap();
 
         assert_eq!(d, 0.3352968352968353);
     }
@@ -110,13 +107,12 @@ mod tests {
         let a: Template = serde_json::from_str(A).unwrap();
         let b: Template = serde_json::from_str(B).unwrap();
 
-        let d = a.fraction_hamming(&b);
+        let d = a.fraction_hamming(&b).unwrap();
 
         assert_eq!(d, 0.47833602212491355);
     }
 
     #[test]
-    #[should_panic(expected = "division by zero")]
     fn hamming_distance_div_by_zero() {
         let mut rng = rand::thread_rng();
 
@@ -130,6 +126,10 @@ mod tests {
             mask: Bits([0_u64; LIMBS]),
         };
 
-        a.distance(&b);
+        let result = a.distance(&b);
+
+        assert!(
+            matches!(result, Err(e) if e.to_string().contains("division by zero"))
+        );
     }
 }
