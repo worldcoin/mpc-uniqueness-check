@@ -1,6 +1,6 @@
 [advisories]
 # RUSTSEC-2023-0071: Marvin Attack: potential key recovery through timing sidechannels
-# - This vulnerability does not currently have a patch available, however work is underway to address this issue.
+# - This vulnerability is present in the rsa crate, which is a dependency of the `sqlx-mysql` feature within sqlx. This codebase only uses postgres.
 
 # RUSTSEC-2024-0320: yaml-rust is unmaintained
 # - The config crate has been updated to use yaml-rust2, which will be included in the next release.
