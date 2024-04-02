@@ -1,5 +1,6 @@
 #![feature(array_chunks)]
 
+use bench_load_parquet::{bench_load_parquet, BenchParquet};
 use clap::Parser;
 use generate_mock_templates::{generate_mock_templates, GenerateMockTemplates};
 use seed_iris_db::{seed_iris_db, SeedIrisDb};
@@ -9,6 +10,7 @@ use sqs_receive::{sqs_receive, SQSReceive};
 use sum_shares::{sum_shares, SumShares};
 use verify_parquet::{verify_parquet, VerifyParquet};
 
+mod bench_load_parquet;
 mod common;
 mod generate_mock_templates;
 mod seed_iris_db;
@@ -27,6 +29,7 @@ enum Opt {
     GenerateMockTemplates(GenerateMockTemplates),
     VerifyParquet(VerifyParquet),
     SumShares(SumShares),
+    BenchParquet(BenchParquet),
 }
 
 #[tokio::main]
@@ -55,6 +58,9 @@ async fn main() -> eyre::Result<()> {
         }
         Opt::VerifyParquet(args) => {
             verify_parquet(&args).await?;
+        }
+        Opt::BenchParquet(args) => {
+            bench_load_parquet(&args).await?;
         }
         Opt::SumShares(args) => {
             sum_shares(&args).await?;
