@@ -19,7 +19,7 @@ pub const COLS: usize = 200;
 pub const STEP_MULTI: usize = 4;
 pub const ROWS: usize = 4 * 16;
 pub const BITS: usize = ROWS * COLS;
-const LIMBS: usize = BITS / 64;
+pub const LIMBS: usize = BITS / 64;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
