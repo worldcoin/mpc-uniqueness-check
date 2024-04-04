@@ -55,7 +55,10 @@ pub struct CoordinatorConfig {
         default = "default::participant_connection_timeout"
     )]
     pub participant_connection_timeout: Duration,
-    #[serde(default = "default::latest_serial_id_interval")]
+    #[serde(
+        with = "humantime_serde",
+        default = "default::latest_serial_id_interval"
+    )]
     pub latest_serial_id_interval: Duration,
     pub hamming_distance_threshold: f64,
     pub db: DbConfig,
