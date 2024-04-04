@@ -351,7 +351,7 @@ impl Coordinator {
             serial_id: distance_results.serial_id,
             matches: distance_results.matches,
             signup_id: signup_id.clone(),
-            message_variant: MessageVariant::UniquenessCheckResult,
+            variant: MessageVariant::UniquenessCheckResult,
         };
 
         tracing::info!(?result, "MPC results processed");
@@ -802,7 +802,7 @@ mod tests {
             serial_id: 1,
             matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
             signup_id: "signup_id".to_string(),
-            message_variant: MessageVariant::UniquenessCheckResult,
+            variant: MessageVariant::UniquenessCheckResult,
         };
 
         const EXPECTED: &str = indoc::indoc! {r#"
@@ -838,7 +838,7 @@ mod tests {
             serial_id: 0,
             matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
             signup_id: "signup_id".to_string(),
-            message_variant: MessageVariant::UniquenessCheckResult,
+            variant: MessageVariant::UniquenessCheckResult,
         };
 
         const EXPECTED: &str = indoc::indoc! {r#"
