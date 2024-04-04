@@ -55,6 +55,8 @@ pub struct CoordinatorConfig {
         default = "default::participant_connection_timeout"
     )]
     pub participant_connection_timeout: Duration,
+    #[serde(default = "default::latest_serial_id_interval")]
+    pub latest_serial_id_interval: Duration,
     pub hamming_distance_threshold: f64,
     pub db: DbConfig,
     pub queues: CoordinatorQueuesConfig,
@@ -136,6 +138,10 @@ mod default {
     pub fn participant_connection_timeout() -> Duration {
         Duration::from_secs(5)
     }
+
+    pub fn latest_serial_id_interval() -> Duration {
+        Duration::from_secs(5)
+    }
 }
 
 #[cfg(test)]
@@ -165,6 +171,7 @@ mod tests {
                     "127.0.0.1:8002".to_string(),
                 ]),
                 participant_connection_timeout: Duration::from_secs(1),
+                latest_serial_id_interval: Duration::from_secs(5),
                 hamming_distance_threshold: 0.375,
                 db: DbConfig {
                     url: "postgres://localhost:5432/mpc".to_string(),

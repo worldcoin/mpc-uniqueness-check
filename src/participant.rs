@@ -16,7 +16,7 @@ use tokio::sync::{mpsc, Mutex};
 use tracing::instrument;
 
 use crate::config::ParticipantConfig;
-use crate::coordinator::{ACK_BYTE, START_BYTE};
+use crate::coordinator::{ACK_BYTE, LATEST_SERIAL_ID_BYTE, START_BYTE};
 use crate::db::Db;
 use crate::distance::{self, encode, DistanceEngine, EncodedBits};
 use crate::utils;
@@ -109,6 +109,10 @@ impl Participant {
                 self.handle_uniqueness_check(stream).await?;
             } else if payload == ACK_BYTE {
                 stream.write_u8(ACK_BYTE).await?;
+                stream.flush().await?;
+            } else if payload == LATEST_SERIAL_ID_BYTE {
+                let latest_serial_id = self.sync_shares().await? as u64;
+                stream.write_u64(latest_serial_id).await?;
                 stream.flush().await?;
             } else {
                 return Err(eyre::eyre!(
@@ -297,7 +301,7 @@ impl Participant {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn sync_shares(&self) -> eyre::Result<()> {
+    pub async fn sync_shares(&self) -> eyre::Result<usize> {
         let mut shares = self.shares.lock().await;
 
         let next_share_number = shares.len();
@@ -308,7 +312,7 @@ impl Participant {
         tracing::info!(num_shares = shares.len(), "Shares synchronized");
         metrics::gauge!("participant.latest_serial_id", shares.len() as f64);
 
-        Ok(())
+        Ok(shares.len())
     }
 }
 
