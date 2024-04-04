@@ -22,6 +22,7 @@ use crate::template::Template;
 use crate::utils;
 use crate::utils::aws::{
     sqs_client_from_config, sqs_delete_message, sqs_dequeue, sqs_enqueue,
+    SQSMessage,
 };
 use crate::utils::tasks::finalize_futures_unordered;
 use crate::utils::templating::resolve_template;
@@ -30,8 +31,12 @@ const BATCH_SIZE: usize = 20_000;
 const BATCH_ELEMENT_SIZE: usize = std::mem::size_of::<[u16; 31]>();
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
 
-const LATEST_SERIAL_GROUP_ID: &str = "latest_serial_id";
+// Tags for SQS messages
+const MESSAGE_VARIANT: &str = "MessageVariant";
+const UNIQUENESS_CHECK_RESULT: &str = "UniquenessCheckResult";
+const LATEST_SERIAL_ID: &str = "LatestSerialId";
 
+// Bytes for coordinator/participant communication
 pub const ACK_BYTE: u8 = 0x00;
 pub const START_BYTE: u8 = 0x01;
 pub const LATEST_SERIAL_ID_BYTE: u8 = 0x02;
@@ -141,7 +146,7 @@ impl Coordinator {
         sqs_enqueue(
             &self.sqs_client,
             &self.config.queues.distances_queue_url,
-            LATEST_SERIAL_GROUP_ID,
+            LATEST_SERIAL_ID,
             result,
         )
         .await?;
@@ -365,7 +370,7 @@ impl Coordinator {
             &self.sqs_client,
             &self.config.queues.distances_queue_url,
             &signup_id,
-            &result,
+            result,
         )
         .await?;
 
@@ -754,9 +759,24 @@ pub struct UniquenessCheckResult {
     pub signup_id: String,
 }
 
+impl SQSMessage for UniquenessCheckResult {
+    fn tag() -> Option<(String, String)> {
+        Some((
+            MESSAGE_VARIANT.to_string(),
+            UNIQUENESS_CHECK_RESULT.to_string(),
+        ))
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LatestSerialId {
     pub serial_id: u64,
+}
+
+impl SQSMessage for LatestSerialId {
+    fn tag() -> Option<(String, String)> {
+        Some((MESSAGE_VARIANT.to_string(), LATEST_SERIAL_ID.to_string()))
+    }
 }
 
 #[cfg(test)]
