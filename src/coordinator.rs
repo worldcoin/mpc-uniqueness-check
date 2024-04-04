@@ -22,7 +22,7 @@ use crate::template::Template;
 use crate::utils;
 use crate::utils::aws::{
     sqs_client_from_config, sqs_delete_message, sqs_dequeue, sqs_enqueue,
-    SQSMessage,
+    OutboundSQSMessage,
 };
 use crate::utils::tasks::finalize_futures_unordered;
 use crate::utils::templating::resolve_template;
@@ -759,7 +759,7 @@ pub struct UniquenessCheckResult {
     pub signup_id: String,
 }
 
-impl SQSMessage for UniquenessCheckResult {
+impl OutboundSQSMessage for UniquenessCheckResult {
     fn tag() -> Option<(String, String)> {
         Some((
             MESSAGE_VARIANT.to_string(),
@@ -773,7 +773,7 @@ pub struct LatestSerialId {
     pub serial_id: u64,
 }
 
-impl SQSMessage for LatestSerialId {
+impl OutboundSQSMessage for LatestSerialId {
     fn tag() -> Option<(String, String)> {
         Some((MESSAGE_VARIANT.to_string(), LATEST_SERIAL_ID.to_string()))
     }

@@ -15,7 +15,7 @@ const DEQUEUE_WAIT_TIME_SECONDS: i32 = 1;
 const TRACE_ID_MESSAGE_ATTRIBUTE_NAME: &str = "TraceID";
 const SPAN_ID_MESSAGE_ATTRIBUTE_NAME: &str = "SpanID";
 
-pub trait SQSMessage {
+pub trait OutboundSQSMessage {
     fn tag() -> Option<(String, String)>;
 }
 
@@ -83,7 +83,7 @@ pub async fn sqs_enqueue<T>(
     payload: T,
 ) -> eyre::Result<()>
 where
-    T: SQSMessage + Serialize + Debug,
+    T: OutboundSQSMessage + Serialize + Debug,
 {
     let body = serde_json::to_string(&payload)
         .wrap_err("Failed to serialize message")?;
