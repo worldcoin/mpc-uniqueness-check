@@ -15,10 +15,6 @@ const DEQUEUE_WAIT_TIME_SECONDS: i32 = 1;
 const TRACE_ID_MESSAGE_ATTRIBUTE_NAME: &str = "TraceID";
 const SPAN_ID_MESSAGE_ATTRIBUTE_NAME: &str = "SpanID";
 
-pub trait OutboundSQSMessage {
-    fn tag() -> Option<(String, String)>;
-}
-
 pub async fn sqs_client_from_config(
     config: &AwsConfig,
 ) -> eyre::Result<aws_sdk_sqs::Client> {
@@ -83,12 +79,12 @@ pub async fn sqs_enqueue<T>(
     payload: T,
 ) -> eyre::Result<()>
 where
-    T: OutboundSQSMessage + Serialize + Debug,
+    T: Serialize + Debug,
 {
     let body = serde_json::to_string(&payload)
         .wrap_err("Failed to serialize message")?;
 
-    let message_attributes = construct_message_attributes(T::tag())?;
+    let message_attributes = construct_message_attributes()?;
 
     let send_message_output = client
         .send_message()
@@ -105,7 +101,6 @@ where
 }
 
 pub fn construct_message_attributes(
-    tag: Option<(String, String)>,
 ) -> eyre::Result<HashMap<String, MessageAttributeValue>> {
     let (trace_id, span_id) = telemetry_batteries::tracing::extract_span_ids();
 
@@ -130,15 +125,6 @@ pub fn construct_message_attributes(
         SPAN_ID_MESSAGE_ATTRIBUTE_NAME.to_string(),
         span_id_message_attribute,
     );
-
-    if let Some((key, value)) = tag {
-        let message_attribute = MessageAttributeValue::builder()
-            .data_type("String")
-            .string_value(value)
-            .build()?;
-
-        message_attributes.insert(key, message_attribute);
-    }
 
     Ok(message_attributes)
 }

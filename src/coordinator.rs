@@ -22,7 +22,6 @@ use crate::template::Template;
 use crate::utils;
 use crate::utils::aws::{
     sqs_client_from_config, sqs_delete_message, sqs_dequeue, sqs_enqueue,
-    OutboundSQSMessage,
 };
 use crate::utils::tasks::finalize_futures_unordered;
 use crate::utils::templating::resolve_template;
@@ -31,10 +30,7 @@ const BATCH_SIZE: usize = 20_000;
 const BATCH_ELEMENT_SIZE: usize = std::mem::size_of::<[u16; 31]>();
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
 
-// Tags for SQS messages
-const MESSAGE_VARIANT: &str = "MessageVariant";
-const UNIQUENESS_CHECK_RESULT: &str = "UniquenessCheckResult";
-const LATEST_SERIAL_ID: &str = "LatestSerialId";
+const LATEST_SERIAL_GROUP_ID: &str = "latest_serial_id";
 
 // Bytes for coordinator/participant communication
 pub const ACK_BYTE: u8 = 0x00;
@@ -141,12 +137,13 @@ impl Coordinator {
         // Send the latest serial id to the results queue
         let result = LatestSerialId {
             serial_id: *latest_serial_id,
+            message_variant: MessageVariant::LatestSerialId,
         };
 
         sqs_enqueue(
             &self.sqs_client,
             &self.config.queues.distances_queue_url,
-            LATEST_SERIAL_ID,
+            LATEST_SERIAL_GROUP_ID,
             result,
         )
         .await?;
@@ -354,6 +351,7 @@ impl Coordinator {
             serial_id: distance_results.serial_id,
             matches: distance_results.matches,
             signup_id: signup_id.clone(),
+            message_variant: MessageVariant::UniquenessCheckResult,
         };
 
         tracing::info!(?result, "MPC results processed");
@@ -757,26 +755,19 @@ pub struct UniquenessCheckResult {
     pub serial_id: u64,
     pub matches: Vec<Distance>,
     pub signup_id: String,
-}
-
-impl OutboundSQSMessage for UniquenessCheckResult {
-    fn tag() -> Option<(String, String)> {
-        Some((
-            MESSAGE_VARIANT.to_string(),
-            UNIQUENESS_CHECK_RESULT.to_string(),
-        ))
-    }
+    pub variant: MessageVariant,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LatestSerialId {
     pub serial_id: u64,
+    pub message_variant: MessageVariant,
 }
 
-impl OutboundSQSMessage for LatestSerialId {
-    fn tag() -> Option<(String, String)> {
-        Some((MESSAGE_VARIANT.to_string(), LATEST_SERIAL_ID.to_string()))
-    }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum MessageVariant {
+    LatestSerialId,
+    UniquenessCheckResult,
 }
 
 #[cfg(test)]
@@ -811,6 +802,7 @@ mod tests {
             serial_id: 1,
             matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
             signup_id: "signup_id".to_string(),
+            message_variant: MessageVariant::UniquenessCheckResult,
         };
 
         const EXPECTED: &str = indoc::indoc! {r#"
@@ -846,6 +838,7 @@ mod tests {
             serial_id: 0,
             matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
             signup_id: "signup_id".to_string(),
+            message_variant: MessageVariant::UniquenessCheckResult,
         };
 
         const EXPECTED: &str = indoc::indoc! {r#"
