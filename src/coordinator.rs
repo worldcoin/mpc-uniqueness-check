@@ -224,7 +224,7 @@ impl Coordinator {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, participant_streams))]
     pub async fn poll_latest_serial_id(
         &self,
         participant_streams: &[Arc<Mutex<BufReader<TcpStream>>>],
