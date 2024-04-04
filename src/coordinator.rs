@@ -5,7 +5,6 @@ use aws_sdk_sqs::types::Message;
 use eyre::ContextCompat;
 use futures::future;
 use futures::stream::FuturesUnordered;
-use rand::Rng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
@@ -20,16 +19,18 @@ use crate::config::CoordinatorConfig;
 use crate::db::Db;
 use crate::distance::{self, Distance, DistanceResults, MasksEngine};
 use crate::template::Template;
+use crate::utils;
 use crate::utils::aws::{
     sqs_client_from_config, sqs_delete_message, sqs_dequeue, sqs_enqueue,
 };
 use crate::utils::tasks::finalize_futures_unordered;
 use crate::utils::templating::resolve_template;
-use crate::{participant, utils};
 
 const BATCH_SIZE: usize = 20_000;
 const BATCH_ELEMENT_SIZE: usize = std::mem::size_of::<[u16; 31]>();
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
+
+const LATEST_SERIAL_GROUP_ID: &str = "latest_serial_id";
 
 pub const ACK_BYTE: u8 = 0x00;
 pub const START_BYTE: u8 = 0x01;
@@ -137,12 +138,10 @@ impl Coordinator {
             serial_id: *latest_serial_id,
         };
 
-        let mut rng = rand::thread_rng();
-
         sqs_enqueue(
             &self.sqs_client,
             &self.config.queues.distances_queue_url,
-            &rng.gen::<u64>().to_string(),
+            LATEST_SERIAL_GROUP_ID,
             result,
         )
         .await?;
