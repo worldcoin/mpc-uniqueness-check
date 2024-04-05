@@ -7,9 +7,7 @@ use eyre::ContextCompat;
 use futures::future::select_all;
 use mpc::bits::Bits;
 use mpc::config::{AwsConfig, CoordinatorConfig, ParticipantConfig};
-use mpc::coordinator::{
-    self, Coordinator, UniquenessCheckRequest, UniquenessCheckResult,
-};
+use mpc::coordinator::{self, Coordinator, MpcMessage, UniquenessCheckRequest};
 use mpc::distance::EncodedBits;
 use mpc::participant::{self, Participant};
 use mpc::template::Template;
@@ -266,16 +264,40 @@ async fn test_signup_sequence(
         )
         .await?;
 
-        let result = receive_result(
-            &sqs_client,
-            &e2e_config.coordinator.queues.distances_queue_url,
-        )
-        .await?;
+        let (uniqueness_check_result, receipt_handle) = loop {
+            let result = receive_result(
+                &sqs_client,
+                &e2e_config.coordinator.queues.distances_queue_url,
+            )
+            .await?;
 
-        let message_body = result.body.context("Could not get message body")?;
+            let message_body =
+                result.body.context("Could not get message body")?;
 
-        let uniqueness_check_result =
-            serde_json::from_str::<UniquenessCheckResult>(&message_body)?;
+            let receipt_handle = result
+                .receipt_handle
+                .context("Could not get receipt handle")?;
+
+            match serde_json::from_str::<MpcMessage>(&message_body)? {
+                MpcMessage::UniquenessCheckResult(uniqueness_check_result) => {
+                    break (uniqueness_check_result, receipt_handle);
+                }
+                _ => {
+                    tracing::info!(
+                        "Received unexpected message type, retrying"
+                    );
+
+                    aws::sqs_delete_message(
+                        &sqs_client,
+                        &e2e_config.coordinator.queues.distances_queue_url,
+                        receipt_handle,
+                    )
+                    .await?;
+
+                    continue;
+                }
+            }
+        };
 
         // Check that signup id and serial id match expected values
         assert_eq!(uniqueness_check_result.signup_id, element.signup_id);
@@ -320,14 +342,11 @@ async fn test_signup_sequence(
             // Sleep a little to give the nodes time to sync dbs
             tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
         }
-
         // Delete message from queue
         aws::sqs_delete_message(
             &sqs_client,
             &e2e_config.coordinator.queues.distances_queue_url,
-            result
-                .receipt_handle
-                .context("Could not get receipt handle")?,
+            receipt_handle,
         )
         .await?;
     }
