@@ -135,16 +135,15 @@ impl Coordinator {
             .expect("No serial ids found");
 
         // Send the latest serial id to the results queue
-        let result = LatestSerialId {
+        let latest_serial_id = LatestSerialId {
             serial_id: *latest_serial_id,
-            message_variant: MessageVariant::LatestSerialId,
         };
 
         sqs_enqueue(
             &self.sqs_client,
             &self.config.queues.distances_queue_url,
             LATEST_SERIAL_GROUP_ID,
-            result,
+            MpcMessage::LatestSerialId(latest_serial_id),
         )
         .await?;
 
@@ -351,7 +350,6 @@ impl Coordinator {
             serial_id: distance_results.serial_id,
             matches: distance_results.matches,
             signup_id: signup_id.clone(),
-            variant: MessageVariant::UniquenessCheckResult,
         };
 
         tracing::info!(?result, "MPC results processed");
@@ -368,7 +366,7 @@ impl Coordinator {
             &self.sqs_client,
             &self.config.queues.distances_queue_url,
             &signup_id,
-            result,
+            MpcMessage::UniquenessCheckResult(result),
         )
         .await?;
 
@@ -750,18 +748,23 @@ pub struct UniquenessCheckRequest {
     pub signup_id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "variant")]
+pub enum MpcMessage {
+    UniquenessCheckResult(UniquenessCheckResult),
+    LatestSerialId(LatestSerialId),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UniquenessCheckResult {
     pub serial_id: u64,
     pub matches: Vec<Distance>,
     pub signup_id: String,
-    pub variant: MessageVariant,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LatestSerialId {
     pub serial_id: u64,
-    pub message_variant: MessageVariant,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -798,15 +801,15 @@ mod tests {
 
     #[test]
     fn result_serialization() {
-        let output = UniquenessCheckResult {
+        let output = MpcMessage::UniquenessCheckResult(UniquenessCheckResult {
             serial_id: 1,
             matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
             signup_id: "signup_id".to_string(),
-            variant: MessageVariant::UniquenessCheckResult,
-        };
+        });
 
         const EXPECTED: &str = indoc::indoc! {r#"
             {
+              "variant": "UniquenessCheckResult",
               "serial_id": 1,
               "matches": [
                 {
@@ -826,7 +829,7 @@ mod tests {
 
         similar_asserts::assert_eq!(serialized.trim(), EXPECTED.trim());
 
-        let deserialized: UniquenessCheckResult =
+        let deserialized: MpcMessage =
             serde_json::from_str(&serialized).unwrap();
 
         assert_eq!(deserialized, output);
@@ -834,15 +837,15 @@ mod tests {
 
     #[test]
     fn result_serialization_zero_serial_id() {
-        let output = UniquenessCheckResult {
+        let output = MpcMessage::UniquenessCheckResult(UniquenessCheckResult {
             serial_id: 0,
             matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
             signup_id: "signup_id".to_string(),
-            variant: MessageVariant::UniquenessCheckResult,
-        };
+        });
 
         const EXPECTED: &str = indoc::indoc! {r#"
             {
+              "variant": "UniquenessCheckResult",
               "serial_id": 0,
               "matches": [
                 {
@@ -862,9 +865,32 @@ mod tests {
 
         similar_asserts::assert_eq!(serialized.trim(), EXPECTED.trim());
 
-        let deserialized: UniquenessCheckResult =
+        let deserialized: MpcMessage =
             serde_json::from_str(&serialized).unwrap();
 
         assert_eq!(deserialized, output);
+    }
+
+    #[test]
+    fn test_serialize_latest_serial_id() {
+        let latest_serial_id =
+            MpcMessage::LatestSerialId(LatestSerialId { serial_id: 1 });
+
+        const EXPECTED: &str = indoc::indoc! {r#"
+            {
+              "variant": "LatestSerialId",
+              "serial_id": 1
+            }
+        "#};
+
+        let serialized =
+            serde_json::to_string_pretty(&latest_serial_id).unwrap();
+
+        similar_asserts::assert_eq!(serialized.trim(), EXPECTED.trim());
+
+        let deserialized: MpcMessage =
+            serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(deserialized, latest_serial_id);
     }
 }
