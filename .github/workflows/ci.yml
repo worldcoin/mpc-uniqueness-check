@@ -1,69 +1,69 @@
 name: CI
 
 on:
-    push:
-        branches: [main]
-    pull_request:
+  push:
+    branches: [main]
+  pull_request:
 
 env:
-    CARGO_TERM_COLOR: always
+  CARGO_TERM_COLOR: always
 
 jobs:
-    test:
-        runs-on: ubuntu-latest
-        timeout-minutes: 30
-        steps:
-            - uses: actions/checkout@v4
-            - uses: dtolnay/rust-toolchain@nightly
-              with:
-                  cache-on-failure: true
-            - name: build
-              run: cargo build --workspace
-            - name: test
-              run: cargo test --workspace
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          cache-on-failure: true
+      - name: build
+        run: cargo build --workspace
+      - name: test
+        run: cargo test --workspace
 
-    clippy:
-        runs-on: ubuntu-latest
-        timeout-minutes: 30
-        steps:
-            - uses: actions/checkout@v4
-            - uses: dtolnay/rust-toolchain@clippy
-              with:
-                  cache-on-failure: true
-            - run: cargo clippy --workspace --all-targets --all-features
-              env:
-                  RUSTFLAGS: -Dwarnings
+  clippy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@clippy
+        with:
+          cache-on-failure: true
+      - run: cargo clippy --workspace --all-targets --all-features
+        env:
+          RUSTFLAGS: -Dwarnings
 
-    docs:
-        runs-on: ubuntu-latest
-        timeout-minutes: 30
-        steps:
-            - uses: actions/checkout@v4
-            - uses: dtolnay/rust-toolchain@nightly
-              with:
-                  cache-on-failure: true
-            - run: cargo doc --workspace --all-features --no-deps --document-private-items
-              env:
-                  RUSTDOCFLAGS: "--cfg docsrs -D warnings"
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          cache-on-failure: true
+      - run: cargo doc --workspace --all-features --no-deps --document-private-items
+        env:
+          RUSTDOCFLAGS: "--cfg docsrs -D warnings"
 
-    fmt:
-        runs-on: ubuntu-latest
-        timeout-minutes: 30
-        steps:
-            - uses: actions/checkout@v4
-            - uses: dtolnay/rust-toolchain@nightly
-              with:
-                  components: rustfmt
-            - run: cargo fmt --all --check
+  fmt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
 
-    audit:
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
-        steps:
-        - uses: actions/checkout@v4
-        - uses: dtolnay/rust-toolchain@stable
-            with:
-                components: cargo-audit
-                cache-on-failure: true
-        - name: audit
-            run: cargo audit
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: cargo-audit
+          cache-on-failure: true
+      - name: audit
+        run: cargo audit
