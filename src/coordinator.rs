@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use aws_sdk_sqs::types::Message;
 use eyre::ContextCompat;
@@ -30,8 +30,12 @@ const BATCH_SIZE: usize = 20_000;
 const BATCH_ELEMENT_SIZE: usize = std::mem::size_of::<[u16; 31]>();
 const IDLE_SLEEP_TIME: Duration = Duration::from_secs(1);
 
+const LATEST_SERIAL_GROUP_ID: &str = "latest_serial_id";
+
+// Bytes for coordinator/participant communication
 pub const ACK_BYTE: u8 = 0x00;
 pub const START_BYTE: u8 = 0x01;
+pub const LATEST_SERIAL_ID_BYTE: u8 = 0x02;
 
 pub struct Coordinator {
     participants: Vec<String>,
@@ -111,11 +115,56 @@ impl Coordinator {
         }
     }
 
+    // Fetches the latest serial id from all participants and enqueues the result to the results queue
+    #[tracing::instrument(skip(self, participant_streams))]
+    async fn enqueue_latest_serial_id(
+        &self,
+        participant_streams: &[Arc<Mutex<BufReader<TcpStream>>>],
+    ) -> eyre::Result<()> {
+        // Sync masks and get the latest serial id from all nodes
+        let (coordinator_serial_id, mut participant_serial_ids) = tokio::try_join!(
+            self.sync_masks(),
+            self.poll_latest_serial_id(participant_streams)
+        )?;
+
+        participant_serial_ids.push(coordinator_serial_id as u64);
+
+        let latest_serial_id = participant_serial_ids
+            .iter()
+            .min()
+            .expect("No serial ids found");
+
+        // Send the latest serial id to the results queue
+        let latest_serial_id = LatestSerialId {
+            serial_id: *latest_serial_id,
+        };
+
+        sqs_enqueue(
+            &self.sqs_client,
+            &self.config.queues.distances_queue_url,
+            LATEST_SERIAL_GROUP_ID,
+            MpcMessage::LatestSerialId(latest_serial_id),
+        )
+        .await?;
+
+        Ok(())
+    }
+
     pub async fn process_queue(
         &self,
         participant_streams: &[Arc<Mutex<BufReader<TcpStream>>>],
     ) -> eyre::Result<()> {
+        let mut last_serial_id_check = Instant::now();
+
         loop {
+            // If the last serial id interval has elapsed, poll the latest serial id from all participants and enqueue the result
+            if last_serial_id_check.elapsed()
+                >= self.config.latest_serial_id_interval
+            {
+                self.enqueue_latest_serial_id(participant_streams).await?;
+                last_serial_id_check = Instant::now();
+            }
+
             // Send ack and wait for response from all participants
             self.send_ack(participant_streams).await?;
 
@@ -174,6 +223,39 @@ impl Coordinator {
         .await?;
 
         Ok(())
+    }
+
+    #[tracing::instrument(skip(self, participant_streams))]
+    pub async fn poll_latest_serial_id(
+        &self,
+        participant_streams: &[Arc<Mutex<BufReader<TcpStream>>>],
+    ) -> eyre::Result<Vec<u64>> {
+        let serial_ids =
+            future::try_join_all(participant_streams.iter().enumerate().map(
+                |(i, stream)| async move {
+                    let mut stream = stream.lock().await;
+
+                    tracing::info!(
+                        participant = i,
+                        "Polling for latest serial id from participant"
+                    );
+                    stream.write_u8(LATEST_SERIAL_ID_BYTE).await?;
+
+                    // Wait for latest serial id from participant
+                    let serial_id = tokio::time::timeout(
+                        self.config.participant_connection_timeout,
+                        stream.read_u64(),
+                    )
+                    .await??;
+
+                    Ok::<_, eyre::Report>(serial_id)
+                },
+            ))
+            .await?
+            .into_iter()
+            .collect::<Vec<u64>>();
+
+        Ok(serial_ids)
     }
 
     #[tracing::instrument(skip(self, payload))]
@@ -284,7 +366,7 @@ impl Coordinator {
             &self.sqs_client,
             &self.config.queues.distances_queue_url,
             &signup_id,
-            &result,
+            MpcMessage::UniquenessCheckResult(result),
         )
         .await?;
 
@@ -549,7 +631,7 @@ impl Coordinator {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn sync_masks(&self) -> eyre::Result<()> {
+    async fn sync_masks(&self) -> eyre::Result<usize> {
         let mut masks = self.masks.lock().await;
         let next_mask_number = masks.len();
 
@@ -562,7 +644,7 @@ impl Coordinator {
         tracing::info!(num_masks = masks.len(), "New masks synchronized");
         metrics::gauge!("coordinator.latest_serial_id", masks.len() as f64);
 
-        Ok(())
+        Ok(masks.len())
     }
 
     async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
@@ -666,11 +748,29 @@ pub struct UniquenessCheckRequest {
     pub signup_id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "variant")]
+pub enum MpcMessage {
+    UniquenessCheckResult(UniquenessCheckResult),
+    LatestSerialId(LatestSerialId),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UniquenessCheckResult {
     pub serial_id: u64,
     pub matches: Vec<Distance>,
     pub signup_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LatestSerialId {
+    pub serial_id: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum MessageVariant {
+    LatestSerialId,
+    UniquenessCheckResult,
 }
 
 #[cfg(test)]
@@ -701,14 +801,15 @@ mod tests {
 
     #[test]
     fn result_serialization() {
-        let output = UniquenessCheckResult {
+        let output = MpcMessage::UniquenessCheckResult(UniquenessCheckResult {
             serial_id: 1,
             matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
             signup_id: "signup_id".to_string(),
-        };
+        });
 
         const EXPECTED: &str = indoc::indoc! {r#"
             {
+              "variant": "UniquenessCheckResult",
               "serial_id": 1,
               "matches": [
                 {
@@ -728,7 +829,7 @@ mod tests {
 
         similar_asserts::assert_eq!(serialized.trim(), EXPECTED.trim());
 
-        let deserialized: UniquenessCheckResult =
+        let deserialized: MpcMessage =
             serde_json::from_str(&serialized).unwrap();
 
         assert_eq!(deserialized, output);
@@ -736,14 +837,15 @@ mod tests {
 
     #[test]
     fn result_serialization_zero_serial_id() {
-        let output = UniquenessCheckResult {
+        let output = MpcMessage::UniquenessCheckResult(UniquenessCheckResult {
             serial_id: 0,
             matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
             signup_id: "signup_id".to_string(),
-        };
+        });
 
         const EXPECTED: &str = indoc::indoc! {r#"
             {
+              "variant": "UniquenessCheckResult",
               "serial_id": 0,
               "matches": [
                 {
@@ -763,9 +865,32 @@ mod tests {
 
         similar_asserts::assert_eq!(serialized.trim(), EXPECTED.trim());
 
-        let deserialized: UniquenessCheckResult =
+        let deserialized: MpcMessage =
             serde_json::from_str(&serialized).unwrap();
 
         assert_eq!(deserialized, output);
+    }
+
+    #[test]
+    fn test_serialize_latest_serial_id() {
+        let latest_serial_id =
+            MpcMessage::LatestSerialId(LatestSerialId { serial_id: 1 });
+
+        const EXPECTED: &str = indoc::indoc! {r#"
+            {
+              "variant": "LatestSerialId",
+              "serial_id": 1
+            }
+        "#};
+
+        let serialized =
+            serde_json::to_string_pretty(&latest_serial_id).unwrap();
+
+        similar_asserts::assert_eq!(serialized.trim(), EXPECTED.trim());
+
+        let deserialized: MpcMessage =
+            serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(deserialized, latest_serial_id);
     }
 }

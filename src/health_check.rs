@@ -38,7 +38,7 @@ impl HealthCheck {
 mod tests {
     use std::time::Duration;
 
-    use reqwest::{self, StatusCode};
+    use reqwest::StatusCode;
 
     use super::*;
 
