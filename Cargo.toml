@@ -38,7 +38,7 @@ sqlx = { version = "0.7.3", features = [
     "postgres",
     "chrono",
 ] }
-telemetry-batteries = { git = "https://github.com/worldcoin/telemetry-batteries.git", rev = "e0891328b29d9f85df037633feccca2f74a291a6" }
+telemetry-batteries = { git = "https://github.com/worldcoin/telemetry-batteries.git", rev = "802a4f39f358e077b11c8429b4c65f3e45b85959" }
 tinytemplate = "1.2.1"
 tokio = { version = "1.35.1", features = ["macros"] }
 toml = "0.8.9"
