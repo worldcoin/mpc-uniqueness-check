@@ -403,6 +403,8 @@ impl Coordinator {
             ))
             .await?;
 
+        tracing::info!("Connected to all participants");
+
         Ok(streams)
     }
 

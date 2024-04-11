@@ -75,9 +75,10 @@ impl Participant {
 
     async fn handle_uniqueness_checks(self: Arc<Self>) -> eyre::Result<()> {
         loop {
+            tracing::info!("Listening for incoming connections");
             let mut stream = match self.listener.accept().await {
                 Ok((stream, addr)) => {
-                    tracing::debug!(?addr, "Accepting connection");
+                    tracing::info!(?addr, "Accepted incoming connection");
 
                     tokio::io::BufWriter::new(stream)
                 }
@@ -103,14 +104,20 @@ impl Participant {
     ) -> eyre::Result<()> {
         loop {
             // Handle ack/start signal from the coordinator
+            tracing::info!("Waiting for signal from coordinator");
             let payload = stream.read_u8().await?;
 
             if payload == START_BYTE {
+                tracing::info!("Received start signal from coordinator");
                 self.handle_uniqueness_check(stream).await?;
             } else if payload == ACK_BYTE {
+                tracing::info!("Received ack signal from coordinator");
                 stream.write_u8(ACK_BYTE).await?;
                 stream.flush().await?;
             } else if payload == LATEST_SERIAL_ID_BYTE {
+                tracing::info!(
+                    "Received latest serial id signal from coordinator"
+                );
                 let latest_serial_id = self.sync_shares().await? as u64;
                 stream.write_u64(latest_serial_id).await?;
                 stream.flush().await?;
@@ -144,6 +151,7 @@ impl Participant {
         let mut trace_id_bytes = [0_u8; 16];
         let mut span_id_bytes = [0_u8; 8];
 
+        tracing::debug!("Reading trace and span IDs from coordinator stream");
         stream
             .read_exact(bytemuck::bytes_of_mut(&mut trace_id_bytes))
             .await?;
@@ -152,10 +160,18 @@ impl Participant {
             .read_exact(bytemuck::bytes_of_mut(&mut span_id_bytes))
             .await?;
 
+        let trace_id = TraceId::from_bytes(trace_id_bytes);
+        let span_id = SpanId::from_bytes(span_id_bytes);
+        tracing::debug!(
+            ?trace_id,
+            ?span_id,
+            "Received trace and span IDs from coordinator"
+        );
+
         // Create span parent context
         let parent_ctx = SpanContext::new(
-            TraceId::from_bytes(trace_id_bytes),
-            SpanId::from_bytes(span_id_bytes),
+            trace_id,
+            span_id,
             TraceFlags::default(),
             true,
             TraceState::default(),
@@ -175,19 +191,19 @@ impl Participant {
         // We could do this and reading from the stream simultaneously
         self.sync_shares().await?;
 
+        tracing::debug!("Reading query from coordinator stream");
         let mut template = Template::default();
         stream
             .read_exact(bytemuck::bytes_of_mut(&mut template))
             .await?;
 
-        tracing::info!("Received query");
         let shares_ref = self.shares.clone();
-
         let batch_size = self.batch_size;
 
         // Process in worker thread
         let (sender, mut receiver) = mpsc::channel(4);
         let worker = tokio::task::spawn_blocking(move || {
+            tracing::info!("Calculating share distances");
             calculate_share_distances(shares_ref, template, batch_size, sender)
         });
 
@@ -306,10 +322,15 @@ impl Participant {
 
         let next_share_number = shares.len();
         let new_shares = self.database.fetch_shares(next_share_number).await?;
+        let num_new_shares = new_shares.len();
 
         shares.extend(new_shares);
 
-        tracing::info!(num_shares = shares.len(), "Shares synchronized");
+        tracing::info!(
+            ?num_new_shares,
+            total_shares = shares.len(),
+            "Shares synchronized"
+        );
         metrics::gauge!("participant.latest_serial_id", shares.len() as f64);
 
         Ok(shares.len())
@@ -335,13 +356,25 @@ fn calculate_share_distances(
     let template_rotations = template.rotations().map(|r| encode(&r));
     let engine = DistanceEngine::new(template_rotations);
 
-    for chunk in patterns.chunks(batch_size) {
+    let num_batches = if patterns.len() % batch_size == 0 {
+        patterns.len() / batch_size
+    } else {
+        (patterns.len() / batch_size) + 1
+    };
+
+    for (i, chunk) in patterns.chunks(batch_size).enumerate() {
         let mut result = vec![
             0_u8;
             chunk.len()
                 * std::mem::size_of::<[u16; 31]>() //TODO: make this a const
         ];
 
+        tracing::debug!(
+            batch_num = i,
+            ?num_batches,
+            chunk_size = chunk.len(),
+            "Processing shares batch"
+        );
         engine.batch_process(bytemuck::cast_slice_mut(&mut result), chunk);
 
         sender.blocking_send(result)?;
