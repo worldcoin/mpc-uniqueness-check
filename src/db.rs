@@ -200,18 +200,14 @@ async fn stream_sequential_items<T, E>(
     first_id: i64,
 ) -> Result<Vec<T>, E> {
     let mut items = vec![];
-    let mut last_key = None;
 
+    let mut next_key = first_id;
     while let Some((key, value)) = stream.try_next().await? {
-        if let Some(last_key) = last_key {
-            if key != last_key + 1 {
-                break;
-            }
-        } else if key != first_id {
+        if key != next_key {
             break;
         }
 
-        last_key = Some(key);
+        next_key = key + 1;
         items.push(value);
     }
 
