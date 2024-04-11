@@ -3,6 +3,10 @@ pub mod impls;
 use sqlx::migrate::{MigrateDatabase, Migrator};
 use sqlx::{Postgres, QueryBuilder};
 
+use sysinfo::{
+    Components, Disks, Networks, System,
+};
+
 use crate::bits::Bits;
 use crate::config::DbConfig;
 use crate::distance::EncodedBits;
@@ -204,7 +208,9 @@ fn filter_sequential_items<T>(
 
     let mut items = items.into_iter();
 
-    std::iter::from_fn(move || {
+    log_mem_usage();
+
+    let seq = std::iter::from_fn(move || {
         let (key, value) = items.next()?;
 
         if let Some(last_key) = last_key {
@@ -219,8 +225,26 @@ fn filter_sequential_items<T>(
 
         Some(value)
     })
-    .fuse()
-    .collect()
+        .fuse()
+        .collect();
+
+    log_mem_usage();
+
+    return seq;
+}
+
+fn log_mem_usage() {
+    let mut sys = System::new_all();
+
+    // First we update all information of our `System` struct.
+    sys.refresh_all();
+
+    tracing::info!("=> system:");
+    // RAM and swap information:
+    tracing::info!("total memory: {} bytes", sys.total_memory());
+    tracing::info!("used memory : {} bytes", sys.used_memory());
+    tracing::info!("total swap  : {} bytes", sys.total_swap());
+    tracing::info!("used swap   : {} bytes", sys.used_swap());
 }
 
 #[cfg(test)]
