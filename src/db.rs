@@ -3,7 +3,6 @@ pub mod impls;
 use futures::{Stream, TryStreamExt};
 use sqlx::migrate::{MigrateDatabase, Migrator};
 use sqlx::{Postgres, QueryBuilder};
-use sysinfo::System;
 
 use crate::bits::Bits;
 use crate::config::DbConfig;
@@ -50,8 +49,6 @@ impl Db {
         )
         .bind(id as i64)
         .fetch(&self.pool);
-
-        log_mem_usage();
 
         Ok(stream_sequential_items(masks_stream, 1 + id as i64).await?)
     }
@@ -119,8 +116,6 @@ impl Db {
         )
         .bind(id as i64)
         .fetch(&self.pool);
-
-        log_mem_usage();
 
         Ok(stream_sequential_items(shares_stream, 1 + id as i64).await?)
     }
@@ -207,7 +202,6 @@ async fn stream_sequential_items<T, E>(
     let mut items = vec![];
 
     let mut next_key = first_id;
-    let mut counter = 0;
     while let Some((key, value)) = stream.try_next().await? {
         if key != next_key {
             break;
@@ -215,33 +209,9 @@ async fn stream_sequential_items<T, E>(
 
         next_key = key + 1;
         items.push(value);
-
-        if counter % 1000 == 0 {
-            log_mem_usage();
-        }
-        counter += 1;
     }
 
     Ok(items)
-}
-
-fn log_mem_usage() {
-    let mut sys = System::new_all();
-
-    sys.refresh_all();
-
-    let total_memory = sys.total_memory();
-    let used_memory = sys.used_memory();
-    let total_swap = sys.total_swap();
-    let used_swap = sys.used_swap();
-
-    tracing::info!(
-        total_memory,
-        used_memory,
-        total_swap,
-        used_swap,
-        "Memory usage"
-    );
 }
 
 #[cfg(test)]
