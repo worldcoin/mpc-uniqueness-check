@@ -121,6 +121,8 @@ impl Coordinator {
         &self,
         participant_streams: &[Arc<Mutex<BufReader<TcpStream>>>],
     ) -> eyre::Result<()> {
+        tracing::info!("Getting latest serial id across all nodes in replica");
+
         // Sync masks and get the latest serial id from all nodes
         let (coordinator_serial_id, mut participant_serial_ids) = tokio::try_join!(
             self.sync_masks(),
@@ -133,6 +135,8 @@ impl Coordinator {
             .iter()
             .min()
             .expect("No serial ids found");
+
+        tracing::info!(?latest_serial_id, "Latest serial id");
 
         // Send the latest serial id to the results queue
         let latest_serial_id = LatestSerialId {
@@ -154,21 +158,25 @@ impl Coordinator {
         &self,
         participant_streams: &[Arc<Mutex<BufReader<TcpStream>>>],
     ) -> eyre::Result<()> {
+        tracing::info!("Processing uniqueness check queue");
+
         let mut last_serial_id_check = Instant::now();
 
         loop {
             // If the last serial id interval has elapsed, poll the latest serial id from all participants and enqueue the result
-            if last_serial_id_check.elapsed()
-                >= self.config.latest_serial_id_interval
-            {
+            let time_elapsed = last_serial_id_check.elapsed();
+            if time_elapsed >= self.config.latest_serial_id_interval {
+                tracing::info!(?time_elapsed, "Latest serial id time elapsed");
                 self.enqueue_latest_serial_id(participant_streams).await?;
                 last_serial_id_check = Instant::now();
             }
 
             // Send ack and wait for response from all participants
+            tracing::info!("Sending ack signal to participants");
             self.send_ack(participant_streams).await?;
 
             // Dequeue messages, limiting the max number of messages to 1
+            tracing::info!("Dequeueing uniqueness check request");
             let messages = match sqs_dequeue(
                 &self.sqs_client,
                 &self.config.queues.queries_queue_url,
@@ -185,6 +193,7 @@ impl Coordinator {
 
             // Process the message
             if let Some(message) = messages.into_iter().next() {
+                tracing::info!("Processing uniqueness check request");
                 self.handle_uniqueness_check(message, participant_streams)
                     .await?;
             }
@@ -255,6 +264,8 @@ impl Coordinator {
             .into_iter()
             .collect::<Vec<u64>>();
 
+        tracing::info!(?serial_ids, "Latest participant serial ids");
+
         Ok(serial_ids)
     }
 
@@ -264,8 +275,6 @@ impl Coordinator {
         payload: Message,
         participant_streams: &[Arc<Mutex<BufReader<TcpStream>>>],
     ) -> eyre::Result<()> {
-        tracing::debug!(?payload, "Handling message");
-
         let receipt_handle = payload
             .receipt_handle
             .context("Missing receipt handle in message")?;
@@ -289,6 +298,7 @@ impl Coordinator {
             signup_id,
         }) = serde_json::from_str::<UniquenessCheckRequest>(&body)
         {
+            tracing::info!(?signup_id, "Performing uniqueness check");
             self.uniqueness_check(
                 receipt_handle,
                 plain_code,
@@ -321,20 +331,20 @@ impl Coordinator {
         signup_id: String,
         participant_streams: &[Arc<Mutex<BufReader<TcpStream>>>],
     ) -> Result<(), eyre::Error> {
-        tracing::info!("Processing message");
+        tracing::info!(?signup_id, "Syncing masks");
         self.sync_masks().await?;
 
-        tracing::info!("Sending query to participants");
+        tracing::info!(?signup_id, "Sending query to participants");
         self.send_query_to_participants(&template, participant_streams)
             .await?;
         let tasks = FuturesUnordered::new();
 
-        tracing::info!("Computing denominators");
+        tracing::info!(?signup_id, "Computing denominators");
         let (denominator_rx, denominator_handle) =
             self.compute_denominators(template.mask);
         tasks.push(denominator_handle);
 
-        tracing::info!("Processing participant shares");
+        tracing::info!(?signup_id, "Processing participant shares");
         let (batch_process_shares_rx, batch_process_shares_handle) = self
             .batch_process_participant_shares(
                 denominator_rx,
@@ -342,7 +352,7 @@ impl Coordinator {
             );
         tasks.push(batch_process_shares_handle);
 
-        tracing::info!("Processing results");
+        tracing::info!(?signup_id, "Processing results");
         let distance_results =
             self.process_results(batch_process_shares_rx).await?;
 
@@ -352,7 +362,7 @@ impl Coordinator {
             signup_id: signup_id.clone(),
         };
 
-        tracing::info!(?result, "MPC results processed");
+        tracing::info!(?signup_id, ?result, "MPC results processed");
 
         // Let's wait for all tasks to complete without error
         // before enqueueing the result and deleting the message
@@ -635,15 +645,20 @@ impl Coordinator {
     #[tracing::instrument(skip(self))]
     async fn sync_masks(&self) -> eyre::Result<usize> {
         let mut masks = self.masks.lock().await;
-        let next_mask_number = masks.len();
 
-        tracing::info!(?next_mask_number, "Synchronizing masks");
+        let latest_mask_id = masks.len();
+        tracing::info!(?latest_mask_id, "Synchronizing masks");
 
-        let new_masks = self.database.fetch_masks(next_mask_number).await?;
+        let new_masks = self.database.fetch_masks(latest_mask_id).await?;
+        let num_new_masks = new_masks.len();
 
         masks.extend(new_masks);
 
-        tracing::info!(num_masks = masks.len(), "New masks synchronized");
+        tracing::info!(
+            ?num_new_masks,
+            total_masks = masks.len(),
+            "Masks synchronized"
+        );
         metrics::gauge!("coordinator.latest_serial_id", masks.len() as f64);
 
         Ok(masks.len())
@@ -651,6 +666,7 @@ impl Coordinator {
 
     async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
         loop {
+            tracing::info!("Dequeueing db-sync messages");
             let messages = match sqs_dequeue(
                 &self.sqs_client,
                 &self.config.queues.db_sync_queue_url,
@@ -672,6 +688,10 @@ impl Coordinator {
                 tokio::time::sleep(IDLE_SLEEP_TIME).await;
             }
 
+            tracing::info!(
+                num_messages = messages.len(),
+                "Processing db-sync messages"
+            );
             for message in messages {
                 if let Err(error) = self.db_sync(message).await {
                     tracing::error!(?error, "Failed to handle db-sync message");
@@ -724,7 +744,6 @@ impl Coordinator {
             num_new_masks = masks.len(),
             "Inserting masks into database"
         );
-
         self.database.insert_masks(&masks).await?;
 
         sqs_delete_message(

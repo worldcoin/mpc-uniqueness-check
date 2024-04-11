@@ -228,6 +228,7 @@ impl Participant {
 
     async fn handle_db_sync(self: Arc<Self>) -> eyre::Result<()> {
         loop {
+            tracing::info!("Dequeueing db-sync messages");
             // Dequeue the max number of messages possible from the queue
             let messages = match sqs_dequeue(
                 &self.sqs_client,
@@ -250,6 +251,7 @@ impl Participant {
                 tokio::time::sleep(IDLE_SLEEP_TIME).await;
             }
 
+            tracing::info!(num_messages = ?messages.len(), "Processing db-sync messages");
             for message in messages {
                 if let Err(error) = self.db_sync(message).await {
                     tracing::error!(?error, "Failed to handle db-sync message");
@@ -320,8 +322,10 @@ impl Participant {
     pub async fn sync_shares(&self) -> eyre::Result<usize> {
         let mut shares = self.shares.lock().await;
 
-        let next_share_number = shares.len();
-        let new_shares = self.database.fetch_shares(next_share_number).await?;
+        let latest_share_id = shares.len();
+        tracing::info!(?latest_share_id, "Synchronizing shares");
+
+        let new_shares = self.database.fetch_shares(latest_share_id).await?;
         let num_new_shares = new_shares.len();
 
         shares.extend(new_shares);
