@@ -4,7 +4,7 @@ use sqlx::migrate::{MigrateDatabase, Migrator};
 use sqlx::{Postgres, QueryBuilder};
 
 use sysinfo::{
-    Components, Disks, Networks, System,
+    System,
 };
 
 use crate::bits::Bits;
