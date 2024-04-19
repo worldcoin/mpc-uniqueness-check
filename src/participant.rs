@@ -331,14 +331,18 @@ impl Participant {
             "Deleting shares from database"
         );
 
-        //TODO: delete from masks
-
         let deletions = deletions
             .into_iter()
             .map(|item| item.id as i64)
             .collect::<Vec<i64>>();
 
         self.database.delete_shares(&deletions).await?;
+
+        // Remove the share from shares
+        let mut shares = self.shares.lock().await;
+        for id in deletions {
+            shares[(id - 1) as usize] = EncodedBits::ZERO;
+        }
 
         Ok(())
     }
