@@ -715,15 +715,38 @@ impl Coordinator {
             return Ok(());
         };
 
-        let masks: Vec<_> =
-            items.into_iter().map(|item| (item.id, item.mask)).collect();
+        // Sort insertions and deletions
+        let (deletions, insertions): (Vec<_>, Vec<_>) = items
+            .into_iter()
+            .partition(|item| matches!(item.mask, Bits::ZERO));
 
-        tracing::info!(
-            num_new_masks = masks.len(),
-            "Inserting masks into database"
-        );
+        if !insertions.is_empty() {
+            tracing::info!(
+                num_masks = insertions.len(),
+                "Inserting masks into database"
+            );
 
-        self.database.insert_masks(&masks).await?;
+            let insertions = insertions
+                .into_iter()
+                .map(|item| (item.id, item.mask))
+                .collect::<Vec<(u64, Bits)>>();
+
+            self.database.insert_masks(&insertions).await?;
+        }
+
+        if !deletions.is_empty() {
+            tracing::info!(
+                num_masks = deletions.len(),
+                "Deleting masks from database"
+            );
+
+            let deletions = deletions
+                .into_iter()
+                .map(|item| item.id as i64)
+                .collect::<Vec<i64>>();
+
+            self.database.delete_masks(&deletions).await?;
+        }
 
         sqs_delete_message(
             &self.sqs_client,

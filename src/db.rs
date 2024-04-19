@@ -102,6 +102,18 @@ impl Db {
     }
 
     #[tracing::instrument(skip(self))]
+    pub async fn delete_masks(&self, ids: &[i64]) -> eyre::Result<()> {
+        let query =
+            sqlx::query("UPDATE masks SET mask = $1 WHERE id = ANY($2)")
+                .bind(&Bits::ZERO)
+                .bind(ids);
+
+        query.execute(&self.pool).await?;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self))]
     pub async fn fetch_shares(
         &self,
         id: usize,
