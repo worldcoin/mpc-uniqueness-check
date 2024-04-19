@@ -279,16 +279,40 @@ impl Participant {
             return Ok(());
         };
 
-        let shares: Vec<_> = items
+        // Sort insertions and deletions
+        let (deletions, insertions): (Vec<_>, Vec<_>) = items
             .into_iter()
-            .map(|item| (item.id, item.share))
-            .collect();
+            .partition(|item| matches!(item.share, EncodedBits::ZERO));
 
-        tracing::info!(
-            num_new_shares = shares.len(),
-            "Inserting shares into database"
-        );
-        self.database.insert_shares(&shares).await?;
+        // Insert new shares
+        if !insertions.is_empty() {
+            tracing::info!(
+                num_shares = insertions.len(),
+                "Inserting shares into database"
+            );
+
+            let insertions = insertions
+                .into_iter()
+                .map(|item| (item.id, item.share))
+                .collect::<Vec<(u64, EncodedBits)>>();
+
+            self.database.insert_shares(&insertions).await?;
+        }
+
+        // Delete specified shares
+        if !deletions.is_empty() {
+            tracing::info!(
+                num_shares = deletions.len(),
+                "Deleting shares from database"
+            );
+
+            let deletions = deletions
+                .into_iter()
+                .map(|item| item.id as i64)
+                .collect::<Vec<i64>>();
+
+            self.database.delete_shares(&deletions).await?;
+        }
 
         sqs_delete_message(
             &self.sqs_client,

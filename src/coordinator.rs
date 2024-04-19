@@ -720,6 +720,7 @@ impl Coordinator {
             .into_iter()
             .partition(|item| matches!(item.mask, Bits::ZERO));
 
+        // Insert new masks
         if !insertions.is_empty() {
             tracing::info!(
                 num_masks = insertions.len(),
@@ -734,6 +735,7 @@ impl Coordinator {
             self.database.insert_masks(&insertions).await?;
         }
 
+        // Delete specified masks
         if !deletions.is_empty() {
             tracing::info!(
                 num_masks = deletions.len(),
