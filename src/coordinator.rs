@@ -722,8 +722,6 @@ impl Coordinator {
             .partition(|item| matches!(item.mask, Bits::ZERO));
 
         // Insert new masks
-        // NOTE: Is it possible for insertions and deletions to be in the same Vec<DbSyncPayload>?
-        // NOTE: If so, if we insert but there is an issue before deleting and the message is still in the queue, we will insert again
         if !insertions.is_empty() {
             self.insert_masks(insertions).await?;
         }
