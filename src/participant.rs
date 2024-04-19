@@ -261,7 +261,6 @@ impl Participant {
         }
 
         let body = message.body.context("Missing message body")?;
-
         let items = if let Ok(items) =
             serde_json::from_str::<Vec<DbSyncPayload>>(&body)
         {
@@ -286,32 +285,12 @@ impl Participant {
 
         // Insert new shares
         if !insertions.is_empty() {
-            tracing::info!(
-                num_shares = insertions.len(),
-                "Inserting shares into database"
-            );
-
-            let insertions = insertions
-                .into_iter()
-                .map(|item| (item.id, item.share))
-                .collect::<Vec<(u64, EncodedBits)>>();
-
-            self.database.insert_shares(&insertions).await?;
+            self.insert_shares(insertions).await?;
         }
 
         // Delete specified shares
         if !deletions.is_empty() {
-            tracing::info!(
-                num_shares = deletions.len(),
-                "Deleting shares from database"
-            );
-
-            let deletions = deletions
-                .into_iter()
-                .map(|item| item.id as i64)
-                .collect::<Vec<i64>>();
-
-            self.database.delete_shares(&deletions).await?;
+            self.delete_shares(deletions).await?;
         }
 
         sqs_delete_message(
@@ -320,6 +299,46 @@ impl Participant {
             receipt_handle,
         )
         .await?;
+
+        Ok(())
+    }
+
+    async fn insert_shares(
+        &self,
+        insertions: Vec<DbSyncPayload>,
+    ) -> eyre::Result<()> {
+        tracing::info!(
+            num_shares = insertions.len(),
+            "Inserting shares into database"
+        );
+
+        let insertions = insertions
+            .into_iter()
+            .map(|item| (item.id, item.share))
+            .collect::<Vec<(u64, EncodedBits)>>();
+
+        self.database.insert_shares(&insertions).await?;
+
+        Ok(())
+    }
+
+    async fn delete_shares(
+        &self,
+        deletions: Vec<DbSyncPayload>,
+    ) -> eyre::Result<()> {
+        tracing::info!(
+            num_shares = deletions.len(),
+            "Deleting shares from database"
+        );
+
+        //TODO: delete from masks
+
+        let deletions = deletions
+            .into_iter()
+            .map(|item| item.id as i64)
+            .collect::<Vec<i64>>();
+
+        self.database.delete_shares(&deletions).await?;
 
         Ok(())
     }

@@ -722,32 +722,12 @@ impl Coordinator {
 
         // Insert new masks
         if !insertions.is_empty() {
-            tracing::info!(
-                num_masks = insertions.len(),
-                "Inserting masks into database"
-            );
-
-            let insertions = insertions
-                .into_iter()
-                .map(|item| (item.id, item.mask))
-                .collect::<Vec<(u64, Bits)>>();
-
-            self.database.insert_masks(&insertions).await?;
+            self.insert_masks(insertions).await?;
         }
 
         // Delete specified masks
         if !deletions.is_empty() {
-            tracing::info!(
-                num_masks = deletions.len(),
-                "Deleting masks from database"
-            );
-
-            let deletions = deletions
-                .into_iter()
-                .map(|item| item.id as i64)
-                .collect::<Vec<i64>>();
-
-            self.database.delete_masks(&deletions).await?;
+            self.delete_masks(deletions).await?;
         }
 
         sqs_delete_message(
@@ -756,6 +736,46 @@ impl Coordinator {
             receipt_handle,
         )
         .await?;
+
+        Ok(())
+    }
+
+    async fn insert_masks(
+        &self,
+        insertions: Vec<DbSyncPayload>,
+    ) -> eyre::Result<()> {
+        tracing::info!(
+            num_masks = insertions.len(),
+            "Inserting masks into database"
+        );
+
+        let insertions = insertions
+            .into_iter()
+            .map(|item| (item.id, item.mask))
+            .collect::<Vec<(u64, Bits)>>();
+
+        self.database.insert_masks(&insertions).await?;
+
+        Ok(())
+    }
+
+    async fn delete_masks(
+        &self,
+        deletions: Vec<DbSyncPayload>,
+    ) -> eyre::Result<()> {
+        tracing::info!(
+            num_masks = deletions.len(),
+            "Deleting masks from database"
+        );
+
+        //TODO: need to delete from cache
+
+        let deletions = deletions
+            .into_iter()
+            .map(|item| item.id as i64)
+            .collect::<Vec<i64>>();
+
+        self.database.delete_masks(&deletions).await?;
 
         Ok(())
     }
