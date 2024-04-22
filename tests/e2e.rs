@@ -34,7 +34,6 @@ pub struct E2EConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct SignupSequenceElement {
-    signup_id: String,
     iris_code: Bits,
     mask_code: Bits,
     matched_with: Vec<Match>,
@@ -263,6 +262,7 @@ async fn test_signup_sequence(
         .map(|p| p.queues.db_sync_queue_url.as_str())
         .collect::<Vec<_>>();
 
+    tracing::info!("Deleting masks and shares");
     futures::try_join!(
         delete_masks(
             &serial_ids_for_deletion,
@@ -296,18 +296,23 @@ async fn run_signup_sequence(
     e2e_config: &E2EConfig,
     mut latest_serial_id: u64,
 ) -> eyre::Result<u64> {
+    // When running the signup sequence after deletions, the last serial id will be the last serial id committed in the db
+    // We cache this so that we can assert the signup_sequence_serial_id + serial_id_offset matches the latest_serial_id returned in the uniqueness check result
+    let serial_id_offset = latest_serial_id;
+
     for element in signup_sequence {
         let template = Template {
             code: element.iris_code,
             mask: element.mask_code,
         };
+        let signup_id = generate_random_string(4);
 
         // Send the query to the coordinator
         send_query(
             template,
             &sqs_client,
             &e2e_config.coordinator.queues.queries_queue_url,
-            &element.signup_id,
+            &signup_id,
             &generate_random_string(4),
         )
         .await?;
@@ -317,15 +322,11 @@ async fn run_signup_sequence(
             handle_uniqueness_check_result(&sqs_client, &e2e_config).await?;
 
         // Check that signup id and serial id match expected values
-        assert_eq!(uniqueness_check_result.signup_id, element.signup_id);
+        assert_eq!(uniqueness_check_result.signup_id, signup_id);
         assert_eq!(uniqueness_check_result.serial_id, latest_serial_id);
-
         assert_eq!(
             uniqueness_check_result.matches.len(),
             element.matched_with.len(),
-            "Expected {} matches, got {}",
-            element.matched_with.len(),
-            uniqueness_check_result.matches.len()
         );
 
         // Assert matches against expected values
@@ -336,7 +337,7 @@ async fn run_signup_sequence(
                 assert_eq!(distance.distance, element.matched_with[i].distance);
                 assert_eq!(
                     distance.serial_id,
-                    element.matched_with[i].serial_id
+                    element.matched_with[i].serial_id + serial_id_offset
                 );
             }
         } else {
