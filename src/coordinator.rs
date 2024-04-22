@@ -158,17 +158,15 @@ impl Coordinator {
 
         loop {
             // If the last serial id interval has elapsed, poll the latest serial id from all participants and enqueue the result
-            //FIXME: uncomment this
-
-            // if last_serial_id_check.elapsed()
-            //     >= self.config.latest_serial_id_interval
-            // {
-            //     self.enqueue_latest_serial_id(participant_streams).await?;
-            //     last_serial_id_check = Instant::now();
-            // }
-
-            // Send ack and wait for response from all participants
-            self.send_ack(participant_streams).await?;
+            if last_serial_id_check.elapsed()
+                >= self.config.latest_serial_id_interval
+            {
+                self.enqueue_latest_serial_id(participant_streams).await?;
+                last_serial_id_check = Instant::now();
+            } else {
+                // Send ack and wait for response from all participants
+                self.send_ack(participant_streams).await?;
+            }
 
             // Dequeue messages, limiting the max number of messages to 1
             let messages = match sqs_dequeue(
