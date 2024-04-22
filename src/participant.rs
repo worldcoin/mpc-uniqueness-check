@@ -279,9 +279,11 @@ impl Participant {
         };
 
         // Sort insertions and deletions
-        let (deletions, insertions): (Vec<_>, Vec<_>) = items
-            .into_iter()
-            .partition(|item| matches!(item.share, EncodedBits::ZERO));
+        let (deletions, insertions): (Vec<_>, Vec<_>) =
+            items.into_iter().partition(|item| {
+                matches!(item.share, EncodedBits::ZERO)
+                    || matches!(item.share, EncodedBits::MAX)
+            });
 
         // Insert new shares
         if !insertions.is_empty() {
@@ -333,15 +335,15 @@ impl Participant {
 
         let deletions = deletions
             .into_iter()
-            .map(|item| item.id as i64)
-            .collect::<Vec<i64>>();
+            .map(|item| (item.id, item.share))
+            .collect::<Vec<(u64, EncodedBits)>>();
 
         self.database.delete_shares(&deletions).await?;
 
         // Remove the share from shares
         let mut shares = self.shares.lock().await;
-        for id in deletions {
-            shares[(id - 1) as usize] = EncodedBits::ZERO;
+        for (id, share) in deletions {
+            shares[(id - 1) as usize] = share;
         }
 
         Ok(())

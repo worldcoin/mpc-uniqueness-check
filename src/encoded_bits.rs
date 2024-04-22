@@ -24,6 +24,7 @@ unsafe impl Pod for EncodedBits {}
 
 impl EncodedBits {
     pub const ZERO: Self = Self([0; BITS]);
+    pub const MAX: Self = Self([u16::MAX; BITS]);
 
     /// Generate secret shares from this bitvector.
     pub fn share(&self, n: usize, rng: &mut impl Rng) -> Box<[EncodedBits]> {

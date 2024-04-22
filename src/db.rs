@@ -2,12 +2,11 @@ pub mod impls;
 
 use futures::{Stream, TryStreamExt};
 use sqlx::migrate::{MigrateDatabase, Migrator};
-use sqlx::{Postgres, QueryBuilder};
+use sqlx::{Executor, Postgres, QueryBuilder};
 
 use crate::bits::Bits;
 use crate::config::DbConfig;
 use crate::distance::EncodedBits;
-
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations/");
 
 pub struct Db {
@@ -114,13 +113,23 @@ impl Db {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn delete_shares(&self, ids: &[i64]) -> eyre::Result<()> {
-        let query =
-            sqlx::query("UPDATE shares SET share = $1 WHERE id = ANY($2)")
-                .bind(&EncodedBits::ZERO)
-                .bind(ids);
+    pub async fn delete_shares(
+        &self,
+        shares: &[(u64, EncodedBits)],
+    ) -> eyre::Result<()> {
+        let mut tx = self.pool.begin().await?;
 
-        query.execute(&self.pool).await?;
+        // Prepare the SQL statement inside the loop to handle each share individually
+        for &(id, ref encoded_bits) in shares {
+            let query =
+                sqlx::query("UPDATE shares SET share = $1 WHERE id = $2")
+                    .bind(encoded_bits)
+                    .bind(id as i64);
+
+            tx.execute(query).await?;
+        }
+
+        tx.commit().await?;
 
         Ok(())
     }
