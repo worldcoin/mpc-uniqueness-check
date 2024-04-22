@@ -119,7 +119,6 @@ impl Db {
     ) -> eyre::Result<()> {
         let mut tx = self.pool.begin().await?;
 
-        // Prepare the SQL statement inside the loop to handle each share individually
         for &(id, ref encoded_bits) in shares {
             let query =
                 sqlx::query("UPDATE shares SET share = $1 WHERE id = $2")
