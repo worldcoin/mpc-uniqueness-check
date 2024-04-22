@@ -328,15 +328,19 @@ impl Participant {
         &self,
         deletions: Vec<DbSyncPayload>,
     ) -> eyre::Result<()> {
-        tracing::info!(
-            num_shares = deletions.len(),
-            "Deleting shares from database"
-        );
-
         let deletions = deletions
             .into_iter()
             .map(|item| (item.id, item.share))
             .collect::<Vec<(u64, EncodedBits)>>();
+
+        let serial_ids =
+            deletions.iter().map(|(id, _)| *id).collect::<Vec<u64>>();
+
+        tracing::info!(
+            num_shares = deletions.len(),
+            ?serial_ids,
+            "Deleting shares from database"
+        );
 
         self.database.delete_shares(&deletions).await?;
 
