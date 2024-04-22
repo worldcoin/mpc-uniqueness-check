@@ -576,4 +576,78 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_delete_masks() -> eyre::Result<()> {
+        let docker = clients::Cli::default();
+        let (db, _pg) = setup(&docker).await?;
+
+        let mut rng = thread_rng();
+
+        let masks = vec![
+            (1, rng.gen::<Bits>()),
+            (2, rng.gen::<Bits>()),
+            (3, rng.gen::<Bits>()),
+            (4, rng.gen::<Bits>()),
+            (5, rng.gen::<Bits>()),
+        ];
+
+        db.insert_masks(&masks).await?;
+
+        let fetched_masks = db.fetch_masks(0).await?;
+        let expected_masks =
+            masks.iter().map(|(_, mask)| *mask).collect::<Vec<_>>();
+        assert_eq!(fetched_masks, expected_masks);
+
+        db.delete_masks(&[1, 3, 5]).await?;
+
+        let fetched_masks = db.fetch_masks(0).await?;
+        let expected_masks =
+            vec![Bits::MAX, masks[1].1, Bits::MAX, masks[3].1, Bits::MAX];
+        assert_eq!(fetched_masks, expected_masks);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_delete_shares() -> eyre::Result<()> {
+        let docker = clients::Cli::default();
+        let (db, _pg) = setup(&docker).await?;
+
+        let mut rng = thread_rng();
+
+        let shares = vec![
+            (1, rng.gen::<EncodedBits>()),
+            (2, rng.gen::<EncodedBits>()),
+            (3, rng.gen::<EncodedBits>()),
+            (4, rng.gen::<EncodedBits>()),
+            (5, rng.gen::<EncodedBits>()),
+        ];
+
+        db.insert_shares(&shares).await?;
+
+        let fetched_shares = db.fetch_shares(0).await?;
+        let expected_shares =
+            shares.iter().map(|(_, share)| *share).collect::<Vec<_>>();
+        assert_eq!(fetched_shares, expected_shares);
+
+        db.delete_shares(&[
+            (1, EncodedBits::ZERO),
+            (3, EncodedBits::MAX),
+            (5, EncodedBits::ZERO),
+        ])
+        .await?;
+
+        let fetched_shares = db.fetch_shares(0).await?;
+        let expected_shares = vec![
+            EncodedBits::ZERO,
+            shares[1].1,
+            EncodedBits::MAX,
+            shares[3].1,
+            EncodedBits::ZERO,
+        ];
+        assert_eq!(fetched_shares, expected_shares);
+
+        Ok(())
+    }
 }
