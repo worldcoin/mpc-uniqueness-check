@@ -1,4 +1,3 @@
-use std::f32::consts::E;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -716,17 +715,17 @@ impl Coordinator {
             return Ok(());
         };
 
-        // Sort insertions and deletions
-        let (deletions, insertions): (Vec<_>, Vec<_>) = items
-            .into_iter()
-            .partition(|item| matches!(item.mask, Bits::ZERO));
+        // Separate the updates into deletions and insertions
+        // If all bits in the mask are set, this signifies a deletion
+        let (deletions, insertions): (Vec<_>, Vec<_>) =
+            items.into_iter().partition(|item| item.mask == Bits::MAX);
 
         // Insert new masks
         if !insertions.is_empty() {
             self.insert_masks(insertions).await?;
         }
 
-        // Delete specified masks
+        // Overwrite specified masks
         if !deletions.is_empty() {
             self.delete_masks(deletions).await?;
         }
@@ -764,22 +763,23 @@ impl Coordinator {
         &self,
         deletions: Vec<DbSyncPayload>,
     ) -> eyre::Result<()> {
-        tracing::info!(
-            num_masks = deletions.len(),
-            "Deleting masks from database"
-        );
-
         let deletions = deletions
             .into_iter()
             .map(|item| item.id as i64)
             .collect::<Vec<i64>>();
+
+        tracing::info!(
+            num_masks = deletions.len(),
+            serial_ids = ?deletions,
+            "Deleting masks from database"
+        );
 
         self.database.delete_masks(&deletions).await?;
 
         // Remove the mask from masks
         let mut masks = self.masks.lock().await;
         for id in deletions {
-            masks[(id - 1) as usize] = Bits::ZERO;
+            masks[(id - 1) as usize] = Bits::MAX;
         }
 
         Ok(())

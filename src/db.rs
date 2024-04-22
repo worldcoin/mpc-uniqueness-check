@@ -105,7 +105,7 @@ impl Db {
     pub async fn delete_masks(&self, ids: &[i64]) -> eyre::Result<()> {
         let query =
             sqlx::query("UPDATE masks SET mask = $1 WHERE id = ANY($2)")
-                .bind(&Bits::ZERO)
+                .bind(&Bits::MAX)
                 .bind(ids);
 
         query.execute(&self.pool).await?;
