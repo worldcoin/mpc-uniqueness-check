@@ -2,7 +2,7 @@ pub mod impls;
 
 use futures::{Stream, TryStreamExt};
 use sqlx::migrate::{MigrateDatabase, Migrator};
-use sqlx::{Executor, Postgres, QueryBuilder};
+use sqlx::{Postgres, QueryBuilder};
 
 use crate::bits::Bits;
 use crate::config::DbConfig;
@@ -91,44 +91,11 @@ impl Db {
             builder.push(")");
         }
 
-        builder.push(" ON CONFLICT (id) DO NOTHING");
+        builder.push(" ON CONFLICT (id) DO UPDATE SET mask = EXCLUDED.mask");
 
         let query = builder.build();
 
         query.execute(&self.pool).await?;
-
-        Ok(())
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn delete_masks(&self, ids: &[i64]) -> eyre::Result<()> {
-        let query =
-            sqlx::query("UPDATE masks SET mask = $1 WHERE id = ANY($2)")
-                .bind(&Bits::MAX)
-                .bind(ids);
-
-        query.execute(&self.pool).await?;
-
-        Ok(())
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn delete_shares(
-        &self,
-        shares: &[(u64, EncodedBits)],
-    ) -> eyre::Result<()> {
-        let mut tx = self.pool.begin().await?;
-
-        for &(id, ref encoded_bits) in shares {
-            let query =
-                sqlx::query("UPDATE shares SET share = $1 WHERE id = $2")
-                    .bind(encoded_bits)
-                    .bind(id as i64);
-
-            tx.execute(query).await?;
-        }
-
-        tx.commit().await?;
 
         Ok(())
     }
@@ -191,7 +158,7 @@ impl Db {
             builder.push(")");
         }
 
-        builder.push(" ON CONFLICT (id) DO NOTHING");
+        builder.push(" ON CONFLICT (id) DO UPDATE SET share = EXCLUDED.share");
 
         let query = builder.build();
 
@@ -599,7 +566,9 @@ mod tests {
             masks.iter().map(|(_, mask)| *mask).collect::<Vec<_>>();
         assert_eq!(fetched_masks, expected_masks);
 
-        db.delete_masks(&[1, 3, 5]).await?;
+        // Overwrite masks, simulating deletion
+        db.insert_masks(&[(1, Bits::MAX), (3, Bits::MAX), (5, Bits::MAX)])
+            .await?;
 
         let fetched_masks = db.fetch_masks(0).await?;
         let expected_masks =
@@ -631,7 +600,8 @@ mod tests {
             shares.iter().map(|(_, share)| *share).collect::<Vec<_>>();
         assert_eq!(fetched_shares, expected_shares);
 
-        db.delete_shares(&[
+        // Overwrite shares, simulating deletion
+        db.insert_shares(&[
             (1, EncodedBits::ZERO),
             (3, EncodedBits::MAX),
             (5, EncodedBits::ZERO),

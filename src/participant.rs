@@ -278,22 +278,22 @@ impl Participant {
             return Ok(());
         };
 
-        // Sort insertions and deletions
-        let (deletions, insertions): (Vec<_>, Vec<_>) =
-            items.into_iter().partition(|item| {
+        // Partition deletions and overwrite shares in memory
+        let deletions = items
+            .iter()
+            .filter(|item| {
                 matches!(item.share, EncodedBits::ZERO)
                     || matches!(item.share, EncodedBits::MAX)
-            });
+            })
+            .collect::<Vec<_>>();
 
-        // Insert new shares
-        if !insertions.is_empty() {
-            self.insert_shares(insertions).await?;
+        let mut shares = self.shares.lock().await;
+        for DbSyncPayload { id, share } in deletions {
+            shares[(id - 1) as usize] = *share;
         }
 
-        // Delete specified shares
-        if !deletions.is_empty() {
-            self.delete_shares(deletions).await?;
-        }
+        // Insert the shares into the db
+        self.insert_shares(items).await?;
 
         sqs_delete_message(
             &self.sqs_client,
@@ -307,48 +307,19 @@ impl Participant {
 
     async fn insert_shares(
         &self,
-        insertions: Vec<DbSyncPayload>,
+        shares: Vec<DbSyncPayload>,
     ) -> eyre::Result<()> {
         tracing::info!(
-            num_shares = insertions.len(),
+            num_shares = shares.len(),
             "Inserting shares into database"
         );
 
-        let insertions = insertions
+        let shares = shares
             .into_iter()
             .map(|item| (item.id, item.share))
             .collect::<Vec<(u64, EncodedBits)>>();
 
-        self.database.insert_shares(&insertions).await?;
-
-        Ok(())
-    }
-
-    async fn delete_shares(
-        &self,
-        deletions: Vec<DbSyncPayload>,
-    ) -> eyre::Result<()> {
-        let deletions = deletions
-            .into_iter()
-            .map(|item| (item.id, item.share))
-            .collect::<Vec<(u64, EncodedBits)>>();
-
-        let serial_ids =
-            deletions.iter().map(|(id, _)| *id).collect::<Vec<u64>>();
-
-        tracing::info!(
-            num_shares = deletions.len(),
-            ?serial_ids,
-            "Deleting shares from database"
-        );
-
-        self.database.delete_shares(&deletions).await?;
-
-        // Remove the share from shares
-        let mut shares = self.shares.lock().await;
-        for (id, share) in deletions {
-            shares[(id - 1) as usize] = share;
-        }
+        self.database.insert_shares(&shares).await?;
 
         Ok(())
     }

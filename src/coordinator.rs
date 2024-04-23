@@ -715,20 +715,20 @@ impl Coordinator {
             return Ok(());
         };
 
-        // Separate the updates into deletions and insertions
-        // If all bits in the mask are set, this signifies a deletion
-        let (deletions, insertions): (Vec<_>, Vec<_>) =
-            items.into_iter().partition(|item| item.mask == Bits::MAX);
+        // Partition deletions and overwrite masks in memory
+        let deletions = items
+            .iter()
+            .filter(|item| item.mask == Bits::MAX)
+            .collect::<Vec<_>>();
 
-        // Insert new masks
-        if !insertions.is_empty() {
-            self.insert_masks(insertions).await?;
+        // Remove the mask from masks
+        let mut masks = self.masks.lock().await;
+        for DbSyncPayload { id, .. } in deletions {
+            masks[(id - 1) as usize] = Bits::MAX;
         }
 
-        // Overwrite specified masks
-        if !deletions.is_empty() {
-            self.delete_masks(deletions).await?;
-        }
+        // Insert masks into the db
+        self.insert_masks(items).await?;
 
         sqs_delete_message(
             &self.sqs_client,
@@ -755,32 +755,6 @@ impl Coordinator {
             .collect::<Vec<(u64, Bits)>>();
 
         self.database.insert_masks(&insertions).await?;
-
-        Ok(())
-    }
-
-    async fn delete_masks(
-        &self,
-        deletions: Vec<DbSyncPayload>,
-    ) -> eyre::Result<()> {
-        let deletions = deletions
-            .into_iter()
-            .map(|item| item.id as i64)
-            .collect::<Vec<i64>>();
-
-        tracing::info!(
-            num_masks = deletions.len(),
-            serial_ids = ?deletions,
-            "Deleting masks from database"
-        );
-
-        self.database.delete_masks(&deletions).await?;
-
-        // Remove the mask from masks
-        let mut masks = self.masks.lock().await;
-        for id in deletions {
-            masks[(id - 1) as usize] = Bits::MAX;
-        }
 
         Ok(())
     }
