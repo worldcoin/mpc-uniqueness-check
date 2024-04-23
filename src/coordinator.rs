@@ -726,6 +726,7 @@ impl Coordinator {
         for DbSyncPayload { id, .. } in deletions {
             masks[(id - 1) as usize] = Bits::MAX;
         }
+        drop(masks);
 
         // Insert masks into the db
         self.insert_masks(items).await?;

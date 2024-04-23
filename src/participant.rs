@@ -291,6 +291,7 @@ impl Participant {
         for DbSyncPayload { id, share } in deletions {
             shares[(id - 1) as usize] = *share;
         }
+        drop(shares);
 
         // Insert the shares into the db
         self.insert_shares(items).await?;
