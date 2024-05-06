@@ -261,40 +261,12 @@ impl Participant {
         }
 
         let body = message.body.context("Missing message body")?;
-        let items = if let Ok(items) =
-            serde_json::from_str::<Vec<DbSyncPayload>>(&body)
-        {
-            items
+        if let Ok(items) = serde_json::from_str::<Vec<DbSyncPayload>>(&body) {
+            // Insert the shares into the db
+            self.insert_shares(items).await?;
         } else {
             tracing::error!(?receipt_handle, "Failed to parse message body");
-
-            sqs_delete_message(
-                &self.sqs_client,
-                &self.config.queues.db_sync_queue_url,
-                receipt_handle,
-            )
-            .await?;
-
-            return Ok(());
         };
-
-        // Partition deletions and overwrite shares in memory
-        let deletions = items
-            .iter()
-            .filter(|item| {
-                matches!(item.share, EncodedBits::ZERO)
-                    || matches!(item.share, EncodedBits::MAX)
-            })
-            .collect::<Vec<_>>();
-
-        let mut shares = self.shares.lock().await;
-        for DbSyncPayload { id, share } in deletions {
-            shares[(id - 1) as usize] = *share;
-        }
-        drop(shares);
-
-        // Insert the shares into the db
-        self.insert_shares(items).await?;
 
         sqs_delete_message(
             &self.sqs_client,
