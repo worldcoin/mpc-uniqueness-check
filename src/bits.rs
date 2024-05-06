@@ -27,6 +27,7 @@ pub struct Bits(pub [u64; LIMBS]);
 
 impl Bits {
     pub const ZERO: Self = Self([0; LIMBS]);
+    pub const MAX: Self = Self([u64::MAX; LIMBS]);
 
     /// Returns an unordered iterator over the 31 possible rotations
     pub fn rotations(&self) -> impl Iterator<Item = Self> + '_ {
