@@ -7,7 +7,10 @@ use eyre::ContextCompat;
 use futures::future::select_all;
 use mpc::bits::Bits;
 use mpc::config::{AwsConfig, CoordinatorConfig, ParticipantConfig};
-use mpc::coordinator::{self, Coordinator, MpcMessage, UniquenessCheckRequest};
+use mpc::coordinator::{
+    self, Coordinator, MpcMessage, UniquenessCheckRequest,
+    UniquenessCheckResult,
+};
 use mpc::distance::EncodedBits;
 use mpc::participant::{self, Participant};
 use mpc::template::Template;
@@ -24,14 +27,13 @@ pub const E2E_CONFIG: &str = include_str!("./e2e_config.toml");
 pub const SIGNUP_SEQUENCE: &str = include_str!("./e2e_sequence.json");
 
 #[derive(Debug, Deserialize)]
-struct E2EConfig {
+pub struct E2EConfig {
     coordinator: CoordinatorConfig,
     participant: Vec<ParticipantConfig>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct SignupSequenceElement {
-    signup_id: String,
     iris_code: Bits,
     mask_code: Bits,
     matched_with: Vec<Match>,
@@ -246,72 +248,88 @@ async fn test_signup_sequence(
     sqs_client: aws_sdk_sqs::Client,
     e2e_config: E2EConfig,
 ) -> eyre::Result<()> {
-    let mut latest_serial_id = 0;
+    let latest_serial_id =
+        run_signup_sequence(&signup_sequence, &sqs_client, &e2e_config, 0)
+            .await?;
+
+    // Delete shares and masks
+    let serial_ids_for_deletion =
+        (1..=latest_serial_id).into_iter().collect::<Vec<u64>>();
+
+    let participant_queues = e2e_config
+        .participant
+        .iter()
+        .map(|p| p.queues.db_sync_queue_url.as_str())
+        .collect::<Vec<_>>();
+
+    tracing::info!("Deleting masks and shares");
+    futures::try_join!(
+        delete_masks(
+            &serial_ids_for_deletion,
+            &e2e_config.coordinator.queues.db_sync_queue_url,
+            &sqs_client
+        ),
+        delete_shares(
+            &serial_ids_for_deletion,
+            &participant_queues,
+            &sqs_client
+        )
+    )?;
+
+    // Run the signup sequence again after deletions
+    run_signup_sequence(
+        &signup_sequence,
+        &sqs_client,
+        &e2e_config,
+        latest_serial_id,
+    )
+    .await?;
+
+    Ok(())
+}
+
+// Runs the signup sequence and asserts that the results match the expected values
+// Returns the latest serial id after the signup sequence has successfully run
+async fn run_signup_sequence(
+    signup_sequence: &[SignupSequenceElement],
+    sqs_client: &aws_sdk_sqs::Client,
+    e2e_config: &E2EConfig,
+    mut latest_serial_id: u64,
+) -> eyre::Result<u64> {
+    // When running the signup sequence after deletions, the last serial id will be the last serial id committed in the db
+    // We cache this so that we can assert the signup_sequence_serial_id + serial_id_offset matches the latest_serial_id returned in the uniqueness check result
+    let serial_id_offset = latest_serial_id;
 
     for element in signup_sequence {
         let template = Template {
             code: element.iris_code,
             mask: element.mask_code,
         };
+        let signup_id = generate_random_string(4);
 
         // Send the query to the coordinator
         send_query(
             template,
             &sqs_client,
             &e2e_config.coordinator.queues.queries_queue_url,
-            &element.signup_id,
+            &signup_id,
             &generate_random_string(4),
         )
         .await?;
 
-        let (uniqueness_check_result, receipt_handle) = loop {
-            let result = receive_result(
-                &sqs_client,
-                &e2e_config.coordinator.queues.distances_queue_url,
-            )
-            .await?;
-
-            let message_body =
-                result.body.context("Could not get message body")?;
-
-            let receipt_handle = result
-                .receipt_handle
-                .context("Could not get receipt handle")?;
-
-            match serde_json::from_str::<MpcMessage>(&message_body)? {
-                MpcMessage::UniquenessCheckResult(uniqueness_check_result) => {
-                    break (uniqueness_check_result, receipt_handle);
-                }
-                _ => {
-                    tracing::info!(
-                        "Received unexpected message type, retrying"
-                    );
-
-                    aws::sqs_delete_message(
-                        &sqs_client,
-                        &e2e_config.coordinator.queues.distances_queue_url,
-                        receipt_handle,
-                    )
-                    .await?;
-
-                    continue;
-                }
-            }
-        };
+        // Wait for the uniqueness check result
+        let (uniqueness_check_result, receipt_handle) =
+            handle_uniqueness_check_result(&sqs_client, &e2e_config).await?;
 
         // Check that signup id and serial id match expected values
-        assert_eq!(uniqueness_check_result.signup_id, element.signup_id);
+        assert_eq!(uniqueness_check_result.signup_id, signup_id);
         assert_eq!(uniqueness_check_result.serial_id, latest_serial_id);
-
         assert_eq!(
             uniqueness_check_result.matches.len(),
             element.matched_with.len(),
-            "Expected {} matches, got {}",
-            element.matched_with.len(),
-            uniqueness_check_result.matches.len()
         );
 
-        // If there are matches, check that the distances match the expected values
+        // Assert matches against expected values
         if !uniqueness_check_result.matches.is_empty() {
             for (i, distance) in
                 uniqueness_check_result.matches.iter().enumerate()
@@ -319,10 +337,11 @@ async fn test_signup_sequence(
                 assert_eq!(distance.distance, element.matched_with[i].distance);
                 assert_eq!(
                     distance.serial_id,
-                    element.matched_with[i].serial_id
+                    element.matched_with[i].serial_id + serial_id_offset
                 );
             }
         } else {
+            // If there are no matches, send db sync messages to add masks/shares to the db
             let next_serial_id = latest_serial_id + 1;
 
             seed_db_sync(
@@ -350,6 +369,115 @@ async fn test_signup_sequence(
         )
         .await?;
     }
+
+    Ok(latest_serial_id)
+}
+
+pub async fn handle_uniqueness_check_result(
+    sqs_client: &aws_sdk_sqs::Client,
+    e2e_config: &E2EConfig,
+) -> eyre::Result<(UniquenessCheckResult, String)> {
+    let (uniqueness_check_result, receipt_handle) = loop {
+        let result = receive_result(
+            &sqs_client,
+            &e2e_config.coordinator.queues.distances_queue_url,
+        )
+        .await?;
+
+        let message_body = result.body.context("Could not get message body")?;
+
+        let receipt_handle = result
+            .receipt_handle
+            .context("Could not get receipt handle")?;
+
+        match serde_json::from_str::<MpcMessage>(&message_body)? {
+            MpcMessage::UniquenessCheckResult(uniqueness_check_result) => {
+                break (uniqueness_check_result, receipt_handle);
+            }
+            _ => {
+                tracing::info!("Received unexpected message type, retrying");
+
+                aws::sqs_delete_message(
+                    &sqs_client,
+                    &e2e_config.coordinator.queues.distances_queue_url,
+                    receipt_handle,
+                )
+                .await?;
+
+                continue;
+            }
+        }
+    };
+
+    Ok((uniqueness_check_result, receipt_handle))
+}
+
+pub async fn delete_shares(
+    serial_ids: &[u64],
+    participant_db_sync_queues: &[&str],
+    sqs_client: &aws_sdk_sqs::Client,
+) -> eyre::Result<()> {
+    //Randomly generate shares
+    let mut rng = rand::thread_rng();
+    let shares = serial_ids
+        .iter()
+        .map(|_| {
+            if rng.gen() {
+                vec![EncodedBits::MAX, EncodedBits::ZERO]
+            } else {
+                vec![EncodedBits::ZERO, EncodedBits::MAX]
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // Send the deletions through the queues
+    for (id, shares) in serial_ids.iter().zip(shares) {
+        for (i, participant_queue) in
+            participant_db_sync_queues.iter().enumerate()
+        {
+            let participant_payload =
+                serde_json::to_string(&vec![participant::DbSyncPayload {
+                    id: *id,
+                    share: shares[i],
+                }])?;
+
+            sqs_client
+                .send_message()
+                .queue_url(*participant_queue)
+                .message_body(participant_payload)
+                .send()
+                .await?;
+        }
+    }
+
+    for queue in participant_db_sync_queues {
+        wait_for_empty_queue(sqs_client, queue).await?;
+    }
+
+    Ok(())
+}
+
+pub async fn delete_masks(
+    serial_ids: &[u64],
+    coordinator_db_sync_queue: &str,
+    sqs_client: &aws_sdk_sqs::Client,
+) -> eyre::Result<()> {
+    for id in serial_ids {
+        let coordinator_payload =
+            serde_json::to_string(&vec![coordinator::DbSyncPayload {
+                id: *id,
+                mask: Bits::MAX,
+            }])?;
+
+        sqs_client
+            .send_message()
+            .queue_url(coordinator_db_sync_queue)
+            .message_body(coordinator_payload)
+            .send()
+            .await?;
+    }
+
+    wait_for_empty_queue(sqs_client, coordinator_db_sync_queue).await?;
 
     Ok(())
 }

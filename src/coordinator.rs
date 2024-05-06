@@ -163,10 +163,10 @@ impl Coordinator {
             {
                 self.enqueue_latest_serial_id(participant_streams).await?;
                 last_serial_id_check = Instant::now();
+            } else {
+                // Send ack and wait for response from all participants
+                self.send_ack(participant_streams).await?;
             }
-
-            // Send ack and wait for response from all participants
-            self.send_ack(participant_streams).await?;
 
             // Dequeue messages, limiting the max number of messages to 1
             let messages = match sqs_dequeue(
@@ -715,15 +715,21 @@ impl Coordinator {
             return Ok(());
         };
 
-        let masks: Vec<_> =
-            items.into_iter().map(|item| (item.id, item.mask)).collect();
+        // Partition deletions and overwrite masks in memory
+        let deletions = items
+            .iter()
+            .filter(|item| item.mask == Bits::MAX)
+            .collect::<Vec<_>>();
 
-        tracing::info!(
-            num_new_masks = masks.len(),
-            "Inserting masks into database"
-        );
+        // Remove the mask from masks
+        let mut masks = self.masks.lock().await;
+        for DbSyncPayload { id, .. } in deletions {
+            masks[(id - 1) as usize] = Bits::MAX;
+        }
+        drop(masks);
 
-        self.database.insert_masks(&masks).await?;
+        // Insert masks into the db
+        self.insert_masks(items).await?;
 
         sqs_delete_message(
             &self.sqs_client,
@@ -731,6 +737,25 @@ impl Coordinator {
             receipt_handle,
         )
         .await?;
+
+        Ok(())
+    }
+
+    async fn insert_masks(
+        &self,
+        insertions: Vec<DbSyncPayload>,
+    ) -> eyre::Result<()> {
+        tracing::info!(
+            num_masks = insertions.len(),
+            "Inserting masks into database"
+        );
+
+        let insertions = insertions
+            .into_iter()
+            .map(|item| (item.id, item.mask))
+            .collect::<Vec<(u64, Bits)>>();
+
+        self.database.insert_masks(&insertions).await?;
 
         Ok(())
     }

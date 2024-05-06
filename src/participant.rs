@@ -261,7 +261,6 @@ impl Participant {
         }
 
         let body = message.body.context("Missing message body")?;
-
         let items = if let Ok(items) =
             serde_json::from_str::<Vec<DbSyncPayload>>(&body)
         {
@@ -279,16 +278,23 @@ impl Participant {
             return Ok(());
         };
 
-        let shares: Vec<_> = items
-            .into_iter()
-            .map(|item| (item.id, item.share))
-            .collect();
+        // Partition deletions and overwrite shares in memory
+        let deletions = items
+            .iter()
+            .filter(|item| {
+                matches!(item.share, EncodedBits::ZERO)
+                    || matches!(item.share, EncodedBits::MAX)
+            })
+            .collect::<Vec<_>>();
 
-        tracing::info!(
-            num_new_shares = shares.len(),
-            "Inserting shares into database"
-        );
-        self.database.insert_shares(&shares).await?;
+        let mut shares = self.shares.lock().await;
+        for DbSyncPayload { id, share } in deletions {
+            shares[(id - 1) as usize] = *share;
+        }
+        drop(shares);
+
+        // Insert the shares into the db
+        self.insert_shares(items).await?;
 
         sqs_delete_message(
             &self.sqs_client,
@@ -296,6 +302,25 @@ impl Participant {
             receipt_handle,
         )
         .await?;
+
+        Ok(())
+    }
+
+    async fn insert_shares(
+        &self,
+        shares: Vec<DbSyncPayload>,
+    ) -> eyre::Result<()> {
+        tracing::info!(
+            num_shares = shares.len(),
+            "Inserting shares into database"
+        );
+
+        let shares = shares
+            .into_iter()
+            .map(|item| (item.id, item.share))
+            .collect::<Vec<(u64, EncodedBits)>>();
+
+        self.database.insert_shares(&shares).await?;
 
         Ok(())
     }
