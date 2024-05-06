@@ -22,7 +22,7 @@ humantime-serde = "1.1.1"
 indicatif = "0.17.7"
 indoc = "2.0.4"
 itertools = "0.12.0"
-metrics = "0.21.1"
+metrics = "0.22.3"
 # TODO: only include this for migrate-codes bin
 mongodb = "2.8.1"
 opentelemetry = "0.21.0"
