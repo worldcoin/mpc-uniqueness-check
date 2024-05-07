@@ -23,7 +23,7 @@ sequenceDiagram
     Coord ->> ResultsQueue: Enqueue final result
 ```
 
-The MPC setup consists of a coordinator and `n` participants, where each participant stores an encrypted portion of each iris code and the coordinator stores the corresponding masks. When a new uniqueness check request is enqueued, the coordinator will send the code to each of the participants, which will compute a fractional hamming distance against the encrypted partial iris codes. The participant results will be sent back to the coordinator and the partial results will be combined to arrive at the final result.
+The MPC setup consists of a coordinator and `n` participants, where each participant stores an encrypted portion of each iris code and the coordinator stores the corresponding masks. When a new uniqueness check request is enqueued, the coordinator will send the code to each of the participants, which will compute a fractional hamming distance against their encrypted partial iris codes. The participant results will be sent back to the coordinator and the partial results will be combined to arrive at the final result.
 
 ## Installing
 To install mpc uniqueness check and all utilities, you can run the following command. 
