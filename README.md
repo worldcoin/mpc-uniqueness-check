@@ -1,18 +1,33 @@
-# MPC Service
+# MPC Uniqueness Check
 
-## Running locally
-You can easily setup the services and databases using
+The MPC Uniqueness Check is a secure multi-party computation (SMPC) protocol that powers the matching engine behind Worldcoin's [iris recognition inference system](https://worldcoin.org/blog/engineering/iris-recognition-inference-system). SMPC is used to calculate a fractional hamming distance to determine uniqueness of a given iris code. A detailed specification of the iris code SMPC can be found [here](docs/specification.ipynb).
 
+
+The MPC setup consists of a coordinator and `n` participants, where each participant stores an encrypted portion of each iris code and the coordinator stores the corresponding masks. When a new uniqueness check request is enqueued, the coordinator will send the code to each of the participants, which will compute a fractional hamming distance against the encrypted partial iris codes. The participant results will be sent back to the coordinator, which will then be combined to arrive at the final result.
+
+
+
+## Installing
+To install mpc uniqueness check and all utilities, you can run the following command. 
+```
+cargo install --path .
+```
+
+
+### Running Locally
+
+To run a local version of the MPC uniqueness check with two participants, you can execute the following command.
 ```
 docker compose up -d
 ```
 
-To seed the db with random templates, run the following:
+Once all of the services are running, you can seed the coordinator and participant databases with random iris codes/masks.
 ```
-cargo run --release --bin utils -- seed-db -c postgres://postgres:postgres@127.0.0.1:5432/db -p postgres://postgres:postgres@127.0.0.1:5433/db --num 10000 --batch-size 1000
+utils seed-db -c postgres://postgres:postgres@127.0.0.1:5432/db -p postgres://postgres:postgres@127.0.0.1:5433/db --num 10000 --batch-size 1000
 ```
 
-To test run a random query run the following command
+After seeding the databases, you can enqueue a random template to the coordinator queue which will orchestrate the MPC uniqueness check.
+
 ```
-cargo run --bin utils -- sqs-query -e http://localhost:4566 -q http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-uniqueness-check
+utils sqs-query -e http://localhost:4566 -q http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/coordinator-uniqueness-check
 ```
