@@ -35,12 +35,67 @@ cargo install --path .
 
 ### Coordinator
 
+To start the coordinator, you can run `mpc-node --config <path_to_config>` or specify the following configuration via environment variables.
+
+```toml
+[coordinator]
+# Socket addresses for each participant
+participants = '["127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8002"]'
+# Hamming distance threshold to determine if a given iris code is unique 
+hamming_distance_threshold = 0.375
+# Max duration allotted when connecting to participants
+participant_connection_timeout = "1s"
+
+# Database where the masks will be stored
+[coordinator.db]
+url = "postgres://localhost:5432/mpc"
+migrate = true
+create = false
+
+# AWS configuration for the coordinator
+[coordinator.aws]
+endpoint = ""
+region = ""
+
+[coordinator.queues]
+# Uniqueness check requests queue
+queries_queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
+# Uniqueness check results queue
+distances_queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-distance-results-queue"
+# Queue specifying masks to add to the database
+db_sync_queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-queue"
+```
+
 ### Participant
+
+
+```toml
+[participant]
+# Socket address for the participant
+socket_addr = "127.0.0.1:8000"
+# Batch size when calculating fractional hamming distance
+batch_size = 20000
+
+# Database configuration for storing data related to the participant
+[participant.db]
+url = "postgres://localhost:5432/participant_db"
+migrate = true
+create = false
+
+# AWS configuration for the participant
+[participant.aws]
+endpoint = ""
+region = ""
+
+[participant.queues]
+# Queue specifying shares to add to the database
+db_sync_queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/participant-db-sync-queue"
+```
 
 
 ### Running Locally
 
-To run a local version of the MPC uniqueness check with two participants, you can execute the following command.
+To run a local version of the MPC uniqueness check with two participants, you can execute the following command. Note that you do not need to specify the configuration above as this is already included in the compose file. 
 ```
 docker compose up -d
 ```
