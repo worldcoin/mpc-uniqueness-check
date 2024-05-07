@@ -77,7 +77,7 @@ socket_addr = "127.0.0.1:8000"
 # Batch size when calculating fractional hamming distance
 batch_size = 20000
 
-# Database configuration for storing data related to the participant
+# Database where the shares will be stored
 [participant.db]
 url = "postgres://localhost:5432/participant_db"
 migrate = true
