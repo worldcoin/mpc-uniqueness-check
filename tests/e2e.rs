@@ -248,42 +248,7 @@ async fn test_signup_sequence(
     sqs_client: aws_sdk_sqs::Client,
     e2e_config: E2EConfig,
 ) -> eyre::Result<()> {
-    let latest_serial_id =
-        run_signup_sequence(&signup_sequence, &sqs_client, &e2e_config, 0)
-            .await?;
-
-    // Delete shares and masks
-    let serial_ids_for_deletion =
-        (1..=latest_serial_id).into_iter().collect::<Vec<u64>>();
-
-    let participant_queues = e2e_config
-        .participant
-        .iter()
-        .map(|p| p.queues.db_sync_queue_url.as_str())
-        .collect::<Vec<_>>();
-
-    tracing::info!("Deleting masks and shares");
-    futures::try_join!(
-        delete_masks(
-            &serial_ids_for_deletion,
-            &e2e_config.coordinator.queues.db_sync_queue_url,
-            &sqs_client
-        ),
-        delete_shares(
-            &serial_ids_for_deletion,
-            &participant_queues,
-            &sqs_client
-        )
-    )?;
-
-    // Run the signup sequence again after deletions
-    run_signup_sequence(
-        &signup_sequence,
-        &sqs_client,
-        &e2e_config,
-        latest_serial_id,
-    )
-    .await?;
+    run_signup_sequence(&signup_sequence, &sqs_client, &e2e_config, 0).await?;
 
     Ok(())
 }

@@ -698,38 +698,12 @@ impl Coordinator {
 
         let body = message.body.context("Missing message body")?;
 
-        let items = if let Ok(items) =
-            serde_json::from_str::<Vec<DbSyncPayload>>(&body)
-        {
-            items
+        if let Ok(items) = serde_json::from_str::<Vec<DbSyncPayload>>(&body) {
+            // Insert masks into the db
+            self.insert_masks(items).await?;
         } else {
             tracing::error!(?receipt_handle, "Failed to parse message body");
-
-            sqs_delete_message(
-                &self.sqs_client,
-                &self.config.queues.db_sync_queue_url,
-                receipt_handle,
-            )
-            .await?;
-
-            return Ok(());
         };
-
-        // Partition deletions and overwrite masks in memory
-        let deletions = items
-            .iter()
-            .filter(|item| item.mask == Bits::MAX)
-            .collect::<Vec<_>>();
-
-        // Remove the mask from masks
-        let mut masks = self.masks.lock().await;
-        for DbSyncPayload { id, .. } in deletions {
-            masks[(id - 1) as usize] = Bits::MAX;
-        }
-        drop(masks);
-
-        // Insert masks into the db
-        self.insert_masks(items).await?;
 
         sqs_delete_message(
             &self.sqs_client,
