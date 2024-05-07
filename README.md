@@ -14,7 +14,9 @@ sequenceDiagram
 
     RequestQueue ->> Coord: New uniquness check request
     Coord ->> Participants: Send code to all participants
+    Coord ->> Coord: Sync latest masks from the database
     Coord ->> Coord: Calculate mask portion of FHD
+    Participants ->> Participants: Sync latest shares from the database
     Participants ->> Participants: Calculate iris code portion of FHD
     Participants ->> Coord: Send partial results
     Coord ->> Coord: Calculate final result
@@ -22,8 +24,6 @@ sequenceDiagram
 ```
 
 The MPC setup consists of a coordinator and `n` participants, where each participant stores an encrypted portion of each iris code and the coordinator stores the corresponding masks. When a new uniqueness check request is enqueued, the coordinator will send the code to each of the participant, which will compute a fractional hamming distance against the encrypted partial iris codes. The participant results will be sent back to the coordinator, which will then be combined to arrive at the final result.
-
-
 
 ## Installing
 To install mpc uniqueness check and all utilities, you can run the following command. 
@@ -68,6 +68,7 @@ db_sync_queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/mpc-query-qu
 
 ### Participant
 
+To start the participant, you can run `mpc-node --config <path_to_config>`. Note that the command to run the participant is the same as the coordinator, however you will need to specify the following configuration variables instead.
 
 ```toml
 [participant]
