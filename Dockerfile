@@ -33,6 +33,8 @@ FROM base as build-env-base
 # Copy everything
 COPY . .
 
+ARG RUSTFLAGS=""
+
 # Prepare the recipe
 RUN cargo chef prepare --recipe-path recipe.json
 
@@ -42,6 +44,9 @@ FROM base as build-env
 # Copy recipe
 COPY --from=build-env-base /src/recipe.json ./recipe.json
 
+# Set build env vars
+ARG RUSTFLAGS=""
+
 # Build the dependencies
 RUN cargo chef cook --release --recipe-path ./recipe.json
 
@@ -49,6 +54,7 @@ RUN cargo chef cook --release --recipe-path ./recipe.json
 COPY . .
 
 ARG BIN=mpc-node
+ARG RUSTFLAGS=""
 
 # Build the binary
 RUN cargo build --release --bin $BIN --no-default-features
