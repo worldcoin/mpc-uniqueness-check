@@ -26,7 +26,7 @@ sequenceDiagram
 The MPC setup consists of a coordinator and `n` participants, where each participant stores an encrypted portion of each iris code and the coordinator stores the corresponding masks. When a new uniqueness check request is enqueued, the coordinator will send the code to each of the participants, which will compute a fractional hamming distance against their encrypted partial iris codes. The participant results will be sent back to the coordinator and the partial results will be combined to arrive at the final result.
 
 ## Installing
-To install mpc uniqueness check and all utilities, you can run the following command. 
+To install mpc uniqueness check and all utilities, you can run the following command.
 ```
 cargo install --path .
 ```
@@ -41,7 +41,7 @@ To start the coordinator, you can run `mpc-node --config <path_to_config>` or sp
 [coordinator]
 # Socket addresses for each participant
 participants = '["127.0.0.1:8000", "127.0.0.1:8001", "127.0.0.1:8002"]'
-# Hamming distance threshold to determine if a given iris code is unique 
+# Hamming distance threshold to determine if a given iris code is unique
 hamming_distance_threshold = 0.375
 # Max duration allotted when connecting to participants
 participant_connection_timeout = "1s"
@@ -96,7 +96,7 @@ db_sync_queue_url = "https://sqs.us-east-1.amazonaws.com/1234567890/participant-
 
 ### Running Locally
 
-To run a local version of the MPC uniqueness check with two participants, you can execute the following command. Note that you do not need to specify the configuration above as this is already included in the compose file. 
+To run a local version of the MPC uniqueness check with two participants, you can execute the following command. Note that you do not need to specify the configuration above as this is already included in the compose file.
 ```
 docker compose up -d
 ```
