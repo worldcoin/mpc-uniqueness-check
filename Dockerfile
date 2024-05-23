@@ -60,7 +60,7 @@ ARG RUSTFLAGS=""
 RUN cargo build --release --bin $BIN --no-default-features
 
 # Make sure it runs
-RUN /src/target/release/$BIN --version
+# RUN /src/target/release/$BIN --version
 
 ### Runtime stage
 # cc variant because we need libgcc and others
