@@ -40,6 +40,7 @@ pub const LATEST_SERIAL_ID_BYTE: u8 = 0x02;
 pub struct Coordinator {
     participants: Vec<String>,
     hamming_distance_threshold: f64,
+    n_closest_distances: usize,
     database: Arc<Db>,
     masks: Arc<Mutex<Vec<Bits>>>,
     sqs_client: Arc<aws_sdk_sqs::Client>,
@@ -68,6 +69,7 @@ impl Coordinator {
 
         Ok(Self {
             hamming_distance_threshold: config.hamming_distance_threshold,
+            n_closest_distances: config.n_closest_distances,
             participants,
             database,
             masks,
@@ -624,6 +626,12 @@ impl Coordinator {
         if !matches.is_empty() {
             tracing::info!(?matches, "Matches found");
         }
+        
+        // Sort the matches by distance in ascending order
+        matches.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap());
+
+        // Truncate the matches to the first `self.n_closest_distances` elements
+        matches.truncate(self.n_closest_distances);
 
         let distance_results = DistanceResults::new(i as u64, matches);
 

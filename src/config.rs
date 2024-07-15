@@ -61,6 +61,7 @@ pub struct CoordinatorConfig {
     )]
     pub latest_serial_id_interval: Duration,
     pub hamming_distance_threshold: f64,
+    pub n_closest_distances: usize,
     pub db: DbConfig,
     pub queues: CoordinatorQueuesConfig,
     #[serde(default)]
@@ -176,6 +177,7 @@ mod tests {
                 participant_connection_timeout: Duration::from_secs(1),
                 latest_serial_id_interval: Duration::from_secs(5),
                 hamming_distance_threshold: 0.375,
+                n_closest_distances: 20,
                 db: DbConfig {
                     url: "postgres://localhost:5432/mpc".to_string(),
                     migrate: true,
