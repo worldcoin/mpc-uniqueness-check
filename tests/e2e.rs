@@ -25,9 +25,12 @@ use testcontainers_modules::localstack::LocalStack;
 use testcontainers_modules::postgres::Postgres;
 
 pub const E2E_CONFIG: &str = include_str!("./e2e_config.toml");
-pub const REGULAR_SIGNUP_SEQUENCE: &str = include_str!("regular_e2e_sequence.json");
-pub const MULTI_MATCH_SIGNUP_SEQUENCE: &str = include_str!("multi_match_e2e_sequence.json");
-pub const MULTI_MATCH_TRUNCATED_SIGNUP_SEQUENCE: &str = include_str!("multi_match_truncated_e2e_sequence.json");
+pub const REGULAR_SIGNUP_SEQUENCE: &str =
+    include_str!("regular_e2e_sequence.json");
+pub const MULTI_MATCH_SIGNUP_SEQUENCE: &str =
+    include_str!("multi_match_e2e_sequence.json");
+pub const MULTI_MATCH_TRUNCATED_SIGNUP_SEQUENCE: &str =
+    include_str!("multi_match_truncated_e2e_sequence.json");
 
 static INIT: Once = Once::new();
 
@@ -96,21 +99,21 @@ async fn test_multi_match_truncated_e2e() -> eyre::Result<()> {
 
     // set n_closest_distances to 1 and expect truncation
     e2e_config.coordinator.n_closest_distances = 1;
-    let signup_sequence = serde_json::from_str(MULTI_MATCH_TRUNCATED_SIGNUP_SEQUENCE)?;
+    let signup_sequence =
+        serde_json::from_str(MULTI_MATCH_TRUNCATED_SIGNUP_SEQUENCE)?;
 
     return run_e2e_scenario(&mut e2e_config, signup_sequence).await;
 }
 
 async fn run_e2e_scenario(
     e2e_config: &mut E2EConfig,
-    signup_sequence: Vec<SignupSequenceElement>
+    signup_sequence: Vec<SignupSequenceElement>,
 ) -> eyre::Result<()> {
-    
     // initialize tracing once for all tests
     INIT.call_once(|| {
         let _tracing_handle = StdoutBattery::init();
     });
-    
+
     tracing::info!("Initializing resources");
 
     let docker = clients::Cli::default();
@@ -133,11 +136,8 @@ async fn run_e2e_scenario(
     tracing::info!("Waiting for queues");
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
-    let signup_sequence = test_signup_sequence(
-        signup_sequence,
-        sqs_client,
-        e2e_config,
-    );
+    let signup_sequence =
+        test_signup_sequence(signup_sequence, sqs_client, e2e_config);
 
     tokio::select! {
         signup_result = signup_sequence => {
