@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 
 use aws_sdk_sqs::types::{Message, QueueAttributeName};
 use config::Config;
@@ -18,13 +18,21 @@ use mpc::utils::aws::{self, sqs_client_from_config};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use serde::Deserialize;
+use serial_test::serial;
 use telemetry_batteries::tracing::stdout::StdoutBattery;
 use testcontainers::{clients, Container};
 use testcontainers_modules::localstack::LocalStack;
 use testcontainers_modules::postgres::Postgres;
 
 pub const E2E_CONFIG: &str = include_str!("./e2e_config.toml");
-pub const SIGNUP_SEQUENCE: &str = include_str!("./e2e_sequence.json");
+pub const REGULAR_SIGNUP_SEQUENCE: &str =
+    include_str!("regular_e2e_sequence.json");
+pub const MULTI_MATCH_SIGNUP_SEQUENCE: &str =
+    include_str!("multi_match_e2e_sequence.json");
+pub const MULTI_MATCH_TRUNCATED_SIGNUP_SEQUENCE: &str =
+    include_str!("multi_match_truncated_e2e_sequence.json");
+
+static INIT: Once = Once::new();
 
 #[derive(Debug, Deserialize)]
 pub struct E2EConfig {
@@ -46,9 +54,40 @@ pub struct Match {
 }
 
 #[tokio::test]
-async fn test_e2e() -> eyre::Result<()> {
-    let _tracing_handle = StdoutBattery::init();
+#[serial]
+async fn test_regular_e2e() -> eyre::Result<()> {
+    let settings = Config::builder()
+        .add_source(config::File::from_str(
+            E2E_CONFIG,
+            config::FileFormat::Toml,
+        ))
+        .build()?;
 
+    let mut e2e_config = settings.try_deserialize::<E2EConfig>()?;
+    let signup_scenario = serde_json::from_str(REGULAR_SIGNUP_SEQUENCE)?;
+
+    return run_e2e_scenario(&mut e2e_config, signup_scenario).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_multi_match_e2e() -> eyre::Result<()> {
+    let settings = Config::builder()
+        .add_source(config::File::from_str(
+            E2E_CONFIG,
+            config::FileFormat::Toml,
+        ))
+        .build()?;
+
+    let mut e2e_config = settings.try_deserialize::<E2EConfig>()?;
+    let signup_scenario = serde_json::from_str(MULTI_MATCH_SIGNUP_SEQUENCE)?;
+
+    return run_e2e_scenario(&mut e2e_config, signup_scenario).await;
+}
+
+#[tokio::test]
+#[serial]
+async fn test_multi_match_truncated_e2e() -> eyre::Result<()> {
     let settings = Config::builder()
         .add_source(config::File::from_str(
             E2E_CONFIG,
@@ -58,11 +97,28 @@ async fn test_e2e() -> eyre::Result<()> {
 
     let mut e2e_config = settings.try_deserialize::<E2EConfig>()?;
 
+    // set n_closest_distances to 1 and expect truncation
+    e2e_config.coordinator.n_closest_distances = 1;
+    let signup_sequence =
+        serde_json::from_str(MULTI_MATCH_TRUNCATED_SIGNUP_SEQUENCE)?;
+
+    return run_e2e_scenario(&mut e2e_config, signup_sequence).await;
+}
+
+async fn run_e2e_scenario(
+    e2e_config: &mut E2EConfig,
+    signup_sequence: Vec<SignupSequenceElement>,
+) -> eyre::Result<()> {
+    // initialize tracing once for all tests
+    INIT.call_once(|| {
+        let _tracing_handle = StdoutBattery::init();
+    });
+
     tracing::info!("Initializing resources");
 
     let docker = clients::Cli::default();
     let (_containers, sqs_client) =
-        initialize_resources(&docker, &mut e2e_config).await?;
+        initialize_resources(&docker, e2e_config).await?;
 
     let participant_0 =
         Arc::new(Participant::new(e2e_config.participant[0].clone()).await?);
@@ -80,11 +136,8 @@ async fn test_e2e() -> eyre::Result<()> {
     tracing::info!("Waiting for queues");
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
-    let signup_sequence = test_signup_sequence(
-        serde_json::from_str(SIGNUP_SEQUENCE)?,
-        sqs_client,
-        e2e_config,
-    );
+    let signup_sequence =
+        test_signup_sequence(signup_sequence, sqs_client, e2e_config);
 
     tokio::select! {
         signup_result = signup_sequence => {
@@ -246,7 +299,7 @@ async fn create_queue(
 async fn test_signup_sequence(
     signup_sequence: Vec<SignupSequenceElement>,
     sqs_client: aws_sdk_sqs::Client,
-    e2e_config: E2EConfig,
+    e2e_config: &E2EConfig,
 ) -> eyre::Result<()> {
     run_signup_sequence(&signup_sequence, &sqs_client, &e2e_config, 0).await?;
 

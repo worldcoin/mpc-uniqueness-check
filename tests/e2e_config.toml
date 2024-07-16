@@ -8,6 +8,7 @@ queues.distances_queue_url = "http://localhost:4566/000000000000/coordinator-dis
 queues.db_sync_queue_url = "http://localhost:4566/000000000000/coordinator-db-sync"
 participants = '["0.0.0.0:8080", "0.0.0.0:8081"]'
 hamming_distance_threshold = 0.375
+n_closest_distances = 20
 
 [[participant]]
 socket_addr = "0.0.0.0:8080"
