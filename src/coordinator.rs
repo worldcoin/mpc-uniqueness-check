@@ -624,7 +624,7 @@ impl Coordinator {
         }
 
         // Sort the matches by distance in ascending order
-        matches.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap());
+        matches.sort_by(|a, b| a.distance.total_cmp(&b.distance));
 
         // Truncate the matches to the first `self.n_closest_distances` elements
         matches.truncate(self.config.n_closest_distances);
