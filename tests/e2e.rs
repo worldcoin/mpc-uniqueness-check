@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Once, ONCE_INIT};
+use std::sync::{Arc, Once};
 
 use aws_sdk_sqs::types::{Message, QueueAttributeName};
 use config::Config;
@@ -20,7 +20,6 @@ use rand::Rng;
 use serde::Deserialize;
 use serial_test::serial;
 use telemetry_batteries::tracing::stdout::StdoutBattery;
-use telemetry_batteries::tracing::TracingShutdownHandle;
 use testcontainers::{clients, Container};
 use testcontainers_modules::localstack::LocalStack;
 use testcontainers_modules::postgres::Postgres;
@@ -300,7 +299,7 @@ async fn create_queue(
 async fn test_signup_sequence(
     signup_sequence: Vec<SignupSequenceElement>,
     sqs_client: aws_sdk_sqs::Client,
-    e2e_config: &mut E2EConfig,
+    e2e_config: &E2EConfig,
 ) -> eyre::Result<()> {
     run_signup_sequence(&signup_sequence, &sqs_client, &e2e_config, 0).await?;
 
