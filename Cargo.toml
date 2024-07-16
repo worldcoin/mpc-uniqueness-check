@@ -21,7 +21,7 @@ hex = { version = "0.4.3", features = ["serde"] }
 humantime-serde = "1.1.1"
 indicatif = "0.17.7"
 indoc = "2.0.4"
-itertools = "0.12.0"
+itertools = "0.13.0"
 metrics = "0.21.1"
 # TODO: only include this for migrate-codes bin
 mongodb = "2.8.1"
