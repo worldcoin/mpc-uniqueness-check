@@ -29,6 +29,7 @@ async fn main() -> eyre::Result<()> {
     let config: Config = load_config("MPC", args.config.as_deref())?;
 
     let _tracing_shutdown_handle = if let Some(service) = &config.service {
+        tracing::info!("Initializing tracing using config...");
         let tracing_shutdown_handle = DatadogBattery::init(
             service.traces_endpoint.as_deref(),
             &service.service_name,
@@ -37,6 +38,7 @@ async fn main() -> eyre::Result<()> {
         );
 
         if let Some(metrics_config) = &service.metrics {
+            tracing::info!("Initializing metrics using config...");
             StatsdBattery::init(
                 &metrics_config.host,
                 metrics_config.port,
