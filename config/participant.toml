@@ -1,10 +1,10 @@
- [service]
- service_name = "mpc-participant"
- metrics_host = "localhost"
- metrics_port = 8125
- metrics_queue_size = 5000
- metrics_buffer_size = 1024
- metrics_prefix = "mpc-participant"
+# [service]
+# service_name = "mpc-participant"
+# metrics_host = "localhost"
+# metrics_port = 8125
+# metrics_queue_size = 5000
+# metrics_buffer_size = 1024
+# metrics_prefix = "mpc-participant"
 
 [participant]
 socket_addr = "127.0.0.1:8081"
