@@ -63,6 +63,7 @@ async fn main() -> eyre::Result<()> {
     let mut tasks: Vec<JoinHandle<eyre::Result<()>>> = vec![];
 
     println!("ServiceConfig: {:?}", &config.service);
+    
     tracing::info!("ServiceConfig: {:?}", &config.service);
     if let Some(coordinator) = config.coordinator {
         let coordinator = Arc::new(Coordinator::new(coordinator).await?);
