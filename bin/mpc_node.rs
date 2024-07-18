@@ -2,11 +2,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
+use metrics_exporter_statsd::StatsdBuilder;
 use mpc::config::{load_config, Config};
 use mpc::coordinator::Coordinator;
 use mpc::health_check::HealthCheck;
 use mpc::participant::Participant;
-use telemetry_batteries::metrics::statsd::StatsdBattery;
 use telemetry_batteries::tracing::datadog::DatadogBattery;
 use telemetry_batteries::tracing::TracingShutdownHandle;
 use tokio::task::JoinHandle;
@@ -37,13 +37,15 @@ async fn main() -> eyre::Result<()> {
         );
 
         if let Some(metrics_config) = &service.metrics {
-            StatsdBattery::init(
-                &metrics_config.host,
-                metrics_config.port,
-                metrics_config.queue_size,
-                metrics_config.buffer_size,
-                Some(&metrics_config.prefix),
-            )?;
+            tracing::info!("Initializing metrics using config...");
+            let recorder =
+                StatsdBuilder::from(&metrics_config.host, metrics_config.port)
+                    .with_queue_size(metrics_config.queue_size)
+                    .with_buffer_size(metrics_config.buffer_size)
+                    .histogram_is_distribution()
+                    .build(Some(&metrics_config.prefix))?;
+
+            metrics::set_global_recorder(recorder)?;
         }
 
         tracing_shutdown_handle

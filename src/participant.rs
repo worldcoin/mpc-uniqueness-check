@@ -307,7 +307,8 @@ impl Participant {
         shares.extend(new_shares);
 
         tracing::info!(num_shares = shares.len(), "Shares synchronized");
-        metrics::gauge!("participant.latest_serial_id", shares.len() as f64);
+        metrics::gauge!("participant.latest_serial_id")
+            .set(shares.len() as f64);
 
         Ok(shares.len())
     }
