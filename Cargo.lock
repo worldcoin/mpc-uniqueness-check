@@ -2183,6 +2183,7 @@ dependencies = [
  "indoc",
  "itertools 0.12.1",
  "metrics",
+ "metrics-exporter-statsd",
  "mongodb",
  "opentelemetry",
  "ordered-float",

@@ -654,7 +654,7 @@ impl Coordinator {
 
         let gen_value = rng.gen_range(0..5000);
         tracing::info!(?gen_value, "gen_value");
-        metrics::histogram!("test_matches").record(gen_value as f64);
+        metrics::histogram!("test2_matches").record(gen_value as f64);
 
         Ok(masks.len())
     }
