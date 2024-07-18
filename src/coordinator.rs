@@ -48,6 +48,7 @@ pub struct Coordinator {
 impl Coordinator {
     pub async fn new(config: CoordinatorConfig) -> eyre::Result<Self> {
         tracing::info!("Initializing coordinator");
+        metrics::gauge!("test_metric").set(1.0);
         let database = Arc::new(Db::new(&config.db).await?);
 
         tracing::info!("Fetching masks from database");
@@ -646,7 +647,7 @@ impl Coordinator {
         masks.extend(new_masks);
 
         tracing::info!(num_masks = masks.len(), "New masks synchronized");
-        metrics::gauge!("coordinator.latest_serial_id", masks.len() as f64);
+        metrics::gauge!("coordinator.latest_serial_id").set(masks.len() as f64);
 
         Ok(masks.len())
     }
