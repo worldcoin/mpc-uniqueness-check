@@ -5,7 +5,6 @@ use aws_sdk_sqs::types::Message;
 use eyre::ContextCompat;
 use futures::future;
 use futures::stream::FuturesUnordered;
-use rand::{thread_rng, Rng};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
@@ -625,7 +624,7 @@ impl Coordinator {
         }
 
         metrics::histogram!("coordinator.matches").record(matches.len() as f64);
-        
+
         // Sort the matches by distance in ascending order
         matches.sort_by(|a, b| a.distance.total_cmp(&b.distance));
 
