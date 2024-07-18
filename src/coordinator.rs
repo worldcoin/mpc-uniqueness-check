@@ -5,6 +5,7 @@ use aws_sdk_sqs::types::Message;
 use eyre::ContextCompat;
 use futures::future;
 use futures::stream::FuturesUnordered;
+use rand::{thread_rng, Rng};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
@@ -648,6 +649,12 @@ impl Coordinator {
 
         tracing::info!(num_masks = masks.len(), "New masks synchronized");
         metrics::gauge!("coordinator.latest_serial_id").set(masks.len() as f64);
+
+        let mut rng = thread_rng();
+
+        let gen_value = rng.gen_range(0..5000);
+        tracing::info!(?gen_value, "gen_value");
+        metrics::histogram!("test_matches").record(gen_value as f64);
 
         Ok(masks.len())
     }
