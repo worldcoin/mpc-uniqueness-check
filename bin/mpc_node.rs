@@ -29,8 +29,6 @@ async fn main() -> eyre::Result<()> {
     let config: Config = load_config("MPC", args.config.as_deref())?;
 
     let _tracing_shutdown_handle = if let Some(service) = &config.service {
-        tracing::info!("Initializing tracing using config...");
-        println!("Initializing tracing using config...");
         let tracing_shutdown_handle = DatadogBattery::init(
             service.traces_endpoint.as_deref(),
             &service.service_name,
@@ -40,8 +38,6 @@ async fn main() -> eyre::Result<()> {
 
         if let Some(metrics_config) = &service.metrics {
             tracing::info!("Initializing metrics using config...");
-            println!("Initializing metrics using config...");
-
             let recorder =
                 StatsdBuilder::from(&metrics_config.host, metrics_config.port)
                     .with_queue_size(metrics_config.queue_size)
@@ -64,9 +60,6 @@ async fn main() -> eyre::Result<()> {
 
     let mut tasks: Vec<JoinHandle<eyre::Result<()>>> = vec![];
 
-    println!("ServiceConfig: {:?}", &config.service);
-
-    tracing::info!("ServiceConfig: {:?}", &config.service);
     if let Some(coordinator) = config.coordinator {
         let coordinator = Arc::new(Coordinator::new(coordinator).await?);
 

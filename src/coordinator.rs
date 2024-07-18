@@ -49,7 +49,6 @@ pub struct Coordinator {
 impl Coordinator {
     pub async fn new(config: CoordinatorConfig) -> eyre::Result<Self> {
         tracing::info!("Initializing coordinator");
-        metrics::gauge!("test_metric").set(1.0);
         let database = Arc::new(Db::new(&config.db).await?);
 
         tracing::info!("Fetching masks from database");
@@ -625,6 +624,8 @@ impl Coordinator {
             tracing::info!(?matches, "Matches found");
         }
 
+        metrics::histogram!("coordinator.matches").record(matches.len() as f64);
+        
         // Sort the matches by distance in ascending order
         matches.sort_by(|a, b| a.distance.total_cmp(&b.distance));
 
@@ -649,12 +650,6 @@ impl Coordinator {
 
         tracing::info!(num_masks = masks.len(), "New masks synchronized");
         metrics::gauge!("coordinator.latest_serial_id").set(masks.len() as f64);
-
-        let mut rng = thread_rng();
-
-        let gen_value = rng.gen_range(0..5000);
-        tracing::info!(?gen_value, "gen_value");
-        metrics::histogram!("test2_matches").record(gen_value as f64);
 
         Ok(masks.len())
     }
