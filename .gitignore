@@ -1,3 +1,4 @@
 /target
 .env
 mock_templates.json
+/.idea
