@@ -346,6 +346,10 @@ async fn run_signup_sequence(
             uniqueness_check_result.matches.len(),
             element.matched_with.len(),
         );
+        assert!(
+            uniqueness_check_result.n_untruncated_matches as usize
+                >= element.matched_with.len()
+        );
 
         // Assert matches against expected values
         if !uniqueness_check_result.matches.is_empty() {

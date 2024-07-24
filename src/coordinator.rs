@@ -347,6 +347,7 @@ impl Coordinator {
         let result = UniquenessCheckResult {
             serial_id: distance_results.serial_id,
             matches: distance_results.matches,
+            n_untruncated_matches: distance_results.n_untruncated_matches,
             signup_id: signup_id.clone(),
         };
 
@@ -623,7 +624,11 @@ impl Coordinator {
             tracing::info!(?matches, "Matches found");
         }
 
-        metrics::histogram!("coordinator.matches").record(matches.len() as f64);
+        // original number of matches before truncation
+        let n_untruncated_matches = matches.len();
+
+        metrics::histogram!("coordinator.matches")
+            .record(n_untruncated_matches as f64);
 
         // Sort the matches by distance in ascending order
         matches.sort_by(|a, b| a.distance.total_cmp(&b.distance));
@@ -631,7 +636,11 @@ impl Coordinator {
         // Truncate the matches to the first `self.n_closest_distances` elements
         matches.truncate(self.config.n_closest_distances);
 
-        let distance_results = DistanceResults::new(i as u64, matches);
+        let distance_results = DistanceResults::new(
+            i as u64,
+            matches,
+            n_untruncated_matches as u32,
+        );
 
         Ok(distance_results)
     }
@@ -764,6 +773,7 @@ pub enum MpcMessage {
 pub struct UniquenessCheckResult {
     pub serial_id: u64,
     pub matches: Vec<Distance>,
+    pub n_untruncated_matches: u32,
     pub signup_id: String,
 }
 
@@ -809,6 +819,7 @@ mod tests {
         let output = MpcMessage::UniquenessCheckResult(UniquenessCheckResult {
             serial_id: 1,
             matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
+            n_untruncated_matches: 2,
             signup_id: "signup_id".to_string(),
         });
 
@@ -826,6 +837,7 @@ mod tests {
                   "serial_id": 1
                 }
               ],
+              "n_untruncated_matches": 2,
               "signup_id": "signup_id"
             }
         "#};
@@ -846,6 +858,7 @@ mod tests {
             serial_id: 0,
             matches: vec![Distance::new(0, 0.5), Distance::new(1, 0.2)],
             signup_id: "signup_id".to_string(),
+            n_untruncated_matches: 2,
         });
 
         const EXPECTED: &str = indoc::indoc! {r#"
@@ -862,6 +875,7 @@ mod tests {
                   "serial_id": 1
                 }
               ],
+              "n_untruncated_matches": 2,
               "signup_id": "signup_id"
             }
         "#};

@@ -108,13 +108,23 @@ impl PartialEq for Distance {
 pub struct DistanceResults {
     /// The lowest serial id known across all nodes
     pub serial_id: u64,
-    /// The distances to the query
+    /// The distances to the query - truncated by n_closest_distances config variable
     pub matches: Vec<Distance>,
+    // The number of matches before truncation
+    pub n_untruncated_matches: u32,
 }
 
 impl DistanceResults {
-    pub fn new(serial_id: u64, matches: Vec<Distance>) -> Self {
-        Self { serial_id, matches }
+    pub fn new(
+        serial_id: u64,
+        matches: Vec<Distance>,
+        n_untruncated_matches: u32,
+    ) -> Self {
+        Self {
+            serial_id,
+            matches,
+            n_untruncated_matches,
+        }
     }
 }
 
