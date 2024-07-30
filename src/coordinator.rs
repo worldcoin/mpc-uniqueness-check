@@ -624,6 +624,11 @@ impl Coordinator {
             tracing::info!(?matches, "Matches found");
         }
 
+        for m in matches.iter() {
+            metrics::histogram!("coordinator.match_distance")
+                .record(m.distance);
+        }
+
         // original number of matches before truncation
         let n_untruncated_matches = matches.len();
 
