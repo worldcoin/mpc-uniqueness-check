@@ -6,10 +6,10 @@ use aws_sdk_sqs::types::Message;
 use distance::Template;
 use eyre::ContextCompat;
 use futures::stream::FuturesUnordered;
-use opentelemetry::trace::{
+use serde::{Deserialize, Serialize};
+use telemetry_batteries::reexports::opentelemetry::trace::{
     SpanContext, SpanId, TraceFlags, TraceId, TraceState,
 };
-use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex};
