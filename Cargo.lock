@@ -2036,6 +2036,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "metrics"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "884adb57038347dfbaf2d5065887b6cf4312330dc8e94bc30a1a839bd79d3261"
+dependencies = [
+ "ahash",
+ "portable-atomic",
+]
+
+[[package]]
 name = "metrics-exporter-prometheus"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2046,7 +2056,7 @@ dependencies = [
  "hyper-tls",
  "indexmap",
  "ipnet",
- "metrics",
+ "metrics 0.22.3",
  "metrics-util",
  "quanta",
  "thiserror",
@@ -2061,7 +2071,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "82bd7bb16e431f15d56a61b18ee34881cd9d427da7b4450d1a588c911c1d9ac3"
 dependencies = [
  "cadence",
- "metrics",
+ "metrics 0.22.3",
  "thiserror",
 ]
 
@@ -2074,7 +2084,7 @@ dependencies = [
  "crossbeam-epoch",
  "crossbeam-utils",
  "hashbrown 0.14.3",
- "metrics",
+ "metrics 0.22.3",
  "num_cpus",
  "quanta",
  "sketches-ddsketch",
@@ -2182,7 +2192,7 @@ dependencies = [
  "indicatif",
  "indoc",
  "itertools 0.12.1",
- "metrics",
+ "metrics 0.23.0",
  "metrics-exporter-statsd",
  "mongodb",
  "opentelemetry",
@@ -3815,7 +3825,7 @@ dependencies = [
  "chrono",
  "dirs",
  "http 0.2.12",
- "metrics",
+ "metrics 0.22.3",
  "metrics-exporter-prometheus",
  "metrics-exporter-statsd",
  "opentelemetry",
