@@ -12,6 +12,7 @@ pub fn generate_templates(num_templates: usize) -> Vec<Template> {
         .template("{spinner:.green} {msg} [{elapsed_precise}] [{wide_bar:.green}] {pos:>7}/{len:7} ({eta})")
         .expect("Could not create progress bar"));
 
+
     // Generate templates
     let templates = (0..num_templates)
         .into_par_iter()
