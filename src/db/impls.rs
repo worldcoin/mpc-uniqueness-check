@@ -20,7 +20,7 @@ where
     [u8; BYTES_PER_BITS]: sqlx::Decode<'r, DB>,
 {
     fn decode(
-        value: <DB as sqlx::database::HasValueRef<'r>>::ValueRef,
+        value: <DB as sqlx::database::Database>::ValueRef<'r>,
     ) -> Result<Self, sqlx::error::BoxDynError> {
         let bytes = <[u8; BYTES_PER_BITS] as sqlx::Decode<DB>>::decode(value)?;
 
@@ -42,8 +42,8 @@ where
 {
     fn encode_by_ref(
         &self,
-        buf: &mut <DB as sqlx::database::HasArguments<'q>>::ArgumentBuffer,
-    ) -> sqlx::encode::IsNull {
+        buf: &mut <DB as sqlx::database::Database>::ArgumentBuffer<'q>,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
         let mut bytes: [u8; BYTES_PER_BITS] = [0; BYTES_PER_BITS];
 
         for (i, v) in self.0.into_iter().flat_map(u64::to_be_bytes).enumerate()
@@ -71,7 +71,7 @@ where
     [u8; BYTES_PER_ENCODED_BITS]: sqlx::Decode<'r, DB>,
 {
     fn decode(
-        value: <DB as sqlx::database::HasValueRef<'r>>::ValueRef,
+        value: <DB as sqlx::database::Database>::ValueRef<'r>,
     ) -> Result<Self, sqlx::error::BoxDynError> {
         let bytes =
             <[u8; BYTES_PER_ENCODED_BITS] as sqlx::Decode<DB>>::decode(value)?;
@@ -93,8 +93,8 @@ where
 {
     fn encode_by_ref(
         &self,
-        buf: &mut <DB as sqlx::database::HasArguments<'q>>::ArgumentBuffer,
-    ) -> sqlx::encode::IsNull {
+        buf: &mut <DB as sqlx::database::Database>::ArgumentBuffer<'q>,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
         let mut bytes: [u8; BYTES_PER_ENCODED_BITS] =
             [0; BYTES_PER_ENCODED_BITS];
 
