@@ -12,6 +12,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      RUST_LOG: info
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
