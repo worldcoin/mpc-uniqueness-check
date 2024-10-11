@@ -55,7 +55,8 @@ pub struct Match {
 
 #[tokio::test]
 #[serial]
-async fn test_regular_e2e() -> eyre::Result<()> {
+async fn test_regular_e2e() -> color_eyre::Result<()> {
+    color_eyre::install().ok();
     let settings = Config::builder()
         .add_source(config::File::from_str(
             E2E_CONFIG,
@@ -71,7 +72,8 @@ async fn test_regular_e2e() -> eyre::Result<()> {
 
 #[tokio::test]
 #[serial]
-async fn test_multi_match_e2e() -> eyre::Result<()> {
+async fn test_multi_match_e2e() -> color_eyre::Result<()> {
+    color_eyre::install().ok();
     let settings = Config::builder()
         .add_source(config::File::from_str(
             E2E_CONFIG,
@@ -87,7 +89,8 @@ async fn test_multi_match_e2e() -> eyre::Result<()> {
 
 #[tokio::test]
 #[serial]
-async fn test_multi_match_truncated_e2e() -> eyre::Result<()> {
+async fn test_multi_match_truncated_e2e() -> color_eyre::Result<()> {
+    color_eyre::install().ok();
     let settings = Config::builder()
         .add_source(config::File::from_str(
             E2E_CONFIG,
