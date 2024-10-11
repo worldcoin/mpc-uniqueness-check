@@ -47,7 +47,8 @@ pub struct Args {
 }
 
 #[tokio::main]
-async fn main() -> eyre::Result<()> {
+async fn main() -> color_eyre::Result<()> {
+    color_eyre::install()?;
     dotenvy::dotenv().ok();
 
     let _shutdown_tracing_provider = StdoutBattery::init();

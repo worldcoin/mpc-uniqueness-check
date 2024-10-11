@@ -12,6 +12,7 @@ base64 = "0.21.7"
 bitvec = "1"
 bytemuck = { version = "1.14.1", features = ["derive"] }
 clap = { version = "4.4.18", features = ["derive", "env"] }
+color-eyre = "0.6.3"
 config = "0.14.0"
 criterion = "0.5.1"
 dotenvy = "0.15.7"
@@ -26,7 +27,6 @@ metrics = "0.22.1"
 metrics-exporter-statsd = "0.7"
 # TODO: only include this for migrate-codes bin
 mongodb = "2.8.1"
-opentelemetry = "0.21.0"
 ordered-float = "4.2.0"
 rand = "0.8.5"
 rayon = "1.8.1"
@@ -39,7 +39,7 @@ sqlx = { version = "0.7.3", features = [
     "postgres",
     "chrono",
 ] }
-telemetry-batteries = { git = "https://github.com/worldcoin/telemetry-batteries.git", rev = "802a4f39f358e077b11c8429b4c65f3e45b85959" }
+telemetry-batteries = { git = "https://github.com/worldcoin/telemetry-batteries.git", rev = "901ea26e478c81e10d5d4355ac628ab7b15afca7" }
 tinytemplate = "1.2.1"
 tokio = { version = "1.35.1", features = ["macros"] }
 toml = "0.8.9"
