@@ -7,7 +7,6 @@ version = 2
 ignore = [
 	# https://github.com/mehcode/config-rs/issues/563
 	{ id = "RUSTSEC-2024-0320", reason = "waiting for `config` crate to remove the dependency" },
-	{ id = "RUSTSEC-2024-0363", reason = "waiting for https://github.com/worldcoin/mpc-uniqueness-check/pull/131" },
 	{ id = "RUSTSEC-2024-0357", reason = "openssl UB, we should update to latest crate" }
 ]
 
