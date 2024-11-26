@@ -9,7 +9,8 @@ ignore = [
 	{ id = "RUSTSEC-2024-0320", reason = "waiting for `config` crate to remove the dependency" },
 	{ id = "RUSTSEC-2024-0357", reason = "openssl UB, we should update to latest crate" },
 	{ id = "RUSTSEC-2024-0384", reason = "instant crate is no longer maintained" },
-	{ id = "RUSTSEC-2024-0388", reason = "derivative crate is no longer maintained" }
+	{ id = "RUSTSEC-2024-0388", reason = "derivative crate is no longer maintained" },
+	{ id = "RUSTSEC-2024-0399", reason = "rustls issue with tlsacceptor, we are not using this functionality" }
 ]
 
 [sources]
