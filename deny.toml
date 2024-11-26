@@ -7,7 +7,10 @@ version = 2
 ignore = [
 	# https://github.com/mehcode/config-rs/issues/563
 	{ id = "RUSTSEC-2024-0320", reason = "waiting for `config` crate to remove the dependency" },
-	{ id = "RUSTSEC-2024-0357", reason = "openssl UB, we should update to latest crate" }
+	{ id = "RUSTSEC-2024-0357", reason = "openssl UB, we should update to latest crate" },
+	{ id = "RUSTSEC-2024-0384", reason = "instant crate is no longer maintained" },
+	{ id = "RUSTSEC-2024-0388", reason = "derivative crate is no longer maintained" },
+	{ id = "RUSTSEC-2024-0399", reason = "rustls issue with tlsacceptor, we are not using this functionality" }
 ]
 
 [sources]
@@ -25,7 +28,6 @@ allow = [
     "Apache-2.0 WITH LLVM-exception",
     "Apache-2.0",
     "BSD-2-Clause",
-    "BSD-2-Clause-Patent",
     "BSD-3-Clause",
     "BSL-1.0",
     "CC0-1.0",
